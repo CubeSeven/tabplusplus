@@ -1,0 +1,186 @@
+﻿Paradigms of Verticality: A Comparative Analysis of UI and UX Methodologies in Arc, Zen, and Google Chrome
+The architectural evolution of the web browser has remained remarkably stagnant for nearly three decades, tethered to the "tabbed document interface" model popularized in the late 1990s. As the internet transitioned from a repository of static documents to a complex ecosystem of high-intensity web applications, the traditional horizontal tab strip began to manifest significant ergonomic and cognitive limitations. The recent shift toward vertical tab implementations represents a fundamental reimagining of the browser not merely as a viewport for content, but as a structured workspace designed for intentionality and focus. This analysis explores the sophisticated UI and UX methodologies employed by the Arc Browser and Zen Browser, contrasting them with the native vertical tab integration recently introduced in Google Chrome. By examining the underlying philosophies of spatial memory, cognitive load management, and contextual switching, this report evaluates how these three platforms address the competing demands of information density and user clarity.
+The Philosophical Shift Toward Vertical Organization
+The move to verticality is underpinned by the spatial realities of modern computing hardware. While 16:9 and ultrawide monitors provide an abundance of horizontal space, vertical real estate remains a premium. Traditional horizontal tabs consume valuable vertical pixels while simultaneously forcing tab titles into increasingly illegible, truncated slivers as the user opens more pages.1 Vertical implementations resolve this by utilizing the horizontal margins to display readable titles and persistent favicons, thereby reducing the "Which tab is this?" guesswork that characterizes high-volume browsing.1 However, the methodology of this transition varies wildly between the radical reinvention found in Arc, the modular refinement of Zen, and the conservative utility of Google Chrome.
+Arc Browser: The Browser as an Integrated Operating System
+The Arc Browser, developed by The Browser Company, operates on the UX premise that the browser should function as a unified operating system for web-based work. Its methodology is centered on the sidebar as the primary engine of interaction, rather than an optional navigation aid. Arc’s interface is designed to disappear when not needed, prioritizing the web content while providing a highly structured environment for tab management.3
+The core of Arc’s methodology is the distinction between ephemeral browsing and persistent applications. It divides the sidebar into three distinct functional tiers: Favorites, Pinned Tabs, and Unpinned Tabs.5 Favorites occupy the top tier, represented solely by icons, and are persistent across all "Spaces"—Arc’s term for contextual environments like Work, Personal, or Research.5 Pinned Tabs sit below the Favorites and function as a hybrid between a bookmark and a live application; they are tied to specific Spaces and, crucially, never auto-archive.5 The bottom section contains Unpinned Tabs, which are treated as transient sessions. To combat "digital hoarding," Arc employs a methodology of automatic archival, where unpinned tabs are closed after a user-defined period of inactivity (typically 12 hours).5 This forces a psychological shift in the user, requiring them to intentionally "pin" what is important and allow the rest to fade away, thereby maintaining a clutter-free workspace.
+Zen Browser: Modular Synthesis and Open-Source Agency
+Zen Browser represents a community-driven evolution of the vertical paradigm, built upon the Mozilla Firefox Gecko engine.8 While heavily influenced by Arc’s aesthetic, Zen’s UX methodology is rooted in the Firefox philosophy of modularity and user agency. It adopts the sidebar-centric model but integrates it with the "Container" system native to Firefox, allowing for superior identity isolation within its "Workspaces".9
+The methodology of Zen is characterized by a "tinkerer’s" approach to UI. Through "Zen Mods," the browser provides a system for users to inject custom CSS and JavaScript to alter nearly every aspect of the interface, from the size of tab text to the behavior of the sidebar scrollbar.11 This acknowledges that a single, opinionated UI cannot satisfy every niche workflow. Zen’s methodology emphasizes transparency and modularity, appealing to users who seek the structural benefits of verticality without the closed-source nature or high resource overhead often associated with Arc.3
+Google Chrome: Utility-Driven Verticality and Enterprise Stability
+Google Chrome’s introduction of vertical tabs in versions 145 and 146 represents a conservative adaptation of the trend, designed to offer efficiency to its massive user base without alienating those accustomed to traditional layouts.13 Chrome’s methodology is one of "optional utility," where verticality is treated as a "Tab Strip Position" setting rather than a fundamental reorganization of the browser’s identity.2
+Chrome’s vertical tabs are designed to integrate seamlessly with its existing infrastructure, such as Tab Groups and Tab Search.1 The goal is not to change how the user thinks about the web, but to improve the efficiency of their existing habits on widescreen displays. By allowing users to toggle between horizontal and vertical views, Chrome avoids the steep learning curve of more radical browsers while still addressing the functional need for better tab discoverability.1
+
+
+Feature Category
+	Arc Browser
+	Zen Browser
+	Google Chrome (v146+)
+	Rendering Engine
+	Chromium 8
+	Gecko (Firefox) 8
+	Chromium 1
+	Tab Persistence
+	Auto-archival of unpinned tabs 5
+	Manual management; no forced archival 9
+	Manual management 1
+	Core Hierarchy
+	Favorites > Pinned > Unpinned 5
+	Essentials > Pinned > Workspaces 9
+	Linear list with Tab Groups 1
+	Customization
+	"Boosts" and Themes 6
+	"Zen Mods" (CSS/JS) 11
+	Basic Themes and Flags 13
+	Sidebar Behavior
+	Manual or auto-hide (Little Arc) 16
+	Compact Mode (auto-collapse) 17
+	Manual expand/collapse 13
+	Deep Dive into Sidebar UI Methodology
+The sidebar is the primary touchpoint for vertical tab management, and its design dictates the speed of navigation and the ease of information retrieval. The three browsers take distinct approaches to how the sidebar interacts with the user and the content.
+Arc: Spatial Memory and Physics-Based Interaction
+Arc’s sidebar methodology relies heavily on spatial memory and sensory feedback. By grouping tabs into "Spaces," Arc allows users to switch contexts—such as from "Work" to "Finance"—with a two-finger swipe on a trackpad or a keyboard shortcut.6 Each Space can be assigned its own theme, color gradient, and icon, providing a strong visual cue that reduces the cognitive friction of context switching.6
+The "physics" of Arc’s UI is a key differentiator in its UX. Users report that swiping between Spaces feels "resistive and bouncy," creating a tactile sense of moving through a physical environment.19 This methodology treats the sidebar as a physical stack of cards rather than a digital list. Furthermore, Arc introduces "Air Traffic Control," a sophisticated routing system that automatically opens specific domains in designated Spaces, regardless of where the link was clicked.6 This moves the burden of organization from the user to the browser’s internal logic, ensuring that work-related links always open in the "Work" Space and personal links in the "Personal" Space.6
+Zen: Efficiency through the "Compact" Paradigm
+Zen Browser’s sidebar UI focuses on maximizing usable screen space through its "Compact Mode." In this mode, the sidebar collapses into a narrow strip of favicons, automatically expanding to reveal full titles only when the user hovers their cursor over the area.17 This behavior is highly customizable; through about:config flags, users can set the expansion animation, the duration of the hover before expansion, and even whether the sidebar should briefly "flash" when a new tab is opened.17
+Zen’s methodology also includes "Live Folders," which transform the sidebar from a static list of links into a dynamic feed of information.21 These folders can be configured to automatically populate with content from GitHub issues, pull requests, or RSS feeds, allowing users to monitor updates without navigating away from their current page.21 However, while highly functional, Zen’s animations are often described as "stuttery" compared to the polished fluidly of Arc, particularly when swiping between Workspaces.19
+Chrome: The Transition from Horizontal to Vertical
+Chrome’s vertical implementation is utilitarian and rooted in the "Side Panel" infrastructure that Google has been building for several years. When activated via the "Tab strip position" setting, the traditional horizontal bar disappears, and a sidebar appears on the left or right, depending on user preference.13 This sidebar offers two primary states: Expanded (showing favicons and titles) and Condensed (showing only icons).13
+A critical component of Chrome’s methodology is the "Hover Preview." When a user hovers over a vertical tab, Chrome displays a live thumbnail of the page, allowing for rapid identification without a full click.1 This is particularly useful in Chrome’s implementation because it lacks the deeper organizational layers (like Arc’s Favorites) that help keep the most important tabs top-of-mind. Chrome’s sidebar reordering is intuitive, utilizing drag-and-drop mechanics that feel consistent with its long-standing horizontal tab strip behavior.1
+Managing Micro-Tasks: Peek, Glance, and Little Arc
+A significant innovation in vertical browsing is the management of "secondary" or "micro-tasks"—brief interactions with a webpage that do not require a full tab change. This addresses the problem of "tab clutter" caused by opening numerous temporary links.
+Arc's Peek and Little Arc Methodology
+Arc’s "Peek" feature is a centerpiece of its UX methodology. Inspired by the satisfaction of opening and closing everyday objects, Peek allows a user to preview a link in an overlay window without leaving their current tab.23 This is triggered automatically when clicking a link to a different domain from within a Pinned or Favorite tab.5 The Peek window offers three options: close, expand to a full tab in the current Space, or open in split view.16 This prevents "tab bloat" by providing a disposable viewing area for quick checks, such as reading a single article or checking a reference.24
+"Little Arc" serves a different but complementary purpose. It is a stripped-down, standalone window that opens when a link is clicked from an external application like Slack, Discord, or Mail.9 Little Arc allows the user to quickly view the content and then decide whether to discard it or "promote" it to a specific Space in the main Arc window.16 This methodology ensures that external links do not interrupt the carefully organized flow of the user’s main Spaces until the user explicitly decides to integrate them.
+Zen's Glance vs. Arc's Peek
+Zen Browser implements a feature called "Glance," which serves as the functional equivalent of Arc's Peek.9 It allows for the previewing of links from within pinned tabs, keeping the user in their current context.9 While Zen users appreciate this feature, it is currently considered "basic" compared to Arc's implementation, as it primarily works within pinned tabs and lacks the seamless "Little Arc" functionality for external applications.26 In Zen, links from other desktop applications still default to opening as full tabs in the current Workspace, which can disrupt the user’s organized tab stack.9
+Chrome's Hover Previews as an Alternative
+Google Chrome does not currently have a direct equivalent to Peek or Glance. Its approach to micro-tasks is centered on "Hover Previews"—the miniature snapshots that appear when mousing over a tab.1 While this helps in finding an already-open tab, it does not solve the problem of clicking a new link and wanting to view it temporarily without generating a new tab entry. Chrome’s methodology assumes a more traditional linear workflow where every click results in a new persistent state in the browsing session.
+Organizational Hierarchy and Cognitive Load
+The way a browser categorizes information significantly impacts the user's cognitive load. Vertical tabs provide the structure necessary for more sophisticated categorization than the traditional linear strip.
+The "App" vs. "Document" Distinction
+Arc Browser’s most profound insight is the realization that many "tabs" are actually persistent web applications like Gmail, Slack, or Notion. By placing these in the "Favorites" and "Pinned" sections, Arc keeps them consistently available in the same spatial location.5 This mimics the experience of a mobile phone's home screen. The user does not "search" for their email; they know exactly where its icon lives in the sidebar. This reduces the cognitive overhead of tab hunting and allows the user to treat web apps as native desktop software.
+Zen Browser follows a similar logic with its "Essentials" and "Pinned" tabs.8 However, a key UX difference exists: in Arc, Favorites can be unique to a profile but are generally shared across Spaces within that profile.5 In Zen, Essentials are persistent across all Workspaces.9 This can lead to a more cluttered sidebar if a user has many frequently used sites that are only relevant to specific Workspaces (e.g., work tools appearing in a personal workspace).
+Tab Groups and Nesting
+Chrome’s methodology leans heavily on "Tab Groups," a feature it has refined over several years. In the vertical view, these groups appear as collapsible headers, allowing users to nest related tabs into logical categories.1 Dragging tabs into groups in a vertical stack feels more natural and intuitive than in a horizontal bar, as it mirrors the folder-file structure used in traditional file explorers like Windows Explorer or macOS Finder.1
+Arc and Zen also support folders within their pinned sections.5 In Arc, clicking a link in a pinned tab that belongs to the same domain keeps the user in that tab, whereas clicking a link to a different domain triggers a Peek.5 This "Apps" behavior keeps the sidebar clean by preventing the proliferation of sub-pages. Zen has recently added support for tab folders and is working on making sub-pages of a website open as sub-tabs rather than entirely new entries to further reduce sidebar length.27
+Customization and the User-Interface Lifecycle
+The lifecycle of a browser’s UI is often dictated by its extensibility. Zen and Arc represent two ends of the customization spectrum, which impacts how different user personas interact with the software.
+The Modder Community vs. The Curated Experience
+Zen Browser’s "Zen Mods" allow for a level of granular control over the UI that is unavailable in Arc or Chrome. Users can change the text size of tabs, remove the sidebar scrollbar entirely while retaining functionality, and even add "tree connectors" to visualize the hierarchy of nested folders.11 This methodology treats the user as a co-creator of the interface, appealing to the Firefox demographic that values personal expression and technical control.
+Arc, conversely, focuses on a "highly polished" experience where the design team at The Browser Company makes most of the architectural decisions.4 While Arc offers "Boosts" to customize the look of specific websites (e.g., changing colors or hiding elements on a page), the core browser UI remains largely fixed.10 This results in a more "unified" and "Apple-like" feel, but it can frustrate power users who find specific UI decisions—such as the way the URL bar is hidden—unintuitive.19
+Platform Disparities and Sync
+A significant UX challenge for both Arc and Zen is maintaining feature parity across operating systems. Arc on Windows has been criticized for being "buggy" and lacking many of the refined UI animations and features of the macOS version, such as the Library button for recent media.7 Zen, being based on Firefox, benefits from a more stable cross-platform foundation, though it still faces challenges like the lack of native DRM support (Widevine license) for streaming services like Netflix and Hulu.10
+Chrome remains the leader in cross-device sync and stability. Its vertical tabs sync via the Google account, ensuring that a user’s organizational structure—including their specific Tab Groups—remains consistent whether they are on Windows, macOS, Linux, or even ChromeOS.1
+Comparative Performance and Resource Management
+The shift to a more complex sidebar UI can have implications for system performance, a critical factor in UX satisfaction, especially for users on portable hardware.
+Memory Footprint and Thermal Impact
+Users have frequently reported that Arc Browser can be resource-intensive, leading to increased CPU load and thermal throttling on MacBooks.7 This is often attributed to the overhead of its highly animated UI and the Chromium engine. In contrast, Zen Browser users report that the Gecko-based engine feels "smoother and more responsive" and is less prone to causing hardware overheating.7
+Chrome’s vertical tab implementation aims for a "moderate" memory footprint.1 While rendering live thumbnails for hover previews can increase memory usage on low-end devices, the core engine remains the gold standard for performance optimization in the Chromium ecosystem.1
+
+
+Operational Metric
+	Arc Browser
+	Zen Browser
+	Google Chrome
+	Animation Quality
+	Highly polished, "bouncy" 4
+	Functional, can be "stuttery" 19
+	Standard Chromium transitions 15
+	System Load
+	High (reported overheating) 7
+	Low to Moderate 7
+	Moderate; well-optimized 1
+	Initial Learning Curve
+	High; requires paradigm shift 4
+	Moderate; familiar yet new 8
+	Low; optional toggle 1
+	Privacy Features
+	Integrated AI, proprietary 4
+	Firefox foundation 3
+	Standard Google privacy 1
+	Accessibility and Ergonomics
+The ergonomic benefits of vertical tabs are significant for users with large screens or specific accessibility needs. Scanning a vertical column of titles is faster and more accurate than scanning a horizontal row of truncated labels.1 Chrome’s implementation acknowledges this by allowing the sidebar to be resized, giving the user control over the balance between content area and navigation area.1
+Arc and Zen take this further by utilizing favicons as anchor points for the eyes. In Arc’s "Condensed" view or Zen’s "Compact Mode," the sidebar disappears or shrinks to a narrow strip, leaving only the favicons.13 This provides a "minimalist distraction-free" environment that focuses the user’s attention entirely on the web content.31
+Shortcuts and Power-User Workflows
+All three browsers rely on keyboard shortcuts to drive their vertical UX, though the specific implementations differ in their "Command" philosophies.
+* Arc Methodology: Uses Command-T as a central "Command Bar" for search, navigation, and actions, effectively replacing the traditional URL bar.5 It also uses Command-S to toggle the sidebar and Command-Option-N for Little Arc.16
+* Zen Methodology: Retains a more traditional shortcut set but allows for extensive remapping. It uses Ctrl-T to open the URL bar and provides gesture-based swipe actions for switching between Workspaces.17
+* Chrome Methodology: Leverages existing shortcuts like Ctrl-Shift-A for Tab Search and Ctrl-1 through 9 for tab jumping, ensuring that existing power users do not need to relearn their core workflow.1
+
+
+Action
+	Arc Shortcut (macOS)
+	Zen Shortcut (Standard)
+	Chrome Shortcut (Win/Linux)
+	Toggle Sidebar
+	Cmd + S 5
+	Custom / Zen Mod 12
+	Right-click Menu 14
+	New Tab / Command Bar
+	Cmd + T 5
+	Ctrl + T 21
+	Ctrl + T 30
+	Tab Search
+	Within Cmd + T 5
+	Ctrl + T / Sidebar 21
+	Ctrl + Shift + A 1
+	Switch Workspace
+	Ctrl + [Num]6
+	Swipe / Ctrl + [Num]17
+	Manual Click 30
+	UX Comparison: Contextual Switching and Memory
+The methodology of context switching is perhaps the most significant differentiator between these browsers. How a browser helps a user move from one "mental state" to another (e.g., from work research to personal holiday planning) defines its productivity value.
+Spaces vs. Workspaces vs. Profiles
+Arc’s "Spaces" are built into a single window, allowing for near-instant switching via a trackpad swipe.6 This methodology treats different contexts as adjacent rooms in the same house. Each Space can have its own Pinned section, theme, and Air Traffic Control rules, but they all share the same underlying browser session unless the user explicitly creates a new "Profile" for a Space.5
+Zen’s "Workspaces" are often tied directly to Firefox "Profiles" or "Containers".9 This means that a user can be logged into their work Google account in one Workspace and their personal account in another without any cookie overlap or login conflict.10 This is a major UX plus for users who need strict identity isolation. Arc supports this but requires the user to manually associate a Profile with a Space, which can be less intuitive for new users.6
+Chrome’s approach is the most fragmented. While it supports "Profiles" for identity isolation, switching between them requires opening an entirely new window.30 Within a single window, Chrome’s vertical tabs do not currently offer a "Workspace" or "Space" equivalent; instead, users must rely on "Tab Groups" to organize different contexts within a single vertical list.1 This can lead to a very long sidebar that requires excessive scrolling as the number of active groups increases.
+The Future of the Vertical Paradigm
+The entry of Google Chrome into the vertical tab space validates the methodology pioneered by Arc and refined by Zen. As browsers evolve, several emerging themes are likely to define the next generation of UI and UX.
+The Blurring of Native and Web
+Arc’s methodology of treating web apps as native software—through its Favorites, Pinned tabs, and "Peek" previews—is likely to become the standard. As the distinction between a website and a complex web application (like Figma or QuickBooks) continues to disappear, the browser UI must evolve to support these intensive states without the baggage of traditional document-centric navigation.
+AI-Powered Organization
+Both Arc and the extensions available for Chrome (like Side Space) are increasingly using AI to automatically categorize and group tabs based on content.32 This methodology aims to solve the "maintenance" problem where users create groups but fail to keep them organized. In the future, the sidebar may not be a static list of tabs but a dynamic, AI-curated view of the user’s current priorities.
+Modular and Community-Driven UI
+Zen’s success highlights a growing desire for "transparency and modularity" in browser design.33 As users become more technically savvy and concerned about data privacy and the "Chromium monoculture," the ability to customize one's workspace via open-source mods will become an increasingly attractive alternative to the highly opinionated, closed-source models found in Arc and Chrome.3
+Synthesized Conclusions and Professional Recommendations
+The analysis of Arc, Zen, and Google Chrome reveals three distinct methodologies for solving the challenges of modern web browsing. Arc Browser offers a radical, opinionated, and highly polished "Browser-as-OS" experience that is ideal for users seeking a complete paradigm shift in how they interact with the web. Its "Peek" and "Little Arc" features remain the gold standard for managing temporary browsing sessions and maintaining focus.
+Zen Browser provides a powerful alternative for users who value privacy, modularity, and the Firefox ecosystem. It successfully adapts Arc’s best ideas—verticality, workspaces, and link previews—into a framework that is more customizable and less resource-intensive. Its identity isolation via Firefox Containers makes it superior for users who frequently juggle multiple accounts.
+Google Chrome’s native vertical tabs are a welcome addition for the mass market, providing much-needed efficiency on widescreen monitors without the learning curve or instability of a new browser. While it lacks the advanced "intentionality" features of Arc or the modularity of Zen, its stability and cross-device sync make it the most reliable choice for enterprise environments and casual users alike.
+The move to verticality is more than a UI trend; it is a necessary ergonomic adjustment for a web that has moved from simple pages to complex applications. As this paradigm matures, the most successful browsers will be those that can balance structural organization with the flexibility to adapt to a user's unique cognitive workflow. For professionals seeking a productivity upgrade, the transition to a vertical layout—regardless of the specific browser chosen—is a transformative step in reclaiming focus and efficiency in the digital workspace.
+Works cited
+1. Chrome's Vertical Tabs: A Game‑Changer for Browsing Efficiency - UBOS.tech, accessed on March 27, 2026, https://ubos.tech/news/chromes-vertical-tabs-a-game%E2%80%91changer-for-browsing-efficiency/
+2. I tested Chrome's soon-to-be-released vertical tab feature, and it makes the browser so much better | ZDNET, accessed on March 27, 2026, https://www.zdnet.com/home-and-office/work-life/i-tested-chromes-soon-to-be-released-vertical-tab-feature-and-it-makes-the-browser-so-much-better/
+3. Compare Arc Browser vs. Zen Browser in 2026 - Slashdot, accessed on March 27, 2026, https://slashdot.org/software/comparison/Arc-Browser-vs-Zen-Browser/
+4. Arc — Zen — SigmaOS — Brave / The Great Browser Battle of 2024 | by Hi-One - Medium, accessed on March 27, 2026, https://medium.com/@hi_one_music/arc-zen-sigmaos-brave-the-great-browser-battle-of-2024-42ab934235b5
+5. Pinned Tabs: Tabs you want to stick around – Arc Help Center, accessed on March 27, 2026, https://resources.arc.net/hc/en-us/articles/19231060187159-Pinned-Tabs-Tabs-you-want-to-stick-around
+6. Spaces: Distinct Browsing Areas – Arc Help Center, accessed on March 27, 2026, https://resources.arc.net/hc/en-us/articles/19228064149143-Spaces-Distinct-Browsing-Areas
+7. From Arc to Zen: What I noticed after a few weeks of use (Bite-size Article) - DEV Community, accessed on March 27, 2026, https://dev.to/koshirok096/from-arc-to-zen-what-i-noticed-after-a-few-weeks-of-use-bite-size-article-3pcd
+8. Zen (Bite-size Article) - DEV Community, accessed on March 27, 2026, https://dev.to/koshirok096/zen-bite-size-article-49ol
+9. Tips on Migrating from Arc to Zen - Remote Synthesis, accessed on March 27, 2026, https://remotesynthesis.com/posts/migrating-from-arc-to-zen/
+10. Writing - Craft By Zen, accessed on March 27, 2026, https://craftbyzen.com/blog/
+11. Zen Mods, accessed on March 27, 2026, https://zen-browser.app/mods/?limit=96
+12. How does Zen compare against Arc on windows? Considering switching - Reddit, accessed on March 27, 2026, https://www.reddit.com/r/zen_browser/comments/1g4wk2m/how_does_zen_compare_against_arc_on_windows/
+13. Here's how vertical tabs work in Google Chrome, and how to try it for yourself [Gallery], accessed on March 27, 2026, https://9to5google.com/2026/01/19/google-chrome-vertical-tabs-beta/
+14. Google Chrome Vertical Tabs finally available - gHacks Tech News, accessed on March 27, 2026, https://www.ghacks.net/2026/01/17/google-chrome-is-finally-embracing-vertical-tabs/
+15. Chrome Finally Gets Vertical Tabs After Years of Delay - Android - Gadget Hacks, accessed on March 27, 2026, https://android.gadgethacks.com/news/chrome-finally-gets-vertical-tabs-after-years-of-delay/
+16. I'm a browser expert and Arc is my default for MacOS. Here are two new reasons why, accessed on March 27, 2026, https://www.zdnet.com/home-and-office/work-life/im-a-browser-expert-and-arc-is-my-default-for-macos-here-are-two-new-reasons-why/
+17. Hidden/Advanced Preferences - Zen Browser's documentation, accessed on March 27, 2026, https://docs.zen-browser.app/guides/about-config-flags
+18. Vertical tabs in Chrome? Just saw this demo and it looks amazing, accessed on March 27, 2026, https://www.reddit.com/r/chrome/comments/1rn12gc/vertical_tabs_in_chrome_just_saw_this_demo_and_it/
+19. Video: I tested every modern browser UI. - Reddit, accessed on March 27, 2026, https://www.reddit.com/r/browsers/comments/1mjjavu/video_i_tested_every_modern_browser_ui/
+20. Add compact mode for vertical tabs just like in Zen browser. - Mozilla Connect, accessed on March 27, 2026, https://connect.mozilla.org/t5/ideas/add-compact-mode-for-vertical-tabs-just-like-in-zen-browser/idi-p/98489
+21. Release notes - Zen Browser, accessed on March 27, 2026, https://zen-browser.app/release-notes/
+22. Vertical Tabs - Chrome Web Store, accessed on March 27, 2026, https://chromewebstore.google.com/detail/vertical-tabs/efobhjmgoddhfdhaflheioeagkcknoji
+23. Arc browser's “Peek” a simplified way of interacting with tabs | by Rishi Shah - Medium, accessed on March 27, 2026, https://medium.com/design-bootcamp/arc-browsers-peek-simplified-way-of-interacting-with-tabs-6d1a17d4dab1
+24. Peek & Little Arc: help me understand the Why : r/ArcBrowser - Reddit, accessed on March 27, 2026, https://www.reddit.com/r/ArcBrowser/comments/1779zq5/peek_little_arc_help_me_understand_the_why/
+25. Arc Will Change the Way You Work on the Web - Page 9 - Article Comments - TidBITS Talk, accessed on March 27, 2026, https://talk.tidbits.com/t/arc-will-change-the-way-you-work-on-the-web/22106?page=9
+26. Any other browser with « Little Arc » functionality? : r/ArcBrowser - Reddit, accessed on March 27, 2026, https://www.reddit.com/r/ArcBrowser/comments/1lhnn2l/any_other_browser_with_little_arc_functionality/
+27. Making Split Views more Intuitive : r/zen_browser - Reddit, accessed on March 27, 2026, https://www.reddit.com/r/zen_browser/comments/1rkizow/making_split_views_more_intuitive/
+28. [CSS Mod] Auto-Collapse Folders & Clean Text-Only Sidebar for Zen - Reddit, accessed on March 27, 2026, https://www.reddit.com/r/zen_browser/comments/1q13eha/css_mod_autocollapse_folders_clean_textonly/
+29. Why is Zen Browser Actually better than Arc Browser? (for Windows) : r/ArcBrowser - Reddit, accessed on March 27, 2026, https://www.reddit.com/r/ArcBrowser/comments/1hu84kk/why_is_zen_browser_actually_better_than_arc/
+30. Manage tabs in Chrome - Computer - Google Help, accessed on March 27, 2026, https://support.google.com/chrome/answer/2391819?hl=en&co=GENIE.Platform%3DDesktop
+31. Zen Browser vs Arc (2026) - Which One Is BETTER? - YouTube, accessed on March 27, 2026, https://www.youtube.com/watch?v=qF5Q6FedkFs
+32. Arc Browser Sidebar vs Side Space, accessed on March 27, 2026, https://www.sidespace.app/blog/compare-to-arc-browser-sidebar
+33. Arc alternatives if you are concerned about staying on board long-term : r/ArcBrowser, accessed on March 27, 2026, https://www.reddit.com/r/ArcBrowser/comments/1ggxpyv/arc_alternatives_if_you_are_concerned_about/
+34. Zen And Arc look too similar... : r/browsers - Reddit, accessed on March 27, 2026, https://www.reddit.com/r/browsers/comments/1he34l9/zen_and_arc_look_too_similar/

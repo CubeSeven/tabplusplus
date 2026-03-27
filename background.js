@@ -16,7 +16,7 @@ async function getSettings() {
 }
 
 // Track pinned or grouped tabs and store their baseline if missing
-async function updateTrackedTabs() {
+async function updateTrackedTabs(cleanupGhosts = false) {
     const [tabs, baselines, settings] = await Promise.all([
         chrome.tabs.query({}), // Query all tabs to check both pinned and grouped
         getBaselines(),
@@ -27,12 +27,15 @@ async function updateTrackedTabs() {
     const newBaselines = { ...baselines };
     const currentActiveIds = new Set(tabs.map(t => t.id));
 
-    // 1. Clean up "ghosts": anything in baselines that is no longer an open tab
-    for (const idStr of Object.keys(newBaselines)) {
-        const id = parseInt(idStr, 10);
-        if (!currentActiveIds.has(id)) {
-            delete newBaselines[idStr]; // delete the string key
-            changed = true;
+    // 1. Optional cleanup of "ghosts" (only on startup or deep sync)
+    // We avoid doing this during normal operation to prevent race conditions with onRemoved
+    if (cleanupGhosts) {
+        for (const idStr of Object.keys(newBaselines)) {
+            const id = parseInt(idStr, 10);
+            if (!currentActiveIds.has(id)) {
+                delete newBaselines[idStr];
+                changed = true;
+            }
         }
     }
 
@@ -78,12 +81,15 @@ async function updateTrackedTabs() {
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     if (removeInfo.isWindowClosing) return;
 
-    const baselines = await getBaselines();
+    // Fetch baselines inside the listener to minimize the window for race conditions
+    let baselines = await getBaselines();
     const data = baselines[tabId];
     
     if (data && data.url) {
         console.log("Restoring protected tab:", data.url);
         
+        // Immediately remove from the local baselines and update storage
+        // to "claim" this restoration and prevent others from seeing it if they rerun
         delete baselines[tabId];
         await setBaselines(baselines);
 
@@ -172,6 +178,6 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 chrome.tabs.onMoved.addListener(() => updateTrackedTabs());
 
 // Initialization
-chrome.runtime.onInstalled.addListener(() => updateTrackedTabs());
-chrome.runtime.onStartup.addListener(() => updateTrackedTabs());
-updateTrackedTabs();
+chrome.runtime.onInstalled.addListener(() => updateTrackedTabs(true)); // Cleanup on install
+chrome.runtime.onStartup.addListener(() => updateTrackedTabs(true)); // Cleanup on startup
+updateTrackedTabs(); // Regular update on service worker start
