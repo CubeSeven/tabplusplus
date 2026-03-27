@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { width: 220px; padding: 15px; font-family: sans-serif; background-color: #fff; color: #000; margin: 0; }
+        .setting { display: flex; align-items: center; margin-bottom: 12px; }
+        .setting:last-child { margin-bottom: 0; }
+        input[type="checkbox"] { margin-right: 10px; cursor: pointer; accent-color: #000; width: 16px; height: 16px; }
+        label { font-size: 14px; cursor: pointer; user-select: none; }
+    </style>
+</head>
+<body>
+    <div class="setting">
+        <input type="checkbox" id="protectPinned" checked>
+        <label for="protectPinned">Protect Pinned Tabs</label>
+    </div>
+    <div class="setting">
+        <input type="checkbox" id="protectGrouped" checked>
+        <label for="protectGrouped">Protect Grouped Tabs</label>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>

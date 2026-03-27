@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Tabs++",
+  "version": "1.0",
+  "description": "Ensures pinned tabs are persistent and reset to their initial URL when closed.",
+  "permissions": [
+    "tabs",
+    "storage",
+    "notifications",
+    "tabGroups"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}
