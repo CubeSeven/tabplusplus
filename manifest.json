@@ -1,13 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Tabs++",
-  "version": "1.0",
+  "version": "1.3",
   "description": "Ensures pinned tabs are persistent and reset to their initial URL when closed.",
   "permissions": [
     "tabs",
     "storage",
-    "notifications",
-    "tabGroups"
+    "tabGroups",
+    "history",
+    "bookmarks",
+    "favicon",
+    "sessions"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -15,10 +18,35 @@
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "commands": {
+    "toggle-palette": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+K",
+        "mac": "Command+Shift+K"
+      },
+      "description": "Toggle the Tabs++ Command Palette"
+    }
+  },
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "19": "icon19.png",
+      "32": "icon32.png",
+      "38": "icon38.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
   },
   "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
     "48": "icon48.png",
     "128": "icon128.png"
   }

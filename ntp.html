@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>New Tab | Tabs++</title>
+  <link rel="stylesheet" href="ntp.css">
+</head>
+<body>
+  <div class="mesh-bg"></div>
+  <div class="dashboard">
+    <div class="clock" id="clock">12:00</div>
+    <div class="date" id="date">--</div>
+    
+    <div class="container visible" id="palette-container">
+      <div class="input-wrapper">
+        <input type="text" id="search-input" placeholder="Search tabs, history, bookmarks... or try !yt, !gh" spellcheck="false" autocomplete="off" autofocus>
+      </div>
+      <div class="results" id="results-container"></div>
+      <div class="status-bar">
+        <kbd><span>↑↓</span> navigate</kbd>
+        <kbd><span>↵</span> open</kbd>
+        <kbd><span>!</span> bangs</kbd>
+      </div>
+    </div>
+  </div>
+  <script src="ntp.js"></script>
+</body>
+</html>
