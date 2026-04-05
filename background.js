@@ -1,6 +1,6 @@
 // --- Zero-Overhead In-Memory State ---
 let memoryBaselines = new Map(); // tabId -> { url, index, windowId, pinned, groupId }
-let globalSettings = { protectPinned: true, protectGrouped: true, enablePalette: false, enableAutoGroup: false };
+let globalSettings = { protectPinned: true, protectGrouped: true, enablePalette: true, enableAutoGroup: false };
 const GROUPING_RULES = [
     { title: 'Dev', color: 'blue', domains: ['github.com', 'gitlab.com', 'bitbucket.org', 'stackoverflow.com', 'aws.amazon.com', 'console.cloud.google.com', 'vercel.com', 'netlify.com', 'docker.com', 'cloudflare.com', 'jira.com', 'atlassian.net', 'linear.app', 'developer.mozilla.org', 'npmjs.com', 'codepen.io', 'replit.com', 'codesandbox.io', 'postman.com', 'sentry.io', 'datadoghq.com', 'cursor.sh', 'cursor.com', 'warp.dev', 'bun.sh', 'railway.app', 'supabase.com', 'huggingface.co', 'leetcode.com', 'geeksforgeeks.org', 'pypi.org', 'hub.docker.com', 'crates.io', 'search.maven.org'] },
     { title: 'Design', color: 'purple', domains: ['figma.com', 'canva.com', 'dribbble.com', 'behance.net', 'miro.com', 'framer.com', 'spline.design', 'adobe.com', 'awwwards.com', 'lottiefiles.com', 'unsplash.com', 'pexels.com', 'colorhunt.co', 'sketch.com', 'invisionapp.com', 'principleformac.com', 'zeplin.io', 'affinity.serif.com', 'coreldraw.com', 'muz.li', 'land-book.com', 'siteinspire.com', 'fontshare.com', 'fonts.google.com', 'coolors.co', 'iconify.design', 'flaticon.com', 'readymag.com', 'typedream.com', 'poly.cam', 'sketchfab.com'] },
@@ -131,6 +131,27 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     // Auto-Grouping Logic
     if (globalSettings.enableAutoGroup && changeInfo.url && !tab.pinned && !changeInfo.url.startsWith('chrome')) {
         applyAutoGrouping(tab);
+    }
+});
+
+// Prevent group inheritance for tabs opened from protected (pinned/grouped) tabs
+chrome.tabs.onCreated.addListener(async (tab) => {
+    if (tab.openerTabId && tab.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
+        await ensureLoaded();
+        try {
+            const opener = await chrome.tabs.get(tab.openerTabId);
+            if (opener) {
+                const isOpenerProtected = (globalSettings.protectPinned && opener.pinned) || 
+                                          (globalSettings.protectGrouped && opener.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1));
+                
+                if (isOpenerProtected) {
+                    // Force the new tab to be independent
+                    chrome.tabs.ungroup(tab.id).catch(() => {});
+                }
+            }
+        } catch (e) {
+            // Opener tab might have been closed already
+        }
     }
 });
 

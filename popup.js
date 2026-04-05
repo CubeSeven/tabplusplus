@@ -19,8 +19,8 @@ const FEATURES = [
   {
     id: 'enablePalette',
     title: 'Command Palette',
-    description: 'Press Ctrl+Shift+K to search tabs, history, and bookmarks instantly.',
-    default: false,
+    description: 'Press Alt+Shift+K to search tabs, history, and bookmarks instantly.',
+    default: true,
     badge: 'Beta',
   },
   {
