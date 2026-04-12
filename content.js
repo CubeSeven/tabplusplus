@@ -5,7 +5,9 @@ let resultsContainer = null;
 let isVisible = false;
 let selectedIndex = -1;
 let currentResults = [];
+let lastSearchedQuery = "";
 let isPaletteEnabled = false;
+let isProtectedTab = false;
 
 // Initialize setting and listen for changes
 chrome.storage.local.get({ settings: { enablePalette: false } }, (data) => {
@@ -424,6 +426,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'toggle-palette') {
         togglePalette();
     }
+    if (request.action === 'update-tab-status') {
+        isProtectedTab = request.isProtected;
+        sendResponse({ success: true });
+        return true;
+    }
 });
 
 async function handleSearch() {
@@ -444,6 +451,7 @@ async function handleSearch() {
                 return;
             }
             if (response && response.results) {
+                lastSearchedQuery = query;
                 currentResults = response.results;
                 renderResults(currentResults);
             }
@@ -460,26 +468,27 @@ const GROUP_COLORS = {
     pink: '#ff6d9f', purple: '#a142f4', cyan: '#24c1e0', orange: '#fa7b17', grey: '#9e9e9e'
 };
 
-const SECTION_ORDER = ['bang', 'navigate', 'search', 'tab', 'closed', 'bookmark', 'history'];
+const SECTION_ORDER = ['action', 'bang', 'navigate', 'search', 'tab', 'closed', 'bookmark', 'history'];
 const SECTION_LABELS = {
+    action: 'Actions',
     tab: 'Open Tabs',
     closed: 'Recently Closed',
     bookmark: 'Bookmarks',
     history: 'History'
 };
 const TYPE_FALLBACK = {
-    tab: '🌍', history: '🕒', bookmark: '⭐', bang: '⚡',
+    action: '⚡', tab: '🌍', history: '🕒', bookmark: '⭐', bang: '⚡',
     search: '🔍', navigate: '↗️', closed: '🕒', default: '📄'
 };
 
 function getFaviconHtml(result) {
     if (result.favIconUrl && result.favIconUrl.startsWith('http')) {
-        return `<img src="${result.favIconUrl}" onerror="this.style.display='none'" />`;
+        return `<img src="${result.favIconUrl}" />`;
     }
     if (result.url) {
         try {
             const domain = new URL(result.url).hostname;
-            return `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" onerror="this.style.display='none'" />`;
+            return `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" />`;
         } catch {}
     }
     return TYPE_FALLBACK[result.type] || TYPE_FALLBACK.default;
@@ -574,6 +583,10 @@ function renderResults(results) {
             });
 
             resultsContainer.appendChild(item);
+            
+            // Secure CSP resolution for favicon fallback
+            const img = item.querySelector('img');
+            if (img) img.addEventListener('error', () => img.style.display = 'none');
         });
     });
 }
@@ -626,6 +639,14 @@ function handleKeydown(e) {
         updateSelection(newIndex);
         e.preventDefault();
     } else if (e.key === 'Enter') {
+        const currentQuery = input.value.trim();
+        if (currentQuery && currentQuery !== lastSearchedQuery) {
+            chrome.runtime.sendMessage({ action: 'open-query', query: currentQuery });
+            hidePalette();
+            e.preventDefault();
+            return;
+        }
+
         if (selectedIndex >= 0 && selectedIndex < currentResults.length) {
             activateResult(currentResults[selectedIndex]);
         }
@@ -634,11 +655,134 @@ function handleKeydown(e) {
 }
 
 function activateResult(result) {
-    if (result.type === 'tab') {
+    if (result.type === 'action') {
+        chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: result.id });
+    } else if (result.type === 'tab') {
         chrome.runtime.sendMessage({ action: 'switch-to-tab', tabId: result.id, windowId: result.windowId });
     } else {
         // Includes 'search', 'navigate', 'history', 'bookmark', 'bang', 'closed'
         chrome.runtime.sendMessage({ action: 'open-url', url: result.url });
     }
     hidePalette();
+}
+
+// Intercept clicks for Transient Peek Windows
+document.addEventListener('click', (e) => {
+    // Ignore middle clicks or command/ctrl/alt clicks
+    if (e.button !== 0 || e.ctrlKey || e.metaKey || e.altKey) return;
+
+    const link = e.target.closest('a');
+    if (!link || !link.href || !link.href.startsWith('http')) return;
+
+    let isCrossDomain = false;
+    try {
+        isCrossDomain = new URL(link.href).hostname !== window.location.hostname;
+    } catch(err) {}
+
+    // Only Shift+Click, OR protected tab + cross domain. 
+    if (e.shiftKey || (isProtectedTab && isCrossDomain)) {
+        // Guard against extension reload destroying the background context
+        if (!chrome.runtime?.id) return;
+        
+        try {
+            e.preventDefault();
+            e.stopPropagation();
+            chrome.runtime.sendMessage({ action: 'open-peek', url: link.href });
+        } catch (err) {
+            // Context invalidated, fail silently
+        }
+    }
+}, true);
+
+// Initialize Peek UI check
+if (chrome.runtime?.id) {
+    try {
+        chrome.runtime.sendMessage({ action: 'check-peek-status' }, (response) => {
+            if (chrome.runtime.lastError) return;
+            if (response && response.isPeek) {
+                injectPeekUI();
+            }
+        });
+    } catch(e) {}
+}
+
+function injectPeekUI() {
+    const host = document.createElement('div');
+    host.id = 'tabs-plus-plus-peek-host';
+    const shadow = host.attachShadow({ mode: 'closed' });
+
+    const style = document.createElement('style');
+    style.textContent = `
+        .promote-btn {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: rgba(28, 28, 30, 0.7);
+            backdrop-filter: blur(16px) saturate(180%);
+            -webkit-backdrop-filter: blur(16px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            padding: 12px 20px;
+            border-radius: 50px;
+            font-family: system-ui, -apple-system, sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 2147483647;
+            text-decoration: none;
+            letter-spacing: 0.3px;
+        }
+
+        @media (prefers-color-scheme: light) {
+            .promote-btn {
+                background: rgba(255, 255, 255, 0.75);
+                color: #000000;
+                border-color: rgba(0, 0, 0, 0.1);
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            }
+        }
+
+        .promote-btn:hover {
+            transform: translateY(-3px) scale(1.02);
+            background: rgba(28, 28, 30, 0.9);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+        
+        @media (prefers-color-scheme: light) {
+             .promote-btn:hover {
+                 background: rgba(255, 255, 255, 0.95);
+                 box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+                 border-color: rgba(0, 0, 0, 0.2);
+             }
+        }
+
+        .promote-btn:active {
+            transform: translateY(1px) scale(0.98);
+        }
+
+        .icon {
+            font-size: 16px;
+            line-height: 1;
+        }
+    `;
+
+    const btn = document.createElement('button');
+    btn.className = 'promote-btn';
+    btn.innerHTML = `<span class="icon">↗</span> Promote to Workspace`;
+    
+    btn.addEventListener('click', () => {
+        btn.style.opacity = '0';
+        btn.style.pointerEvents = 'none';
+        chrome.runtime.sendMessage({ action: 'promote-peek' });
+    });
+
+    shadow.appendChild(style);
+    shadow.appendChild(btn);
+    document.documentElement.appendChild(host);
 }

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tabs++",
-  "version": "1.4",
+  "version": "1.5.0",
   "description": "Ensures pinned tabs are persistent and reset to their initial URL when closed.",
   "permissions": [
     "tabs",
@@ -10,7 +10,8 @@
     "history",
     "bookmarks",
     "favicon",
-    "sessions"
+    "sessions",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"

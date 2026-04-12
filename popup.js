@@ -29,6 +29,13 @@ const FEATURES = [
     description: 'Automatically sorts tabs into Dev, Design, AI, Media, News, or Social groups based on the domain.',
     default: false,
     badge: 'Beta',
+  },
+  {
+    id: 'enableAutoArchive',
+    title: 'Ruthless Clean',
+    description: 'Automatically closes unprotected tabs (not grouped, not pinned) that have not been viewed in 12 hours.',
+    default: false,
+    badge: 'Arc UI',
   }
 ];
 
@@ -137,6 +144,11 @@ chrome.storage.local.get(['vault'], (data) => {
   if (data.vault && data.vault.length > 0) {
     document.getElementById('vault-container').style.display = 'block';
     
+    const vaultText = document.getElementById('vault-text');
+    if (vaultText) {
+        vaultText.textContent = `Found ${data.vault.length} protected tab${data.vault.length > 1 ? 's' : ''} from your last session.`;
+    }
+    
     document.getElementById('restore-vault-btn').addEventListener('click', () => {
       chrome.runtime.sendMessage({ action: 'restore-vault' }, () => {
         document.getElementById('vault-container').style.display = 'none';
@@ -150,3 +162,164 @@ chrome.storage.local.get(['vault'], (data) => {
     });
   }
 });
+
+// ─────────────────────────────────────────────
+//  Tab Switching Logic
+// ─────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    // Remove active class from all buttons and contents
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+    // Add active class to clicked button
+    btn.classList.add('active');
+
+    // Show target content
+    const targetId = btn.getAttribute('data-target');
+    document.getElementById(targetId).classList.add('active');
+  });
+});
+
+// ─────────────────────────────────────────────
+//  Profiles Logic
+// ─────────────────────────────────────────────
+function loadAndRenderProfiles() {
+  chrome.runtime.sendMessage({ action: 'get-profiles' }, (response) => {
+    if (!response || !response.profiles) return;
+    renderProfileList(response.profiles);
+  });
+}
+
+function renderProfileList(profiles) {
+  const container = document.getElementById('profile-list-container');
+  container.innerHTML = '';
+  
+  const profileKeys = Object.keys(profiles);
+  if (profileKeys.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding: 20px; color:#aaa; font-size: 11px;">No profiles saved yet.</div>';
+    return;
+  }
+
+  profileKeys.forEach(name => {
+    const tabsCount = profiles[name].length;
+    
+    const item = document.createElement('div');
+    item.className = 'profile-item';
+    
+    const title = document.createElement('div');
+    title.className = 'profile-name';
+    title.textContent = name;
+    
+    // Add subtitle for tabs count
+    const subtitle = document.createElement('div');
+    subtitle.style.fontSize = '9px';
+    subtitle.style.color = '#999';
+    subtitle.style.fontWeight = 'normal';
+    subtitle.textContent = `${tabsCount} protected tab${tabsCount === 1 ? '' : 's'}`;
+    title.appendChild(subtitle);
+    
+    const actions = document.createElement('div');
+    actions.className = 'profile-actions';
+    
+    const launchBtn = document.createElement('button');
+    launchBtn.className = 'btn btn-light';
+    launchBtn.textContent = 'Launch';
+    launchBtn.onclick = () => {
+      chrome.runtime.sendMessage({ action: 'launch-profile', name: name }, () => {
+        window.close(); // Close popup after launch
+      });
+    };
+    
+    const updateBtn = document.createElement('button');
+    updateBtn.className = 'btn-icon';
+    updateBtn.title = 'Overwrite with current window';
+    updateBtn.innerHTML = '↻'; // Replace icon
+    updateBtn.onclick = () => {
+      if(confirm(`Overwrite profile "${name}" with your current window's pinned and grouped tabs?`)) {
+        chrome.runtime.sendMessage({ action: 'save-profile', name: name }, (res) => {
+          if(res && res.success) renderProfileList(res.profiles);
+        });
+      }
+    };
+    
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn-icon';
+    deleteBtn.title = 'Delete profile';
+    deleteBtn.innerHTML = '×'; // Replace icon
+    deleteBtn.onclick = () => {
+      if(confirm(`Delete profile "${name}"?`)) {
+        chrome.runtime.sendMessage({ action: 'delete-profile', name: name }, (res) => {
+          if(res && res.success) renderProfileList(res.profiles);
+        });
+      }
+    };
+    
+    actions.appendChild(launchBtn);
+    actions.appendChild(updateBtn);
+    actions.appendChild(deleteBtn);
+    
+    item.appendChild(title);
+    item.appendChild(actions);
+    
+    container.appendChild(item);
+  });
+}
+
+// Set up Profile Save button
+document.getElementById('save-profile-btn').addEventListener('click', () => {
+  const input = document.getElementById('new-profile-name');
+  const name = input.value.trim();
+  if (!name) return;
+  
+  chrome.runtime.sendMessage({ action: 'save-profile', name: name }, (response) => {
+    if (response && response.success) {
+      input.value = '';
+      renderProfileList(response.profiles);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────
+//  Export / Import Logic
+// ─────────────────────────────────────────────
+document.getElementById('export-profiles-btn').addEventListener('click', () => {
+  chrome.runtime.sendMessage({ action: 'get-profiles' }, (response) => {
+    if (!response || !response.profiles) return;
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(response.profiles, null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute("href", dataStr);
+    dlAnchorElem.setAttribute("download", "tabs_plus_plus_profiles.json");
+    dlAnchorElem.click();
+  });
+});
+
+const importInput = document.getElementById('import-file');
+document.getElementById('import-profiles-btn').addEventListener('click', () => {
+  importInput.click();
+});
+
+importInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const parsed = JSON.parse(e.target.result);
+      chrome.runtime.sendMessage({ action: 'import-profiles', profiles: parsed }, (response) => {
+        if (response && response.success) {
+          renderProfileList(response.profiles);
+        } else {
+          alert('Failed to import profiles. Invalid file format.');
+        }
+      });
+    } catch (err) {
+      alert('Invalid JSON file. Please select a valid Tabs++ backup file.');
+    }
+    importInput.value = '';
+  };
+  reader.readAsText(file);
+});
+
+// Initial load
+loadAndRenderProfiles();

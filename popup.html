@@ -165,6 +165,130 @@
     .toggle-wrap.is-on .toggle-track { background: #111; }
     .toggle-wrap.is-on .toggle-thumb { transform: translateX(16px); }
 
+    /* ── Tabs ─────────────────────────────────── */
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #f0f0f0;
+      background: #fafafa;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 10px 0;
+      font-size: 11.5px;
+      font-weight: 500;
+      color: #888;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .tab-btn:hover {
+      color: #444;
+      background: #f4f4f4;
+    }
+
+    .tab-btn.active {
+      color: #111;
+      font-weight: 600;
+      border-bottom-color: #111;
+      background: #fff;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* ── Profiles ─────────────────────────────── */
+    .profile-create {
+      display: flex;
+      gap: 8px;
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid #f4f4f4;
+    }
+
+    .profile-input {
+      flex: 1;
+      padding: 6px 10px;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      font-size: 11.5px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .profile-input:focus {
+      border-color: #111;
+    }
+
+    .btn {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 500;
+      font-size: 11px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.15s;
+    }
+
+    .btn-dark {
+      background: #111;
+      color: #fff;
+    }
+    .btn-dark:hover { background: #333; }
+
+    .btn-light {
+      background: #f4f4f4;
+      color: #555;
+    }
+    .btn-light:hover { background: #e8e8e8; }
+    
+    .btn-icon {
+      padding: 4px;
+      background: transparent;
+      color: #999;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+    }
+    .btn-icon:hover {
+      background: #f4f4f4;
+      color: #111;
+    }
+
+    .profile-list {
+      padding: 8px 16px;
+    }
+
+    .profile-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #f8f8f8;
+    }
+    .profile-item:last-child {
+      border-bottom: none;
+    }
+
+    .profile-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: #111;
+      flex: 1;
+    }
+
+    .profile-actions {
+      display: flex;
+      gap: 4px;
+    }
+
     /* ── Footer ───────────────────────────────── */
     .footer {
       display: flex;
@@ -202,15 +326,40 @@
   </div>
 
   <div id="vault-container" style="display: none; padding: 14px 16px; border-bottom: 1px solid #f4f4f4; text-align: center; background: #fffcf0;">
-    <div style="font-size: 11.5px; color: #666; margin-bottom: 8px;">Protected tabs from a closed window are in the Vault.</div>
+    <div id="vault-text" style="font-size: 11.5px; color: #666; margin-bottom: 8px;">Found organized tabs from your last session.</div>
     <div style="display: flex; gap: 8px; justify-content: center;">
       <button id="restore-vault-btn" style="padding: 6px 12px; background: #111; color: #fff; border: none; border-radius: 6px; font-weight: 500; font-size: 11px; cursor: pointer;">Restore Tabs</button>
       <button id="clear-vault-btn" style="padding: 6px 12px; background: #f4f4f4; color: #555; border: none; border-radius: 6px; font-weight: 500; font-size: 11px; cursor: pointer;">Discard</button>
     </div>
   </div>
 
-  <!-- Feature Cards -->
-  <div id="feature-list"></div>
+  <!-- Tabs Nav -->
+  <div class="tabs">
+    <button class="tab-btn active" data-target="settings-tab">Settings</button>
+    <button class="tab-btn" data-target="profiles-tab">Profiles</button>
+  </div>
+
+  <!-- Tab Contents -->
+  <div id="settings-tab" class="tab-content active">
+    <div id="feature-list"></div>
+  </div>
+
+  <div id="profiles-tab" class="tab-content">
+    <div class="profile-create">
+      <input type="text" id="new-profile-name" class="profile-input" placeholder="e.g. Work, Research..." />
+      <button id="save-profile-btn" class="btn btn-dark">Save Window</button>
+    </div>
+    <div class="profile-list" id="profile-list-container">
+      <!-- Profile items injected here -->
+    </div>
+    
+    <!-- Export/Import Utils -->
+    <div style="padding: 12px 16px; border-top: 1px solid #f4f4f4; display: flex; gap: 8px; justify-content: center;">
+      <button id="export-profiles-btn" class="btn btn-light" style="flex: 1;">Export</button>
+      <button id="import-profiles-btn" class="btn btn-light" style="flex: 1;">Import JSON</button>
+      <input type="file" id="import-file" accept="application/json" style="display: none;" />
+    </div>
+  </div>
 
   <!-- Footer -->
   <div class="footer">

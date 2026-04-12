@@ -66,9 +66,9 @@ const GROUP_COLORS = {
     pink: '#ff6d9f', purple: '#a142f4', cyan: '#24c1e0', orange: '#fa7b17', grey: '#9e9e9e'
 };
 
-const SECTION_ORDER = ['bang', 'navigate', 'search', 'tab', 'closed', 'bookmark', 'history'];
-const SECTION_LABELS = { tab: 'Open Tabs', closed: 'Recently Closed', bookmark: 'Bookmarks', history: 'History' };
-const TYPE_FALLBACK = { tab: '🌍', history: '🕒', bookmark: '⭐', bang: '⚡', search: '🔍', navigate: '↗️', closed: '🕒', default: '📄' };
+const SECTION_ORDER = ['action', 'bang', 'navigate', 'search', 'tab', 'closed', 'bookmark', 'history'];
+const SECTION_LABELS = { action: 'Actions', tab: 'Open Tabs', closed: 'Recently Closed', bookmark: 'Bookmarks', history: 'History' };
+const TYPE_FALLBACK = { action: '⚡', tab: '🌍', history: '🕒', bookmark: '⭐', bang: '⚡', search: '🔍', navigate: '↗️', closed: '🕒', default: '📄' };
 
 function escapeHTML(str) {
     if (!str) return '';
@@ -84,12 +84,12 @@ function highlight(text, query) {
 
 function getFaviconHtml(result) {
     if (result.favIconUrl && result.favIconUrl.startsWith('http')) {
-        return `<img src="${result.favIconUrl}" onerror="this.style.display='none'" />`;
+        return `<img src="${result.favIconUrl}" />`;
     }
     if (result.url) {
         try {
             const domain = new URL(result.url).hostname;
-            return `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" onerror="this.style.display='none'" />`;
+            return `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" />`;
         } catch {}
     }
     return TYPE_FALLBACK[result.type] || TYPE_FALLBACK.default;
@@ -155,6 +155,9 @@ function renderResults(results, query) {
             item.addEventListener('mousemove', () => updateSelection(index));
 
             resultsContainer.appendChild(item);
+            
+            const img = item.querySelector('img');
+            if (img) img.addEventListener('error', () => img.style.display = 'none');
         });
     });
 }
@@ -187,7 +190,10 @@ function handleKeydown(e) {
 }
 
 function activateResult(result) {
-    if (result.type === 'tab') {
+    if (result.type === 'action') {
+        chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: result.id });
+        if (isFallback) window.close();
+    } else if (result.type === 'tab') {
         chrome.runtime.sendMessage({ action: 'switch-to-tab', tabId: result.id, windowId: result.windowId }, () => {
             if (isFallback) window.close(); // Close the fallback tab if used as a router
         });
