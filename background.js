@@ -344,8 +344,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     }
 
     if (data && data.url) {
-        console.log("Restoring protected tab:", data.url);
-        
         // Evict immediately to prevent race conditions during restore loop
         memoryBaselines.delete(tabId);
         syncBaselinesToStorage();
@@ -1053,9 +1051,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         let toClose = [];
                         for (let t of dtabs) {
                             if (!t.url) continue;
-                            if (seenUrls.has(t.url)) {
+                            let cleanUrl = t.url.split('#')[0];
+                            if (seenUrls.has(cleanUrl)) {
                                 if (!t.active) toClose.push(t.id);
-                            } else seenUrls.add(t.url);
+                            } else seenUrls.add(cleanUrl);
                         }
                         if (toClose.length > 0) chrome.tabs.remove(toClose).catch(()=>{});
                         break;
@@ -1138,6 +1137,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     case 'pause_media': {
                         const pmtabs = await chrome.tabs.query({});
                         for (let t of pmtabs) {
+                            if (t.url && (t.url.startsWith('chrome://') || t.url.startsWith('edge://') || t.url.startsWith('chrome-extension://'))) continue;
                             chrome.scripting.executeScript({
                                 target: { tabId: t.id },
                                 func: () => {

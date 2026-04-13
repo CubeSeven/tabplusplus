@@ -11,7 +11,9 @@
     "bookmarks",
     "favicon",
     "sessions",
-    "alarms"
+    "alarms",
+    "browsingData",
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>"
