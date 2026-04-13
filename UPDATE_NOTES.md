@@ -16,6 +16,10 @@ Restored tabs return to their exact original position and group within your wind
 Performance Optimization
 To preserve system resources, restored tabs are automatically hibernated. They consume zero RAM or CPU until you click on them, ensuring that a large workspace does not slow down your computer.
 
+Latest Update: v1.5.1 (Patch Release)
+
+Fixed critical missing permissions for the Action Engine (Panic Close and Media Pause). Improved tab deduplication logic to ignore URL fragments. Sanitized background worker logs for production performance.
+
 ---
 
 Latest Update: v1.5.0
