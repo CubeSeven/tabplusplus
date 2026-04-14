@@ -24,27 +24,6 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 
 
 
-function createPalette() {
-    if (palette) return;
-
-    palette = document.createElement('div');
-    palette.id = 'tabs-plus-plus-palette-host';
-    palette.style.cssText = `
-        position: fixed;
-        top: 0; left: 0; width: 100vw; height: 100vh;
-        z-index: 2147483647;
-        display: none;
-        align-items: flex-start;
-        justify-content: center;
-        padding-top: 15vh;
-        background: rgba(0,0,0,0.22);
-        backdrop-filter: blur(12px);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
-    `;
-
-    shadow = palette.attachShadow({ mode: 'closed' });
-
-    const style = document.createElement('style');
 /* =========================================================================
    PALETTE & PEEK STYLES
    ========================================================================= */

@@ -179,8 +179,6 @@ async function initializeState() {
     if (changed) syncBaselinesToStorage();
 }
 
-// The full chrome-extension URL for our NTP page (used to exclude it from protection)
-const NTP_EXTENSION_URL = chrome.runtime.getURL('ntp.html');
 
 // ==========================================================================
 // --- TAB STATE MANAGEMENT ---
@@ -1551,7 +1549,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                  }
              });
         });
-        sendResponse({ success    if (request.action === 'execute-browser-action') {
+        sendResponse({ success: true });
+        return true;
+    }
+
+    if (request.action === 'execute-browser-action') {
         executeBrowserAction(request.commandId, request.args).then(() => {
             sendResponse({ success: true });
         });
@@ -1901,7 +1903,3 @@ async function executeBrowserAction(commandId, args) {
         console.error("Action error:", e);
     }
 }
-        });
-        return true;
-    }
-});
