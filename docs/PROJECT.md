@@ -10,7 +10,7 @@ Chrome extension for workspace persistence. Transform standard tabs into a "Brow
 - **Eviction Graveyard**: Advanced race-condition buffer that prevents tab loss if Chrome ungroups tabs milliseconds before closure.
 
 ## Navigation & Control
-### Command Palette (`Alt+Shift+K`)
+### Command Palette (`Ctrl+Shift+K`)
 Global spotlight-style search for:
 - Open Tabs
 - Browser History

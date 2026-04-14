@@ -482,16 +482,17 @@ const TYPE_FALLBACK = {
 };
 
 function getFaviconHtml(result) {
+    const fallback = TYPE_FALLBACK[result.type] || TYPE_FALLBACK.default;
     if (result.favIconUrl && result.favIconUrl.startsWith('http')) {
-        return `<img src="${result.favIconUrl}" />`;
+        return `<img src="${result.favIconUrl}" onerror="this.outerHTML='${fallback}'" />`;
     }
     if (result.url) {
         try {
             const domain = new URL(result.url).hostname;
-            return `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" />`;
+            return `<img src="https://www.google.com/s2/favicons?domain=${domain}&sz=32" onerror="this.outerHTML='${fallback}'" />`;
         } catch {}
     }
-    return TYPE_FALLBACK[result.type] || TYPE_FALLBACK.default;
+    return fallback;
 }
 
 function highlight(text, query) {

@@ -19,7 +19,7 @@ const FEATURES = [
   {
     id: 'enablePalette',
     title: 'Command Palette',
-    description: 'Press Alt+Shift+K to search tabs, history, and bookmarks instantly.',
+    description: 'Press Ctrl+Shift+K (Cmd+Shift+K Mac) to search tabs, history, and bookmarks instantly.',
     default: true,
     badge: 'Beta',
   },
@@ -78,6 +78,22 @@ function renderFeatures(settings) {
 
     info.appendChild(titleRow);
     info.appendChild(desc);
+
+    if (feature.id === 'enablePalette') {
+      const shortcutLink = document.createElement('a');
+      shortcutLink.href = '#';
+      shortcutLink.textContent = 'Change Shortcut ⚙️';
+      shortcutLink.style.display = 'inline-block';
+      shortcutLink.style.marginTop = '4px';
+      shortcutLink.style.fontSize = '10px';
+      shortcutLink.style.color = '#0a84ff';
+      shortcutLink.style.textDecoration = 'none';
+      shortcutLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
+      });
+      info.appendChild(shortcutLink);
+    }
 
     // Toggle
     const toggleWrap = document.createElement('div');
