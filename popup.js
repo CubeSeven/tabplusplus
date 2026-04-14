@@ -36,6 +36,13 @@ const FEATURES = [
     description: 'Automatically closes unprotected tabs (not grouped, not pinned) that have not been viewed in 12 hours.',
     default: false,
     badge: 'Arc UI',
+  },
+  {
+    id: 'focusNTPOnClose',
+    title: 'Focus Guard',
+    description: 'When you close the active tab, focus always lands on the New Tab Page instead of a neighbor.',
+    default: false,
+    badge: 'New',
   }
 ];
 
@@ -179,6 +186,11 @@ chrome.storage.local.get(['vault'], (data) => {
   }
 });
 
+// Startup Helper Button
+document.getElementById('fix-startup-btn').addEventListener('click', () => {
+    chrome.tabs.create({ url: 'chrome://settings/onStartup' });
+});
+
 // ─────────────────────────────────────────────
 //  Tab Switching Logic
 // ─────────────────────────────────────────────
@@ -198,81 +210,93 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // ─────────────────────────────────────────────
-//  Profiles Logic
+//  Sets Logic
 // ─────────────────────────────────────────────
-function loadAndRenderProfiles() {
-  chrome.runtime.sendMessage({ action: 'get-profiles' }, (response) => {
-    if (!response || !response.profiles) return;
-    renderProfileList(response.profiles);
+function loadAndRenderSets() {
+  chrome.runtime.sendMessage({ action: 'get-sets' }, (response) => {
+    if (!response || !response.sets) return;
+    renderSetList(response.sets);
   });
 }
 
-function renderProfileList(profiles) {
-  const container = document.getElementById('profile-list-container');
+function renderSetList(sets) {
+  const container = document.getElementById('set-list-container');
   container.innerHTML = '';
   
-  const profileKeys = Object.keys(profiles);
-  if (profileKeys.length === 0) {
-    container.innerHTML = '<div style="text-align:center; padding: 20px; color:#aaa; font-size: 11px;">No profiles saved yet.</div>';
+  const setKeys = Object.keys(sets);
+  if (setKeys.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding: 20px; color:#aaa; font-size: 11px;">No sets saved yet.</div>';
     return;
   }
 
-  profileKeys.forEach(name => {
-    const tabsCount = profiles[name].length;
+  setKeys.forEach(name => {
+    const setObj = sets[name];
+    const tabsCount = setObj.tabs ? setObj.tabs.length : 0;
+    const typeLabel = setObj.type === 'group' ? 'GROUP' : 'WORKSPACE';
     
     const item = document.createElement('div');
-    item.className = 'profile-item';
+    item.className = 'set-item';
     
     const title = document.createElement('div');
-    title.className = 'profile-name';
+    title.className = 'set-name';
     title.textContent = name;
+    
+    const badge = document.createElement('span');
+    badge.className = 'set-badge';
+    badge.textContent = typeLabel;
+    title.appendChild(badge);
     
     // Add subtitle for tabs count
     const subtitle = document.createElement('div');
     subtitle.style.fontSize = '9px';
     subtitle.style.color = '#999';
     subtitle.style.fontWeight = 'normal';
-    subtitle.textContent = `${tabsCount} protected tab${tabsCount === 1 ? '' : 's'}`;
+    subtitle.textContent = `${tabsCount} tab${tabsCount === 1 ? '' : 's'}`;
     title.appendChild(subtitle);
     
     const actions = document.createElement('div');
-    actions.className = 'profile-actions';
+    actions.className = 'set-actions';
     
+    const summonBtn = document.createElement('button');
+    summonBtn.className = 'btn-icon';
+    summonBtn.title = 'Summon into current window';
+    summonBtn.innerHTML = '↓'; 
+    summonBtn.onclick = () => {
+      chrome.runtime.sendMessage({ action: 'summon-set', name: name }, () => {
+        window.close(); // Close popup after summon
+      });
+    };
+
     const launchBtn = document.createElement('button');
-    launchBtn.className = 'btn btn-light';
-    launchBtn.textContent = 'Launch';
+    launchBtn.className = 'btn-icon';
+    launchBtn.title = 'Launch in new window';
+    launchBtn.innerHTML = '↗';
     launchBtn.onclick = () => {
-      chrome.runtime.sendMessage({ action: 'launch-profile', name: name }, () => {
+      chrome.runtime.sendMessage({ action: 'launch-set', name: name }, () => {
         window.close(); // Close popup after launch
       });
     };
     
-    const updateBtn = document.createElement('button');
-    updateBtn.className = 'btn-icon';
-    updateBtn.title = 'Overwrite with current window';
-    updateBtn.innerHTML = '↻'; // Replace icon
-    updateBtn.onclick = () => {
-      if(confirm(`Overwrite profile "${name}" with your current window's pinned and grouped tabs?`)) {
-        chrome.runtime.sendMessage({ action: 'save-profile', name: name }, (res) => {
-          if(res && res.success) renderProfileList(res.profiles);
-        });
-      }
-    };
-    
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'btn-icon';
-    deleteBtn.title = 'Delete profile';
-    deleteBtn.innerHTML = '×'; // Replace icon
+    deleteBtn.title = 'Delete set';
+    deleteBtn.innerHTML = '×';
     deleteBtn.onclick = () => {
-      if(confirm(`Delete profile "${name}"?`)) {
-        chrome.runtime.sendMessage({ action: 'delete-profile', name: name }, (res) => {
-          if(res && res.success) renderProfileList(res.profiles);
+      if(confirm(`Delete set "${name}"?`)) {
+        chrome.runtime.sendMessage({ action: 'delete-set', name: name }, (res) => {
+          if(res && res.success) renderSetList(res.sets);
         });
       }
     };
     
-    actions.appendChild(launchBtn);
-    actions.appendChild(updateBtn);
+    if (setObj.type === 'workspace') {
+        actions.appendChild(launchBtn);
+        actions.appendChild(summonBtn);
+    } else {
+        actions.appendChild(summonBtn);
+        actions.appendChild(launchBtn);
+    }
+    
     actions.appendChild(deleteBtn);
     
     item.appendChild(title);
@@ -282,16 +306,16 @@ function renderProfileList(profiles) {
   });
 }
 
-// Set up Profile Save button
-document.getElementById('save-profile-btn').addEventListener('click', () => {
-  const input = document.getElementById('new-profile-name');
+// Set up Set Save button
+document.getElementById('save-set-btn').addEventListener('click', () => {
+  const input = document.getElementById('new-set-name');
   const name = input.value.trim();
   if (!name) return;
   
-  chrome.runtime.sendMessage({ action: 'save-profile', name: name }, (response) => {
+  chrome.runtime.sendMessage({ action: 'save-set', setType: 'workspace', name: name }, (response) => {
     if (response && response.success) {
       input.value = '';
-      renderProfileList(response.profiles);
+      renderSetList(response.sets);
     }
   });
 });
@@ -299,19 +323,19 @@ document.getElementById('save-profile-btn').addEventListener('click', () => {
 // ─────────────────────────────────────────────
 //  Export / Import Logic
 // ─────────────────────────────────────────────
-document.getElementById('export-profiles-btn').addEventListener('click', () => {
-  chrome.runtime.sendMessage({ action: 'get-profiles' }, (response) => {
-    if (!response || !response.profiles) return;
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(response.profiles, null, 2));
+document.getElementById('export-sets-btn').addEventListener('click', () => {
+  chrome.runtime.sendMessage({ action: 'get-sets' }, (response) => {
+    if (!response || !response.sets) return;
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(response.sets, null, 2));
     const dlAnchorElem = document.createElement('a');
     dlAnchorElem.setAttribute("href", dataStr);
-    dlAnchorElem.setAttribute("download", "tabs_plus_plus_profiles.json");
+    dlAnchorElem.setAttribute("download", "tabs_plus_plus_sets.json");
     dlAnchorElem.click();
   });
 });
 
 const importInput = document.getElementById('import-file');
-document.getElementById('import-profiles-btn').addEventListener('click', () => {
+document.getElementById('import-sets-btn').addEventListener('click', () => {
   importInput.click();
 });
 
@@ -322,11 +346,11 @@ importInput.addEventListener('change', (e) => {
   reader.onload = (e) => {
     try {
       const parsed = JSON.parse(e.target.result);
-      chrome.runtime.sendMessage({ action: 'import-profiles', profiles: parsed }, (response) => {
+      chrome.runtime.sendMessage({ action: 'import-sets', sets: parsed }, (response) => {
         if (response && response.success) {
-          renderProfileList(response.profiles);
+          renderSetList(response.sets);
         } else {
-          alert('Failed to import profiles. Invalid file format.');
+          alert('Failed to import sets. Invalid file format.');
         }
       });
     } catch (err) {
@@ -338,4 +362,4 @@ importInput.addEventListener('change', (e) => {
 });
 
 // Initial load
-loadAndRenderProfiles();
+loadAndRenderSets();

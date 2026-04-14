@@ -8,6 +8,8 @@ let currentResults = [];
 let lastSearchedQuery = "";
 let isPaletteEnabled = false;
 let isProtectedTab = false;
+let pendingCommand = null;
+let domOrderedResults = [];
 
 // Initialize setting and listen for changes
 chrome.storage.local.get({ settings: { enablePalette: false } }, (data) => {
@@ -35,269 +37,270 @@ function createPalette() {
         align-items: flex-start;
         justify-content: center;
         padding-top: 15vh;
-        background: rgba(0,0,0,0.3);
-        backdrop-filter: blur(8px);
+        background: rgba(0,0,0,0.22);
+        backdrop-filter: blur(12px);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
     `;
 
     shadow = palette.attachShadow({ mode: 'closed' });
 
     const style = document.createElement('style');
-    style.textContent = `
+/* =========================================================================
+   PALETTE & PEEK STYLES
+   ========================================================================= */
+const PALETTE_STYLES = `
+    :host {
+        --bg-color: rgba(22, 22, 26, 0.82);
+        --text-color: #ffffff;
+        --input-bg: transparent;
+        --border-color: rgba(255, 255, 255, 0.08);
+        --border-top: rgba(255, 255, 255, 0.18);
+        --highlight: #0a84ff;
+        --result-bg-hover: rgba(255, 255, 255, 0.06);
+        --subtext: #8e8e93;
+        --separator: rgba(255, 255, 255, 0.07);
+    }
+
+    @media (prefers-color-scheme: light) {
         :host {
-            --bg-color: rgba(28, 28, 30, 0.95);
-            --text-color: #ffffff;
+            --bg-color: rgba(248, 248, 252, 0.82);
+            --text-color: #1c1c1e;
             --input-bg: transparent;
-            --border-color: rgba(255, 255, 255, 0.1);
-            --highlight: #0a84ff;
-            --result-bg-hover: rgba(255, 255, 255, 0.1);
-            --subtext: #a1a1a6;
+            --border-color: rgba(0, 0, 0, 0.07);
+            --border-top: rgba(255, 255, 255, 0.9);
+            --highlight: #007aff;
+            --result-bg-hover: rgba(0, 0, 0, 0.04);
+            --subtext: #86868b;
+            --separator: rgba(0, 0, 0, 0.06);
         }
+    }
 
-        @media (prefers-color-scheme: light) {
-            :host {
-                --bg-color: rgba(255, 255, 255, 0.95);
-                --text-color: #000000;
-                --input-bg: transparent;
-                --border-color: rgba(0, 0, 0, 0.1);
-                --highlight: #007aff;
-                --result-bg-hover: rgba(0, 0, 0, 0.05);
-                --subtext: #86868b;
-            }
-        }
+    .container {
+        width: 750px;
+        max-width: 95vw;
+        position: relative;
+        background:
+            linear-gradient(180deg,
+                rgba(255,255,255,0.04) 0%,
+                rgba(255,255,255,0.0) 60%
+            ),
+            var(--bg-color);
+        backdrop-filter: blur(48px) saturate(200%) brightness(0.95);
+        -webkit-backdrop-filter: blur(48px) saturate(200%) brightness(0.95);
+        border-radius: 20px;
+        box-shadow:
+            0 32px 72px rgba(0,0,0,0.55),
+            0 0 0 1px rgba(255,255,255,0.06),
+            inset 0 1px 0 var(--border-top),
+            inset 0 -1px 0 rgba(0,0,0,0.2);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        opacity: 0;
+        transform: translateY(-40px) scale(0.96);
+        transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
 
-        .container {
-            width: 750px;
-            max-width: 95vw;
-            background: var(--bg-color);
-            backdrop-filter: blur(25px) saturate(180%);
-            -webkit-backdrop-filter: blur(25px) saturate(180%);
-            border-radius: 20px;
-            box-shadow: 0 30px 60px rgba(0,0,0,0.4), 0 0 0 1px var(--border-color);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            opacity: 0;
-            transform: translateY(-40px) scale(0.95);
-            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        }
+    .container.visible {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
 
-        .container.visible {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-        }
+    .input-wrapper {
+        padding: 22px 28px;
+        border-bottom: 1px solid var(--separator);
+        box-shadow: 0 1px 0 rgba(255,255,255,0.03);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
 
-        .input-wrapper {
-            padding: 24px 28px;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
+    input {
+        width: 100%;
+        background: transparent;
+        border: none;
+        outline: none;
+        font-size: 21px;
+        color: var(--text-color);
+        font-family: inherit;
+        font-weight: 400;
+        letter-spacing: -0.2px;
+    }
 
-        input {
-            width: 100%;
-            background: transparent;
-            border: none;
-            outline: none;
-            font-size: 26px;
-            color: var(--text-color);
-            font-family: inherit;
-            font-weight: 500;
-            letter-spacing: -0.5px;
-        }
+    input::placeholder {
+        color: var(--subtext);
+        opacity: 0.5;
+    }
 
-        input::placeholder {
-            color: var(--subtext);
-            opacity: 0.5;
-        }
+    .results {
+        max-height: 520px;
+        overflow-y: auto;
+        padding: 12px;
+        display: none;
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+    }
 
-        .results {
-            max-height: 520px;
-            overflow-y: auto;
-            padding: 12px;
-            display: none;
-        }
+    .results::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
 
-        .results.has-items {
-            display: block;
-        }
+    .results.has-items {
+        display: block;
+    }
 
-        .result-item {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 10px 16px;
-            border-radius: 12px;
-            cursor: pointer;
-            color: var(--text-color);
-            margin-bottom: 2px;
-            transition: background 0.1s ease;
-        }
+    .result-item {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 10px 16px;
+        border-radius: 10px;
+        cursor: pointer;
+        color: var(--text-color);
+        margin-bottom: 1px;
+        overflow: hidden;
+        transition: background 0.12s ease;
+    }
 
-        .result-item.selected {
-            background: var(--highlight);
-            color: #ffffff;
-        }
+    .result-item.selected {
+        background: rgba(128, 128, 128, 0.15);
+        box-shadow: inset 0 0 0 1px var(--border-color);
+    }
 
-        .result-item.selected .subtext,
-        .result-item.selected .badge {
-            color: rgba(255, 255, 255, 0.8);
-        }
+    .result-item.selected .title {
+        color: rgba(10, 132, 255, 0.85);
+    }
 
-        .icon {
-            width: 36px;
-            height: 36px;
-            flex-shrink: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 10px;
-            overflow: hidden;
-            background: rgba(128, 128, 128, 0.1);
-            color: var(--subtext);
-            font-size: 18px;
-        }
-        
-        .icon img {
-            width: 24px;
-            height: 24px;
-            object-fit: contain;
-        }
+    .result-item.selected .subtext,
+    .result-item.selected .badge {
+        color: var(--text-color);
+        opacity: 0.8;
+    }
 
-        .details {
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            flex-grow: 1;
-        }
+    .icon {
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        overflow: hidden;
+        background: rgba(128, 128, 128, 0.1);
+        color: var(--subtext);
+        font-size: 18px;
+    }
+    
+    .icon img {
+        width: 24px;
+        height: 24px;
+        object-fit: contain;
+    }
 
-        .title {
-            font-size: 16px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            font-weight: 500;
-        }
+    .details {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        flex-grow: 1;
+    }
 
-        .subtext {
-            font-size: 13px;
-            color: var(--subtext);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            margin-top: 2px;
-        }
-        
-        .badge {
-            font-size: 10px;
-            padding: 4px 10px;
-            border-radius: 8px;
-            background: rgba(128, 128, 128, 0.1);
-            color: var(--subtext);
-            text-transform: uppercase;
-            font-weight: 700;
-            letter-spacing: 0.8px;
-        }
-        
-        /* Custom Scrollbar */
-        .results::-webkit-scrollbar {
-            width: 10px;
-        }
-        .results::-webkit-scrollbar-track {
-            background: transparent;
-        }
-        .results::-webkit-scrollbar-thumb {
-            background: var(--border-color);
-            border-radius: 10px;
-            border: 3px solid transparent;
-            background-clip: content-box;
-        }
+    .title {
+        font-size: 16px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-weight: 500;
+    }
 
-        mark {
-            background: transparent;
-            color: var(--highlight);
-            font-weight: 700;
-            font-style: normal;
-        }
+    .subtext {
+        font-size: 13px;
+        color: var(--subtext);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        margin-top: 2px;
+    }
+    
+    .badge {
+        font-size: 10px;
+        padding: 4px 10px;
+        border-radius: 8px;
+        background: rgba(128, 128, 128, 0.1);
+        color: var(--subtext);
+        text-transform: uppercase;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+    }
 
-        .section-header {
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            color: var(--subtext);
-            padding: 8px 16px 4px;
-            pointer-events: none;
-            user-select: none;
-        }
+    mark {
+        background: transparent;
+        color: rgba(10, 132, 255, 0.75);
+        font-weight: 700;
+        font-style: normal;
+    }
 
-        .icon-wrap {
-            position: relative;
-            width: 36px;
-            height: 36px;
-            flex-shrink: 0;
-        }
+    .section-header {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--subtext);
+        padding: 8px 16px 4px;
+        pointer-events: none;
+        user-select: none;
+    }
 
-        .icon {
-            width: 36px;
-            height: 36px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 10px;
-            overflow: hidden;
-            background: rgba(128, 128, 128, 0.1);
-            color: var(--subtext);
-            font-size: 18px;
-        }
-        
-        .icon img {
-            width: 24px;
-            height: 24px;
-            object-fit: contain;
-        }
+    .icon-wrap {
+        position: relative;
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+    }
 
-        .group-dot {
-            position: absolute;
-            bottom: -2px;
-            right: -2px;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            border: 2px solid var(--bg-color);
-        }
+    .group-dot {
+        position: absolute;
+        bottom: -2px;
+        right: -2px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 2px solid var(--bg-color);
+    }
 
-        .empty-state {
-            text-align: center;
-            padding: 32px 16px;
-            color: var(--subtext);
-        }
-        .empty-state .empty-icon { font-size: 32px; margin-bottom: 8px; }
-        .empty-state .empty-title { font-size: 15px; font-weight: 600; color: var(--text-color); margin-bottom: 4px; }
-        .empty-state .empty-hint { font-size: 13px; opacity: 0.6; }
+    .empty-state {
+        text-align: center;
+        padding: 32px 16px;
+        color: var(--subtext);
+    }
+    .empty-state .empty-icon { font-size: 32px; margin-bottom: 8px; }
+    .empty-state .empty-title { font-size: 15px; font-weight: 600; color: var(--text-color); margin-bottom: 4px; }
+    .empty-state .empty-hint { font-size: 13px; opacity: 0.6; }
+`;
 
-        .status-bar {
-            border-top: 1px solid var(--border-color);
-            padding: 8px 20px;
-            display: flex;
-            gap: 16px;
-            align-items: center;
-        }
-        .status-bar kbd {
-            font-size: 11px;
-            color: var(--subtext);
-            font-family: inherit;
-        }
-        .status-bar kbd span {
-            font-size: 10px;
-            background: rgba(128,128,128,0.15);
-            border-radius: 4px;
-            padding: 1px 5px;
-            margin-right: 3px;
-            font-weight: 600;
-        }
+function createPalette() {
+    if (palette) return;
+
+    palette = document.createElement('div');
+    palette.id = 'tabs-plus-plus-palette-host';
+    palette.style.cssText = `
+        position: fixed;
+        top: 0; left: 0; width: 100vw; height: 100vh;
+        z-index: 2147483647;
+        display: none;
+        align-items: flex-start;
+        justify-content: center;
+        padding-top: 15vh;
+        background: rgba(0,0,0,0.22);
+        backdrop-filter: blur(12px);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
     `;
+
+    shadow = palette.attachShadow({ mode: 'closed' });
+
+    const style = document.createElement('style');
+    style.textContent = PALETTE_STYLES;
 
     const container = document.createElement('div');
     container.className = 'container';
@@ -319,16 +322,7 @@ function createPalette() {
     container.appendChild(inputWrapper);
     container.appendChild(resultsContainer);
 
-    const statusBar = document.createElement('div');
-    statusBar.className = 'status-bar';
-    statusBar.innerHTML = `
-        <kbd><span>↑↓</span> navigate</kbd>
-        <kbd><span>↵</span> open</kbd>
-        <kbd><span>esc</span> dismiss</kbd>
-        <kbd><span>!</span> bangs</kbd>
-    `;
-    container.appendChild(statusBar);
-    
+
     shadow.appendChild(style);
     shadow.appendChild(container);
 
@@ -410,9 +404,13 @@ function hidePalette() {
         if (!isVisible) {
             palette.style.display = 'none';
             // Aggressive Garbage Collection to free RAM
-            if (input) input.value = '';
+            if (input) {
+                input.value = '';
+                input.placeholder = "Search tabs, history, bookmarks... or try !yt, !gh";
+            }
             if (resultsContainer) resultsContainer.innerHTML = '';
             currentResults = [];
+            pendingCommand = null;
         }
     }, 150); // wait for animation
 }
@@ -506,6 +504,7 @@ function renderResults(results) {
     resultsContainer.innerHTML = '';
     resultsContainer.scrollTop = 0;
     currentResults = results;
+    domOrderedResults = [];
     selectedIndex = results.length > 0 ? 0 : -1;
 
     if (results.length === 0) {
@@ -544,10 +543,13 @@ function renderResults(results) {
             resultsContainer.appendChild(header);
         }
 
-        items.forEach(({ result, index }) => {
+        items.forEach(({ result }) => {
+            const domIndex = domOrderedResults.length;
+            domOrderedResults.push(result);
+
             const item = document.createElement('div');
             item.className = 'result-item';
-            if (index === selectedIndex) item.classList.add('selected');
+            if (domIndex === 0) item.classList.add('selected');
 
             // Favicon / icon
             const faviconContent = getFaviconHtml(result);
@@ -580,7 +582,7 @@ function renderResults(results) {
 
             item.addEventListener('click', () => activateResult(result));
             item.addEventListener('mousemove', () => {
-                if (selectedIndex !== index) updateSelection(index);
+                if (selectedIndex !== domIndex) updateSelection(domIndex);
             });
 
             resultsContainer.appendChild(item);
@@ -621,22 +623,42 @@ function handleKeydown(e) {
     if (!isVisible) return;
 
     if (e.key === 'Escape') {
+        if (pendingCommand) {
+            pendingCommand = null;
+            input.value = "";
+            input.placeholder = "Search tabs, history, bookmarks... or try !yt, !gh";
+            handleSearch();
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
         hidePalette();
         e.preventDefault();
         e.stopPropagation();
         return;
     }
 
-    if (currentResults.length === 0) return;
+    if (pendingCommand) {
+        if (e.key === 'Enter') {
+            const name = input.value.trim();
+            chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: pendingCommand, args: name });
+            pendingCommand = null;
+            hidePalette();
+            e.preventDefault();
+        }
+        return;
+    }
+
+    if (domOrderedResults.length === 0) return;
 
     if (e.key === 'ArrowDown') {
         let newIndex = selectedIndex + 1;
-        if (newIndex >= currentResults.length) newIndex = 0;
+        if (newIndex >= domOrderedResults.length) newIndex = 0;
         updateSelection(newIndex);
         e.preventDefault();
     } else if (e.key === 'ArrowUp') {
         let newIndex = selectedIndex - 1;
-        if (newIndex < 0) newIndex = currentResults.length - 1;
+        if (newIndex < 0) newIndex = domOrderedResults.length - 1;
         updateSelection(newIndex);
         e.preventDefault();
     } else if (e.key === 'Enter') {
@@ -648,8 +670,8 @@ function handleKeydown(e) {
             return;
         }
 
-        if (selectedIndex >= 0 && selectedIndex < currentResults.length) {
-            activateResult(currentResults[selectedIndex]);
+        if (selectedIndex >= 0 && selectedIndex < domOrderedResults.length) {
+            activateResult(domOrderedResults[selectedIndex]);
         }
         e.preventDefault();
     }
@@ -657,6 +679,21 @@ function handleKeydown(e) {
 
 function activateResult(result) {
     if (result.type === 'action') {
+        if (result.id === 'save_workspace' || result.id === 'save_group' || result.id === 'stash_group') {
+            pendingCommand = result.id;
+            input.value = '';
+            input.placeholder = `Enter name for this Set (or Esc to cancel)...`;
+            resultsContainer.innerHTML = '';
+            return;
+        }
+
+        if (result.id.startsWith('summon_set_palette|') || result.id.startsWith('launch_set_palette|') || result.id.startsWith('delete_set_palette|')) {
+            const parts = result.id.split('|');
+            chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: parts[0], args: parts.slice(1).join('|') });
+            hidePalette();
+            return;
+        }
+
         chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: result.id });
     } else if (result.type === 'tab') {
         chrome.runtime.sendMessage({ action: 'switch-to-tab', tabId: result.id, windowId: result.windowId });

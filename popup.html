@@ -58,6 +58,32 @@
       color: #ccc;
     }
 
+    /* ── Settings Alert ─────────────────────────── */
+    .startup-alert {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 16px;
+      background: #fdfaf3;
+      border-bottom: 1px solid #f4eedc;
+      font-size: 11px;
+      color: #6a5e42;
+      line-height: 1.3;
+    }
+    #fix-startup-btn {
+      background: #e8dcc4;
+      color: #6a5e42;
+      border: none;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      cursor: pointer;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    #fix-startup-btn:hover { background: #dcd0b3; }
+
     /* ── Feature List ─────────────────────────── */
     #feature-list {
       /* cards injected by JS */
@@ -205,15 +231,15 @@
       display: block;
     }
 
-    /* ── Profiles ─────────────────────────────── */
-    .profile-create {
+    /* ── Sets ─────────────────────────────── */
+    .set-create {
       display: flex;
       gap: 8px;
       padding: 16px 16px 12px;
       border-bottom: 1px solid #f4f4f4;
     }
 
-    .profile-input {
+    .set-input {
       flex: 1;
       padding: 6px 10px;
       border: 1px solid #e0e0e0;
@@ -223,7 +249,7 @@
       transition: border-color 0.15s;
     }
 
-    .profile-input:focus {
+    .set-input:focus {
       border-color: #111;
     }
 
@@ -262,29 +288,42 @@
       color: #111;
     }
 
-    .profile-list {
+    .set-list {
       padding: 8px 16px;
     }
 
-    .profile-item {
+    .set-item {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 8px 0;
       border-bottom: 1px solid #f8f8f8;
     }
-    .profile-item:last-child {
+    .set-item:last-child {
       border-bottom: none;
     }
 
-    .profile-name {
+    .set-name {
       font-size: 12px;
       font-weight: 500;
       color: #111;
       flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
-    .profile-actions {
+    .set-badge {
+      font-size: 8px;
+      padding: 2px 4px;
+      background: #f0f0f0;
+      border-radius: 3px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .set-actions {
       display: flex;
       gap: 4px;
     }
@@ -336,27 +375,31 @@
   <!-- Tabs Nav -->
   <div class="tabs">
     <button class="tab-btn active" data-target="settings-tab">Settings</button>
-    <button class="tab-btn" data-target="profiles-tab">Profiles</button>
+    <button class="tab-btn" data-target="sets-tab">Sets</button>
   </div>
 
   <!-- Tab Contents -->
   <div id="settings-tab" class="tab-content active">
+    <div class="startup-alert" id="startup-alert">
+      <span>💡 Keep groups alive on restart: Set Startup to <b>Continue where you left off</b></span>
+      <button id="fix-startup-btn">Fix ↗</button>
+    </div>
     <div id="feature-list"></div>
   </div>
 
-  <div id="profiles-tab" class="tab-content">
-    <div class="profile-create">
-      <input type="text" id="new-profile-name" class="profile-input" placeholder="e.g. Work, Research..." />
-      <button id="save-profile-btn" class="btn btn-dark">Save Window</button>
+  <div id="sets-tab" class="tab-content">
+    <div class="set-create">
+      <input type="text" id="new-set-name" class="set-input" placeholder="e.g. Work, Research..." />
+      <button id="save-set-btn" class="btn btn-dark">Save Window</button>
     </div>
-    <div class="profile-list" id="profile-list-container">
-      <!-- Profile items injected here -->
+    <div class="set-list" id="set-list-container">
+      <!-- Set items injected here -->
     </div>
     
     <!-- Export/Import Utils -->
     <div style="padding: 12px 16px; border-top: 1px solid #f4f4f4; display: flex; gap: 8px; justify-content: center;">
-      <button id="export-profiles-btn" class="btn btn-light" style="flex: 1;">Export</button>
-      <button id="import-profiles-btn" class="btn btn-light" style="flex: 1;">Import JSON</button>
+      <button id="export-sets-btn" class="btn btn-light" style="flex: 1;">Export</button>
+      <button id="import-sets-btn" class="btn btn-light" style="flex: 1;">Import JSON</button>
       <input type="file" id="import-file" accept="application/json" style="display: none;" />
     </div>
   </div>

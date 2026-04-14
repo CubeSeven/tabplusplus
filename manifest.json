@@ -1,8 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Tabs++",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Ensures pinned tabs are persistent and reset to their initial URL when closed.",
+  "chrome_url_overrides": {
+    "newtab": "ntp.html"
+  },
   "permissions": [
     "tabs",
     "storage",
@@ -39,18 +42,18 @@
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icon16.png",
-      "19": "icon19.png",
-      "32": "icon32.png",
-      "38": "icon38.png",
-      "48": "icon48.png",
-      "128": "icon128.png"
+      "16": "assets/icon16.png",
+      "19": "assets/icon19.png",
+      "32": "assets/icon32.png",
+      "38": "assets/icon38.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
     }
   },
   "icons": {
-    "16": "icon16.png",
-    "32": "icon32.png",
-    "48": "icon48.png",
-    "128": "icon128.png"
+    "16": "assets/icon16.png",
+    "32": "assets/icon32.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
   }
 }

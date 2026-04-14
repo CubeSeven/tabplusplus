@@ -1,0 +1,17 @@
+{
+  "manifest_version": 2,
+  "version": "1.4",
+  "name": "Seamless Dark Charcoal",
+  "theme": {
+    "colors": {
+      "frame": [60, 64, 67],
+      "frame_inactive": [60, 64, 67],
+      "toolbar": [60, 64, 67],
+      "tab_text": [255, 255, 255],
+      "tab_background_text": [200, 200, 200],
+      "bookmark_text": [255, 255, 255],
+      "ntp_background": [60, 64, 67],
+      "ntp_text": [255, 255, 255]
+    }
+  }
+}

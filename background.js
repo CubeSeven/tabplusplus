@@ -1,6 +1,23 @@
-// --- Zero-Overhead In-Memory State ---
+// ==========================================================================
+// --- GLOBAL STATE & CONFIGURATION ---
+// ==========================================================================
 let memoryBaselines = new Map(); // tabId -> { url, index, windowId, pinned, groupId }
-let globalSettings = { protectPinned: true, protectGrouped: true, enablePalette: true, enableAutoGroup: false };
+let globalSettings = { protectPinned: true, protectGrouped: true, enablePalette: true, enableAutoGroup: false, focusNTPOnClose: false };
+let lastActiveTabId = null;
+let isInitialized = false;
+let sessionVault = [];
+let lastSession = []; // To store the safety snapshot
+let tabSets = {};
+let groupCache = new Map(); // groupId -> { title, color }
+let peekWindows = new Map(); // Map of active Peek windowIds -> { windowId, groupId }
+let evictionGraveyard = new Map(); // tabId -> { data, timeoutIndex }
+let recreationRegistry = new Map(); // windowId|title -> Promise<groupId> 
+let groupClosureTracker = new Map(); // groupId -> { closedIds: Set, baselineCount: number }
+let windowBatchTracker = new Map(); // windowId -> { count: number, timestamp: number }
+let closingWindowIds = new Set(); // windowIds already bulk-saved to vault on shutdown
+
+const NTP_EXTENSION_URL = chrome.runtime.getURL('ntp.html');
+
 const GROUPING_RULES = [
     { title: 'Dev', color: 'blue', domains: ['github.com', 'gitlab.com', 'bitbucket.org', 'stackoverflow.com', 'aws.amazon.com', 'console.cloud.google.com', 'vercel.com', 'netlify.com', 'docker.com', 'cloudflare.com', 'jira.com', 'atlassian.net', 'linear.app', 'developer.mozilla.org', 'npmjs.com', 'codepen.io', 'replit.com', 'codesandbox.io', 'postman.com', 'sentry.io', 'datadoghq.com', 'cursor.sh', 'cursor.com', 'warp.dev', 'bun.sh', 'railway.app', 'supabase.com', 'huggingface.co', 'leetcode.com', 'geeksforgeeks.org', 'pypi.org', 'hub.docker.com', 'crates.io', 'search.maven.org'] },
     { title: 'Design', color: 'purple', domains: ['figma.com', 'canva.com', 'dribbble.com', 'behance.net', 'miro.com', 'framer.com', 'spline.design', 'adobe.com', 'awwwards.com', 'lottiefiles.com', 'unsplash.com', 'pexels.com', 'colorhunt.co', 'sketch.com', 'invisionapp.com', 'principleformac.com', 'zeplin.io', 'affinity.serif.com', 'coreldraw.com', 'muz.li', 'land-book.com', 'siteinspire.com', 'fontshare.com', 'fonts.google.com', 'coolors.co', 'iconify.design', 'flaticon.com', 'readymag.com', 'typedream.com', 'poly.cam', 'sketchfab.com'] },
@@ -9,16 +26,25 @@ const GROUPING_RULES = [
     { title: 'News', color: 'yellow', domains: ['nytimes.com', 'bbc.com', 'news.google.com', 'theverge.com', 'techcrunch.com', 'wsj.com', 'news.ycombinator.com', 'bloomberg.com', 'cnn.com', 'reuters.com', 'theguardian.com', 'hbr.org', 'wired.com', 'arstechnica.com', 'apnews.com', 'aljazeera.com', 'fortune.com', 'forbes.com', 'qz.com', 'mashable.com', 'engadget.com', 'gizmodo.com', 'medium.com', 'substack.com', 'ted.com', 'wikipedia.org', 'marketwatch.com', 'investopedia.com', 'finance.yahoo.com', 'seekingalpha.com'] },
     { title: 'Social', color: 'cyan', domains: ['x.com', 'twitter.com', 'facebook.com', 'reddit.com', 'instagram.com', 'linkedin.com', 'tiktok.com', 'pinterest.com', 'discord.com', 'web.whatsapp.com', 'messenger.com', 'tumblr.com', 'threads.net', 'bsky.app', 'polywork.com', 'slack.com', 'mastodon.social', 'fark.com', 'quora.com', 'nextdoor.com', 'wechat.com', 'telegram.org', 'vk.com', 'line.me', 'lemon8-app.com'] }
 ];
-let isInitialized = false;
-let sessionVault = [];
-let lastSession = []; // To store the safety snapshot
-let storedProfiles = {};
-let groupCache = new Map(); // groupId -> { title, color }
-let peekWindows = new Map(); // Map of active Peek windowIds -> { windowId, groupId }
-let evictionGraveyard = new Map(); // tabId -> { data, timeoutIndex }
 
-chrome.windows.onRemoved.addListener((windowId) => {
+// ==========================================================================
+// --- CORE SURVIVAL LOGIC ---
+// ==========================================================================
+
+chrome.windows.onRemoved.addListener(async (windowId) => {
     peekWindows.delete(windowId);
+    windowBatchTracker.delete(windowId);
+    closingWindowIds.delete(windowId);
+
+    // Force-snapshot when the LAST normal window closes so baselines survive
+    // a hard-close (Alt+F4, kill) where the debounce never gets to fire.
+    try {
+        const remaining = await chrome.windows.getAll({ windowTypes: ['normal'] });
+        if (remaining.length === 0) {
+            syncBaselinesToStorage(true); // bypass debounce
+            saveSnapshot();
+        }
+    } catch (e) {}
 });
 
 // Sync Vault Storage
@@ -26,14 +52,23 @@ function syncVaultToStorage() {
     chrome.storage.local.set({ vault: sessionVault });
 }
 
-// Sync Profiles Storage
-function syncProfilesToStorage() {
-    chrome.storage.local.set({ profiles: storedProfiles });
+// Sync Sets Storage
+function syncSetsToStorage() {
+    chrome.storage.local.set({ tabSets: tabSets });
 }
 
 // Debounced Storage Sync
 let syncTimeout = null;
-function syncBaselinesToStorage() {
+function syncBaselinesToStorage(force = false) {
+    if (force) {
+        // Bypass debounce — used when restoring tabs to ensure persistence
+        // before the service worker can be suspended and memory cleared.
+        if (syncTimeout) clearTimeout(syncTimeout);
+        const obj = Object.fromEntries(memoryBaselines);
+        chrome.storage.local.set({ baselines: obj });
+        saveSnapshot();
+        return;
+    }
     if (syncTimeout) clearTimeout(syncTimeout);
     syncTimeout = setTimeout(() => {
         const obj = Object.fromEntries(memoryBaselines);
@@ -75,11 +110,23 @@ let loadPromise = null;
 function ensureLoaded() {
     if (isInitialized) return Promise.resolve();
     if (!loadPromise) {
-        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'lastSession', 'profiles']).then((data) => {
+        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'lastSession', 'profiles', 'tabSets']).then((data) => {
             if (data.settings) globalSettings = { ...globalSettings, ...data.settings };
             sessionVault = data.vault || [];
             lastSession = data.lastSession || [];
-            storedProfiles = data.profiles || {};
+            
+            // Migration: Profiles to Sets
+            tabSets = data.tabSets || {};
+            if (data.profiles && Object.keys(data.profiles).length > 0) {
+                for (const [key, value] of Object.entries(data.profiles)) {
+                    if (!tabSets[key]) {
+                        tabSets[key] = { type: 'workspace', tabs: value };
+                    }
+                }
+                chrome.storage.local.set({ tabSets: tabSets });
+                chrome.storage.local.remove('profiles');
+            }
+
             
             const storedBaselines = data.baselines || {};
             memoryBaselines.clear();
@@ -132,37 +179,55 @@ async function initializeState() {
     if (changed) syncBaselinesToStorage();
 }
 
-// O(1) Fast-Path Event Listeners
+// The full chrome-extension URL for our NTP page (used to exclude it from protection)
+const NTP_EXTENSION_URL = chrome.runtime.getURL('ntp.html');
+
+// ==========================================================================
+// --- TAB STATE MANAGEMENT ---
+// ==========================================================================
 function processTab(tab) {
     if (peekWindows.has(tab.windowId)) return false; // Never protect tabs in Peak windows
+
+    const url = tab.url || tab.pendingUrl;
+
+    // Never protect our own NTP page — it's a transient focus-landing page, not content
+    if (url && url.startsWith(NTP_EXTENSION_URL)) return false;
 
     let isProtected = false;
     if (globalSettings.protectPinned && tab.pinned) isProtected = true;
     if (globalSettings.protectGrouped && tab.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) isProtected = true;
-    
-    const url = tab.url || tab.pendingUrl;
     // Notify the content script so it can intercept links
     try {
         if (url && !url.startsWith('chrome')) {
             chrome.tabs.sendMessage(tab.id, { action: 'update-tab-status', isProtected: isProtected }).catch(() => {});
         }
-    } catch (e) {
-        // Ignore synchronous errors like "Cannot access chrome:// URLs"
-    }
+    } catch (e) {}
 
     let changed = false;
 
-    if (isProtected && url && !url.startsWith('chrome')) {
+    if (isProtected) {
+        // For discarded tabs, url may be temporarily empty — fall back to existing baseline url
         const existing = memoryBaselines.get(tab.id);
+        const effectiveUrl = url || (existing && existing.url);
+        
+        if (!effectiveUrl || effectiveUrl.startsWith('chrome')) {
+            return false; // Nothing useful to do without a URL
+        }
+
         let groupTitle, groupColor;
         if (tab.groupId !== -1 && tab.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1) && groupCache.has(tab.groupId)) {
             const g = groupCache.get(tab.groupId);
             groupTitle = g.title;
             groupColor = g.color;
+        } else if (existing && existing.groupId === tab.groupId) {
+            // Preserve group metadata from baseline if group not yet in cache
+            groupTitle = existing.groupTitle;
+            groupColor = existing.groupColor;
         }
+
         if (!existing) {
             memoryBaselines.set(tab.id, {
-                url: url,
+                url: effectiveUrl,
                 index: tab.index,
                 windowId: tab.windowId,
                 pinned: tab.pinned,
@@ -172,37 +237,101 @@ function processTab(tab) {
             });
             changed = true;
         } else {
-            // Update metadata without modifying baseline url
-            if (existing.index !== tab.index || existing.windowId !== tab.windowId || existing.pinned !== tab.pinned || existing.groupId !== tab.groupId || existing.groupTitle !== groupTitle || existing.groupColor !== groupColor) {
+            // Update positional/state metadata; never overwrite url or _restoredAt
+            if (existing.index !== tab.index || existing.windowId !== tab.windowId || existing.pinned !== tab.pinned || existing.groupId !== tab.groupId || (groupTitle && existing.groupTitle !== groupTitle) || (groupColor && existing.groupColor !== groupColor)) {
                 existing.index = tab.index;
                 existing.windowId = tab.windowId;
                 existing.pinned = tab.pinned;
                 existing.groupId = tab.groupId;
-                existing.groupTitle = groupTitle;
-                existing.groupColor = groupColor;
+                if (groupTitle) existing.groupTitle = groupTitle;
+                if (groupColor) existing.groupColor = groupColor;
                 changed = true;
             }
         }
     } else if (memoryBaselines.has(tab.id)) {
-        const evictedData = memoryBaselines.get(tab.id);
-        memoryBaselines.delete(tab.id);
-        
-        // Anti-race condition: Chrome sometimes ungroups completely right before closing.
-        // We throw it in the graveyard for 1 second. If onRemoved hits, we still restore it.
-        if (evictionGraveyard.has(tab.id)) clearTimeout(evictionGraveyard.get(tab.id).timeout);
-        const tId = setTimeout(() => evictionGraveyard.delete(tab.id), 1000);
-        evictionGraveyard.set(tab.id, { data: evictedData, timeout: tId });
-        
-        changed = true;
+        const entry = memoryBaselines.get(tab.id);
+
+        // CRITICAL: Never evict a discarded (hibernated) tab.
+        // Chrome can fire onUpdated({groupId:-1}) as a side-effect of the discard process
+        // itself — this does NOT mean the user ungrouped it. We distinguish this from
+        // deliberate ungroup (which only happens on a non-discarded, active tab).
+        if (tab.discarded) return false;
+
+        // _restoredAt is ONLY set during restoration, never refreshed.
+        // Protects freshly restored tabs while grouping is settling (2s window).
+        const restoredAge = entry._restoredAt ? (Date.now() - entry._restoredAt) : Infinity;
+
+        if (restoredAge > 2000) {
+            // Grouping/Unpinning Detection:
+            // Chrome fires onUpdated({groupId: -1}) millseconds before onRemoved.
+            // If we evict immediately, onRemoved loses the group context and restores ungrouped.
+            // SOLUTION: Delay the eviction. If onRemoved fires in next 500ms, it wins.
+            if (entry._pendingEviction) return false;
+
+            entry._pendingEviction = true;
+            setTimeout(() => {
+                // Double check if tab still exists and is still unprotected
+                chrome.tabs.get(tab.id, (currentTab) => {
+                    if (chrome.runtime.lastError || !currentTab) {
+                        // Tab was removed (expected), onRemoved handled it using the baseline.
+                        return;
+                    }
+                    
+                    const matchesRestored = memoryBaselines.get(tab.id);
+                    if (!matchesRestored || !matchesRestored._pendingEviction) return;
+
+                    const stillUnprotected = !currentTab.pinned && currentTab.groupId === (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1);
+                    
+                    if (stillUnprotected) {
+
+                        const evictedData = { ...matchesRestored };
+                        delete evictedData._pendingEviction;
+                        
+                        memoryBaselines.delete(tab.id);
+
+                        // Graveyard fallback (just in case)
+                        if (evictionGraveyard.has(tab.id)) clearTimeout(evictionGraveyard.get(tab.id).timeout);
+                        const tId = setTimeout(() => evictionGraveyard.delete(tab.id), 1000);
+                        evictionGraveyard.set(tab.id, { data: evictedData, timeout: tId });
+                        
+                        syncBaselinesToStorage();
+                    } else {
+                        delete matchesRestored._pendingEviction;
+                    }
+                });
+            }, 500);
+        }
     }
     
     return changed;
 }
 
-// O(1) Fast-Path Event Listeners
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (changeInfo.url) {
-        removeFromVault(changeInfo.url);
+// ==========================================================================
+// --- CORE EVENT HANDLERS ---
+// ==========================================================================
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    if (changeInfo.url && changeInfo.url !== '' && !changeInfo.url.startsWith('chrome')) {
+        // Vault Auto-Heal: Catch native session restore dropping groups
+        const vIndex = sessionVault.findIndex(v => v.url === changeInfo.url);
+        if (vIndex !== -1) {
+            const vData = sessionVault.splice(vIndex, 1)[0];
+            syncVaultToStorage();
+            
+            // Re-apply missing group metadata injected natively by Chromium
+            if (!tab.pinned && vData.groupId !== -1 && vData.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
+                try {
+                    let existingGroups = await chrome.tabGroups.query({ windowId: tab.windowId, title: vData.groupTitle });
+                    if (existingGroups.length > 0) {
+                        await chrome.tabs.group({ tabIds: [tabId], groupId: existingGroups[0].id });
+                    } else {
+                        let gid = await chrome.tabs.group({ tabIds: [tabId] });
+                        await chrome.tabGroups.update(gid, { title: vData.groupTitle || '', color: vData.groupColor || 'grey' });
+                    }
+                } catch(e) {}
+            }
+        } else {
+            removeFromVault(changeInfo.url);
+        }
     }
     
     // Trigger sync on structural changes OR load completion (ensures windowId/index are mapped)
@@ -239,30 +368,17 @@ if (chrome.tabGroups) {
     });
 }
 
-// Prevent group inheritance for tabs opened from protected (pinned/grouped) tabs
-chrome.tabs.onCreated.addListener(async (tab) => {
-    if (tab.openerTabId && tab.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
-        await ensureLoaded();
-        try {
-            const opener = await chrome.tabs.get(tab.openerTabId);
-            if (opener) {
-                const isOpenerProtected = (globalSettings.protectPinned && opener.pinned) || 
-                                          (globalSettings.protectGrouped && opener.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1));
-                
-                if (isOpenerProtected) {
-                    // Force the new tab to be independent
-                    chrome.tabs.ungroup(tab.id).catch(() => {});
-                }
-            }
-        } catch (e) {
-            // Opener tab might have been closed already
-        }
-    }
-});
+// Group inheritance is permitted natively. 
 
-async function applyAutoGrouping(tab) {
+async function applyAutoGrouping(tab, retryCount = 0) {
     if (!tab.url) return;
     
+    // Grouping is only supported in 'normal' browser windows
+    try {
+        const win = await chrome.windows.get(tab.windowId);
+        if (win.type !== 'normal') return;
+    } catch (e) { return; }
+
     let matchedRule = null;
     try {
         const urlObj = new URL(tab.url);
@@ -280,28 +396,43 @@ async function applyAutoGrouping(tab) {
     if (!matchedRule) return;
 
     try {
-        // Find if a group with the expected title already exists in the same window
         const groups = await chrome.tabGroups.query({ windowId: tab.windowId, title: matchedRule.title });
-        
         let groupIdToUse = (groups && groups.length > 0) ? groups[0].id : null;
 
         if (groupIdToUse !== null) {
-            // Join existing group
             await chrome.tabs.group({ tabIds: tab.id, groupId: groupIdToUse });
         } else {
-            // Create new group
             groupIdToUse = await chrome.tabs.group({ tabIds: tab.id });
             await chrome.tabGroups.update(groupIdToUse, { title: matchedRule.title, color: matchedRule.color });
         }
     } catch (e) {
-        console.error("Auto-grouping failed", e);
+        const msg = e.message || "";
+        if (msg.includes("dragging") || msg.includes("edited right now")) {
+            // User is interacting. Retry with backoff.
+            if (retryCount < 3) {
+                setTimeout(() => {
+                    chrome.tabs.get(tab.id, (t) => {
+                        if (t) applyAutoGrouping(t, retryCount + 1);
+                    });
+                }, 400);
+            }
+        } else if (msg.includes("Grouping is not supported")) {
+            // Expected for some windows, fail silently
+        } else {
+            console.error("Auto-grouping failed", e);
+        }
     }
 }
+
 
 chrome.tabs.onMoved.addListener((tabId, moveInfo) => {
     chrome.tabs.get(tabId, (tab) => {
         if (tab && processTab(tab)) syncBaselinesToStorage();
     });
+});
+
+chrome.tabs.onActivated.addListener((activeInfo) => {
+    lastActiveTabId = activeInfo.tabId;
 });
 
 chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
@@ -335,24 +466,85 @@ chrome.storage.onChanged.addListener(async (changes, namespace) => {
 
 // Memory-backed instantaneous restore
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+    // Window Batch Closure Tracking (runs synchronously)
+    const now = Date.now();
+    let batchTracker = windowBatchTracker.get(removeInfo.windowId);
+    if (!batchTracker || now - batchTracker.timestamp > 150) {
+        batchTracker = { count: 0, timestamp: now };
+        windowBatchTracker.set(removeInfo.windowId, batchTracker);
+    }
+    batchTracker.count++;
+
+    // Focus Guard: If active tab is closed, redirect focus to NTP — reuse existing if present
+    if (globalSettings.focusNTPOnClose && tabId === lastActiveTabId && !removeInfo.isWindowClosing) {
+        (async () => {
+            try {
+                const ntpUrl = NTP_EXTENSION_URL;
+                const windowTabs = await chrome.tabs.query({ windowId: removeInfo.windowId });
+                const existingNtp = windowTabs.find(t => t.url && t.url.startsWith(ntpUrl));
+
+                if (existingNtp) {
+                    // Already exists — just focus it (it should already be standalone)
+                    chrome.tabs.update(existingNtp.id, { active: true }).catch(() => {});
+                } else {
+                    // Create at end of strip (high index prevents group inheritance)
+                    const created = await chrome.tabs.create({
+                        url: ntpUrl,
+                        active: true,
+                        windowId: removeInfo.windowId,
+                        index: 9999 // Forces placement at end of tab strip, away from any group
+                    });
+                    // Chrome may still auto-group it if the last tab was in a group — strip it
+                    if (created.groupId !== undefined && created.groupId !== -1 &&
+                        chrome.tabGroups && created.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+                        chrome.tabs.ungroup([created.id]).catch(() => {});
+                    }
+                }
+            } catch (e) {}
+        })();
+    }
+
     await ensureLoaded();
 
     // O(1) Memory lookup (check active baselines, then fallback to graveyard for race conditions)
     let data = memoryBaselines.get(tabId);
+    
     if (!data && evictionGraveyard.has(tabId)) {
         data = evictionGraveyard.get(tabId).data;
         clearTimeout(evictionGraveyard.get(tabId).timeout);
         evictionGraveyard.delete(tabId);
     }
     
+    // Group Explicit Deletion Detection
+    if (data && data.url && data.groupId !== -1 && data.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
+        let tracker = groupClosureTracker.get(data.groupId);
+        if (!tracker) {
+            let baselineCount = 0;
+            for (const b of memoryBaselines.values()) {
+                if (b.groupId === data.groupId) baselineCount++;
+            }
+            tracker = { closedIds: new Set(), baselineCount };
+            groupClosureTracker.set(data.groupId, tracker);
+            setTimeout(() => groupClosureTracker.delete(data.groupId), 250);
+        }
+        tracker.closedIds.add(tabId);
+    }
+
     // Check if entire window is being closed
     if (removeInfo.isWindowClosing) {
-        if (data && data.url) {
-            // Save to Vault instead of ignoring
-            if (!sessionVault.some(t => t.url === data.url && t.groupId === data.groupId)) {
-                sessionVault.push(data);
-                syncVaultToStorage();
+        // Bulk-dump the ENTIRE window's baselines on the FIRST tab seen from this window.
+        // Per-tab push is a race: the SW can die mid-loop leaving a partial vault.
+        // One atomic write is safe and complete.
+        if (!closingWindowIds.has(removeInfo.windowId)) {
+            closingWindowIds.add(removeInfo.windowId);
+            const windowBaselines = Array.from(memoryBaselines.values())
+                .filter(d => d.windowId === removeInfo.windowId && d.url);
+            for (const d of windowBaselines) {
+                if (!sessionVault.some(t => t.url === d.url && t.windowId === d.windowId)) {
+                    sessionVault.push(d);
+                }
             }
+            if (windowBaselines.length > 0) syncVaultToStorage();
         }
         return;
     }
@@ -362,49 +554,195 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
         memoryBaselines.delete(tabId);
         syncBaselinesToStorage();
 
-        // Fire-and-forget restoration chain (unblocks main thread instantly)
-        (async () => {
-            try {
-                // Determine recovery window/tab focus
-                const existingNewTabs = await chrome.tabs.query({ 
-                    windowId: removeInfo.windowId,
-                    url: ['chrome://newtab/', 'chrome-search://local-ntp/local-ntp.html'] 
-                });
-
-                if (existingNewTabs.length > 0) {
-                    chrome.tabs.update(existingNewTabs[0].id, { active: true }).catch(() => {});
-                } else {
-                    chrome.tabs.create({ windowId: removeInfo.windowId, active: true }).catch(() => {});
+        // Fire-and-forget restoration chain (unblocks main thread instantly), debounced slightly
+        setTimeout(() => {
+            // Check for Batch Close Bypass (e.g. "Close Other Tabs" or Multi-Select Close)
+            let batchTracker = windowBatchTracker.get(removeInfo.windowId);
+            if (batchTracker && batchTracker.count > 1) {
+                // USER ISSUED A BATCH CLOSE COMMAND
+                if (!sessionVault.some(t => t.url === data.url && t.groupId === data.groupId)) {
+                    sessionVault.push(data);
+                    syncVaultToStorage();
                 }
+                return; // Abort restore entirely!
+            }
 
-                // Silent background recreation
-                setTimeout(async () => {
-                    try {
-                        const newTab = await chrome.tabs.create({
-                            url: data.url,
-                            pinned: data.pinned,
-                            index: data.index >= 0 ? data.index : undefined,
-                            windowId: data.windowId,
-                            active: false
-                        });
-                        
-                        if (data.groupId !== -1 && data.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
-                            chrome.tabs.group({ tabIds: [newTab.id], groupId: data.groupId }).catch(() => {});
-                        }
-
-                        safeDiscard(newTab.id);
-                    } catch (e) {
-                        console.error("Delayed restore failed:", e);
-                        // Ultimate Safety Net: If strict attributes failed, force generic tab creation
-                        chrome.tabs.create({ url: data.url, pinned: data.pinned, active: false }).catch(() => {});
+            // Re-check group closure intent BEFORE restoring
+            if (data.groupId !== -1 && data.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
+                let tracker = groupClosureTracker.get(data.groupId);
+                if (tracker && tracker.closedIds.size >= tracker.baselineCount) {
+                    // USER DELIBERATELY DELETED/CLOSED THE ENTIRE GROUP!
+                    // Do NOT revive. Instead, just save to vault.
+                    if (!sessionVault.some(t => t.url === data.url && t.groupId === data.groupId)) {
+                        sessionVault.push(data);
+                        syncVaultToStorage();
                     }
-                }, 50);
+                    return; // Abort restore entirely!
+                }
+            }
+
+            (async () => {
+            try {
+                // SMART RE-USE: If Chrome already created a blank new tab (standard behavior
+                // when closing tabs), we hijack it instead of creating a second "ghost" tab.
+                // Also recognise our own NTP page as a hijackable blank (Focus Guard may have placed it).
+                // NOTE: We query all tabs then filter manually for NTP — chrome-extension match patterns
+                //       can be unreliable in tabs.query.
+                const allWindowTabs = await chrome.tabs.query({ windowId: removeInfo.windowId });
+                const potentialBlankTabs = allWindowTabs.filter(t => {
+                    const u = t.url || '';
+                    return u === 'chrome://newtab/' ||
+                           u === 'chrome-search://local-ntp/local-ntp.html' ||
+                           u === 'about:blank' ||
+                           u.startsWith(NTP_EXTENSION_URL);
+                });
+                
+                const remainingTabs = await chrome.tabs.query({ windowId: removeInfo.windowId });
+                const windowWillBeEmpty = remainingTabs.length === 0;
+
+                let newTab;
+                if (potentialBlankTabs.length > 0) {
+
+                    newTab = await chrome.tabs.update(potentialBlankTabs[0].id, {
+                        url: data.url,
+                        pinned: data.pinned,
+                        active: true // Always make it active if we are hijacking the current focus
+                    });
+                } else {
+                    newTab = await chrome.tabs.create({
+                        url: data.url,
+                        pinned: data.pinned,
+                        index: data.index >= 0 ? data.index : undefined,
+                        windowId: data.windowId,
+                        active: windowWillBeEmpty
+                    });
+                }
+                
+                // Immediate recreation (no delay to prevent race conditions)
+                try {
+                    
+                    // === CRITICAL: Force-register BEFORE any other async operation ===
+                    memoryBaselines.set(newTab.id, {
+                        url: data.url,
+                        index: newTab.index,
+                        windowId: newTab.windowId,
+                        pinned: data.pinned,
+                        groupId: data.groupId,
+                        groupTitle: data.groupTitle,
+                        groupColor: data.groupColor,
+                        _restoredAt: Date.now()
+                    });
+                    syncBaselinesToStorage(true); // Force immediate write — service worker may suspend before debounce fires
+
+
+                    // Grouping is handled after registration to ensure safety
+                    if (data.groupId !== -1 && data.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
+                        const groupKey = `${newTab.windowId}|${data.groupTitle || ''}`;
+                        
+                        if (recreationRegistry.has(groupKey)) {
+                            // Join the recreation already in progress
+                            try {
+                                const targetGid = await recreationRegistry.get(groupKey);
+                                await chrome.tabs.group({ tabIds: [newTab.id], groupId: targetGid });
+                                const entry = memoryBaselines.get(newTab.id);
+                                if (entry) { entry.groupId = targetGid; syncBaselinesToStorage(); }
+                            } catch (e) {
+                                // If joining failed, the group might have been invalid, allow retry
+                                recreationRegistry.delete(groupKey);
+                                const entry = memoryBaselines.get(newTab.id);
+                                if (entry) { entry.groupId = -1; syncBaselinesToStorage(); }
+                            }
+                        } else {
+                            // We are the leader for this group name in this window
+                            const recreationPromise = (async () => {
+                                try {
+                                    // 1. Try original ID (unlikely to work if group was closed)
+                                    try {
+                                        await chrome.tabs.group({ tabIds: [newTab.id], groupId: data.groupId });
+                                        return data.groupId;
+                                    } catch {
+                                        // 2. Search for existing match that might have been created by previous restoration cycle
+                                        if (data.groupTitle) {
+                                            const existingGroups = await chrome.tabGroups.query({ 
+                                                windowId: newTab.windowId, 
+                                                title: data.groupTitle 
+                                            });
+                                            if (existingGroups.length > 0) {
+                                                const gid = existingGroups[0].id;
+                                                await chrome.tabs.group({ tabIds: [newTab.id], groupId: gid });
+                                                return gid;
+                                            }
+                                        }
+
+                                        // 3. Recreate fresh
+                                        const newGid = await chrome.tabs.group({ tabIds: [newTab.id] });
+                                        await chrome.tabGroups.update(newGid, {
+                                            title: data.groupTitle || '',
+                                            color: data.groupColor || 'grey'
+                                        });
+                                        return newGid;
+                                    }
+                                } catch (e) {
+                                    throw e;
+                                }
+                            })();
+
+                            recreationRegistry.set(groupKey, recreationPromise);
+                            
+                            // Clear lock after 5s to allow for future manual closures/restores
+                            setTimeout(() => {
+                                if (recreationRegistry.get(groupKey) === recreationPromise) {
+                                    recreationRegistry.delete(groupKey);
+                                }
+                            }, 5000);
+
+                            try {
+                                const finalGid = await recreationPromise;
+                                const entry = memoryBaselines.get(newTab.id);
+                                if (entry) { entry.groupId = finalGid; syncBaselinesToStorage(); }
+                            } catch (e) {
+                                console.error("Group synchronized recreation failed", e);
+                                const entry = memoryBaselines.get(newTab.id);
+                                if (entry) { entry.groupId = -1; syncBaselinesToStorage(); }
+                            }
+                        }
+                    }
+
+
+
+                    // Hibernate only after all structural changes are done
+                    safeDiscard(newTab.id);
+                } catch (e) {
+                    console.error("Tab creation failed:", e);
+                    // Ultimate Safety Net: If strict attributes failed, force generic tab creation
+                    chrome.tabs.create({ url: data.url, pinned: data.pinned, active: false }).catch(() => {});
+                }
 
             } catch (e) {
                 console.error("Restore logic failed:", e);
                 chrome.tabs.create({ url: data.url, pinned: data.pinned });
             }
         })();
+        }, 100);
+    }
+});
+
+// Chrome can secretly CHANGE a tab's ID when it discards/hibernates it! 
+// We MUST migrate our tracking data to the new ID, otherwise the next time 
+// the user clicks or closes the tab, we won't recognize it.
+chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+    let data = memoryBaselines.get(removedTabId);
+    if (data) {
+
+        memoryBaselines.set(addedTabId, data);
+        memoryBaselines.delete(removedTabId);
+        syncBaselinesToStorage();
+    }
+    
+    // Also migrate graveyard just in case
+    if (evictionGraveyard.has(removedTabId)) {
+        evictionGraveyard.set(addedTabId, evictionGraveyard.get(removedTabId));
+        evictionGraveyard.delete(removedTabId);
     }
 });
 
@@ -419,6 +757,17 @@ chrome.runtime.onStartup.addListener(() => {
 });
 initializeState();
 
+// Last-resort flush: fires when Chrome is about to kill the service worker
+// (complements windows.onRemoved which handles clean window-close path)
+chrome.runtime.onSuspend.addListener(() => {
+    const obj = Object.fromEntries(memoryBaselines);
+    chrome.storage.local.set({ baselines: obj });
+    saveSnapshot();
+});
+
+// ==========================================================================
+// --- COMMAND PALETTE & ACTIONS ---
+// ==========================================================================
 // --- AUTO-ARCHIVE LOGIC ---
 chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name === "archiveCheck") {
@@ -449,7 +798,10 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'gather_standalone', category: 'Organization', title: 'Gather Standalone Tabs', aliases: ['extract', 'pull'] },
     { type: 'action', id: 'consolidate_domain', category: 'Organization', title: 'Consolidate Domain', aliases: ['merge', 'same site'] },
     { type: 'action', id: 'extract_group', category: 'Organization', title: 'Extract Group to Window', aliases: ['move group', 'pop out'] },
-    { type: 'action', id: 'stash_workspace', category: 'Organization', title: 'Stash Workspace', aliases: ['save', 'hide', 'store'] },
+    { type: 'action', id: 'save_workspace', category: 'Sets', title: 'Save Workspace as Set', aliases: ['snapshot', 'store window', 'save'] },
+    { type: 'action', id: 'save_group', category: 'Sets', title: 'Save Group as Set', aliases: ['store group', 'save'] },
+    { type: 'action', id: 'stash_group', category: 'Sets', title: 'Stash Current Group', aliases: ['hide', 'store and close'] },
+    { type: 'action', id: 'export_sets', category: 'Sets', title: 'Export Sets JSON', aliases: ['backup sets', 'download'] },
     
     { type: 'action', id: 'hibernate_all', category: 'Performance', title: 'Hibernate Background Tabs', aliases: ['sleep', 'ram', 'memory', 'freeze'] },
     { type: 'action', id: 'hibernate_window', category: 'Performance', title: 'Hibernate Window', aliases: ['sleep', 'ram', 'memory'] },
@@ -469,7 +821,9 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'copy_md_link', category: 'Productivity', title: 'Copy Markdown Link', aliases: ['markdown', 'url', 'copy link'] },
     { type: 'action', id: 'new_incognito', category: 'Window', title: 'New Incognito Window', aliases: ['private', 'secret', 'incognito'] },
     
+    { type: 'action', id: 'gather_groups', category: 'Organization', title: 'Gather All Groups to Window', aliases: ['summon all groups', 'collect groups', 'move groups'] },
     { type: 'action', id: 'update_baseline', category: 'Control', title: 'Update Pinned URL', aliases: ['reset url', 'change baseline', 'set url'] },
+
     { type: 'action', id: 'split_view', category: 'Window', title: 'Split View (Side-by-Side)', aliases: ['split', 'half', 'tile', 'side by side'] },
     { type: 'action', id: 'hard_reload', category: 'Control', title: 'Hard Reload', aliases: ['refresh', 'f5', 'cache', 'bypass'] },
     { type: 'action', id: 'close_other_tabs', category: 'Organization', title: 'Close Other Tabs', aliases: ['close rest', 'keep only this', 'isolate'] },
@@ -567,7 +921,7 @@ chrome.commands.onCommand.addListener(async (command) => {
 // Handle search queries from the palette
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "search-items") {
-        ensureLoaded().then(() => {
+        ensureLoaded().then(async () => {
             const settings = globalSettings;
             if (!settings.enablePalette) {
                 sendResponse({ results: [] });
@@ -580,6 +934,71 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             // ACTION ENGINE INTERCEPTOR
             if (query.startsWith('>')) {
                 const actionQuery = query.substring(1).trim().toLowerCase();
+                
+                // Dynamic Group & Set Commands
+                const dynamicRegex = /^(summon|launch|delete set)\s*(.*)/;
+                const dynamicMatch = actionQuery.match(dynamicRegex);
+                
+                if (dynamicMatch) {
+                    const op = dynamicMatch[1];
+                    let term = dynamicMatch[2];
+                    let dynamicResults = [];
+                    
+                    // 1. Check Active Groups first (for 'summon' op)
+                    if (op === 'summon' && chrome.tabGroups) {
+                        try {
+                            const allGroups = await chrome.tabGroups.query({});
+                            for (const g of allGroups) {
+                                if (!term || (g.title && g.title.toLowerCase().includes(term))) {
+                                    dynamicResults.push({
+                                        type: 'action',
+                                        id: `summon_group_palette|${g.id}`,
+                                        category: 'Groups',
+                                        title: `Summon Group: "${g.title || 'Untitled'}"`,
+                                        aliases: []
+                                    });
+                                }
+                            }
+                        } catch (e) {}
+                    }
+
+                    // 2. Check Saved Sets
+                    for (const setName of Object.keys(tabSets)) {
+                        if (!term || setName.toLowerCase().includes(term)) {
+                            let title = "";
+                            let id = "";
+                            let category = 'Sets';
+                            
+                            if (op === 'summon') {
+                                title = `Summon Set: "${setName}"`;
+                                id = `summon_set_palette|${setName}`;
+                            } else if (op === 'launch') {
+                                title = `Launch Set: "${setName}"`;
+                                id = `launch_set_palette|${setName}`;
+                            } else if (op === 'delete set') {
+                                title = `Delete Set: "${setName}"`;
+                                id = `delete_set_palette|${setName}`;
+                            }
+                            
+                            dynamicResults.push({
+                                type: 'action',
+                                id: id,
+                                category: category,
+                                title: title,
+                                aliases: []
+                            });
+                        }
+                    }
+
+                    if (dynamicResults.length > 0) {
+                        sendResponse({ results: dynamicResults.slice(0, 15) });
+                    } else {
+                        sendResponse({ results: [{ type: 'action', id: 'noop', category: 'Sets', title: `No matches found for "${term}"` }] });
+                    }
+                    return;
+                }
+
+
                 let filtered = EXTENSION_ACTIONS;
                 if (actionQuery) {
                     filtered = filtered.filter(a => {
@@ -764,42 +1183,50 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 return;
             }
             
-            // Group by original windowId
-            const windowsToRestore = {};
-            sessionVault.forEach(tab => {
-                if (!windowsToRestore[tab.windowId]) windowsToRestore[tab.windowId] = [];
-                windowsToRestore[tab.windowId].push(tab);
+            // Sort: pinned first → grouped (by title) → standalone
+            // Pinned tabs MUST be created before grouped tabs so Chrome anchors them at index 0.
+            const sorted = sessionVault.slice().sort((a, b) => {
+                if (a.pinned && !b.pinned) return -1;
+                if (b.pinned && !a.pinned) return 1;
+                return (a.groupTitle || '').localeCompare(b.groupTitle || '');
             });
             
-            for (const winId of Object.keys(windowsToRestore)) {
-                const newWin = await chrome.windows.create({ focused: true });
-                let groupMap = {};
-                for (const data of windowsToRestore[winId]) {
-                    const newTab = await chrome.tabs.create({
-                        url: data.url,
-                        pinned: data.pinned,
-                        windowId: newWin.id,
-                        active: false
-                    });
-                    if (data.groupId !== -1 && data.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
-                        let groupKey = `${data.groupTitle}-${data.groupColor}`;
-                        if (!groupMap[groupKey]) {
-                            let gid = await chrome.tabs.group({ tabIds: [newTab.id] });
-                            if (data.groupTitle !== undefined || data.groupColor !== undefined) {
-                                await chrome.tabGroups.update(gid, { title: data.groupTitle || "", color: data.groupColor || "grey" });
-                            }
-                            groupMap[groupKey] = gid;
-                        } else {
-                            await chrome.tabs.group({ tabIds: [newTab.id], groupId: groupMap[groupKey] });
-                        }
+            // ONE window for everything — old windowIds are stale across sessions.
+            // Opening N windows (by original windowId) is wrong and confusing.
+            const newWin = await chrome.windows.create({ focused: true });
+            const startTabs = await chrome.tabs.query({ windowId: newWin.id });
+
+            let groupMap = {};
+            let first = true;
+            for (const data of sorted) {
+                const newTab = await chrome.tabs.create({
+                    url: data.url,
+                    pinned: data.pinned,
+                    windowId: newWin.id,
+                    active: first // Make the first real tab active
+                });
+
+                if (first) {
+                    // Now that we have a real tab, safely remove the default blank tab(s)
+                    first = false;
+                    await Promise.all(startTabs.map(t => chrome.tabs.remove(t.id).catch(() => {})));
+                }
+
+                // Only group non-pinned tabs — Chrome rejects grouping pinned tabs
+                if (!data.pinned && data.groupId !== -1 && data.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
+                    const groupKey = `${data.groupTitle || ''}-${data.groupColor || 'grey'}`;
+                    if (!groupMap[groupKey]) {
+                        const gid = await chrome.tabs.group({ tabIds: [newTab.id] });
+                        await chrome.tabGroups.update(gid, {
+                            title: data.groupTitle || '',
+                            color: data.groupColor || 'grey'
+                        });
+                        groupMap[groupKey] = gid;
+                    } else {
+                        await chrome.tabs.group({ tabIds: [newTab.id], groupId: groupMap[groupKey] });
                     }
-                    safeDiscard(newTab.id);
                 }
-                // Cleanup blank default tab
-                const allWinTabs = await chrome.tabs.query({ windowId: newWin.id });
-                if (allWinTabs.length > windowsToRestore[winId].length) {
-                    chrome.tabs.remove(allWinTabs[0].id).catch(() => {});
-                }
+                safeDiscard(newTab.id);
             }
             
             sessionVault = [];
@@ -820,48 +1247,52 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     
     if (request.action === "open-url") {
         if (request.url === 'virtual:restore-vault') {
-            // It's the vault restore command from the palette
+            // Palette vault restore — same single-window logic as restore-vault action
             ensureLoaded().then(async () => {
                 if (!sessionVault || sessionVault.length === 0) {
                     sendResponse({ success: false });
                     return;
                 }
                 
-                const windowsToRestore = {};
-                sessionVault.forEach(tab => {
-                    if (!windowsToRestore[tab.windowId]) windowsToRestore[tab.windowId] = [];
-                    windowsToRestore[tab.windowId].push(tab);
+                const sorted = sessionVault.slice().sort((a, b) => {
+                    if (a.pinned && !b.pinned) return -1;
+                    if (b.pinned && !a.pinned) return 1;
+                    return (a.groupTitle || '').localeCompare(b.groupTitle || '');
                 });
                 
-                for (const winId of Object.keys(windowsToRestore)) {
-                    const newWin = await chrome.windows.create({ focused: true });
-                    let groupMap = {};
-                    for (const data of windowsToRestore[winId]) {
-                        const newTab = await chrome.tabs.create({
-                            url: data.url,
-                            pinned: data.pinned,
-                            windowId: newWin.id,
-                            active: false
-                        });
-                        if (data.groupId !== -1 && data.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
-                            let groupKey = `${data.groupTitle}-${data.groupColor}`;
-                            if (!groupMap[groupKey]) {
-                                let gid = await chrome.tabs.group({ tabIds: [newTab.id] });
-                                if (data.groupTitle !== undefined || data.groupColor !== undefined) {
-                                    await chrome.tabGroups.update(gid, { title: data.groupTitle || "", color: data.groupColor || "grey" });
-                                }
-                                groupMap[groupKey] = gid;
-                            } else {
-                                await chrome.tabs.group({ tabIds: [newTab.id], groupId: groupMap[groupKey] });
+                const newWin = await chrome.windows.create({ focused: true });
+                const startTabs = await chrome.tabs.query({ windowId: newWin.id });
+
+                let groupMap = {};
+                let first = true;
+                for (const data of sorted) {
+                    const newTab = await chrome.tabs.create({
+                        url: data.url,
+                        pinned: data.pinned,
+                        windowId: newWin.id,
+                        active: first
+                    });
+
+                    if (first) {
+                        first = false;
+                        await Promise.all(startTabs.map(t => chrome.tabs.remove(t.id).catch(() => {})));
+                    }
+
+                    if (!data.pinned && data.groupId !== -1 && data.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
+                        const groupKey = `${data.groupTitle || ''}-${data.groupColor || 'grey'}`;
+                        if (!groupMap[groupKey]) {
+                            const gid = await chrome.tabs.group({ tabIds: [newTab.id] });
+                            await chrome.tabGroups.update(gid, {
+                                title: data.groupTitle || '',
+                                color: data.groupColor || 'grey'
+                            });
+                            groupMap[groupKey] = gid;
+                        } else {
+                            await chrome.tabs.group({ tabIds: [newTab.id], groupId: groupMap[groupKey] });
                         }
                     }
                     safeDiscard(newTab.id);
                 }
-                const allWinTabs = await chrome.tabs.query({ windowId: newWin.id });
-                if (allWinTabs.length > windowsToRestore[winId].length) {
-                    chrome.tabs.remove(allWinTabs[0].id).catch(() => {});
-                }
-            }
                 
                 sessionVault = [];
                 syncVaultToStorage();
@@ -871,7 +1302,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         // ALWAYS New Tab as requested by user
-        chrome.tabs.create({ url: request.url, active: true });
+        chrome.tabs.create({ url: request.url, active: true }, (tab) => {
+            if (tab) chrome.windows.update(tab.windowId, { focused: true });
+        });
         sendResponse({ success: true });
         return true;
     }
@@ -892,25 +1325,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             // unknown bang defaults to google
         }
 
-        chrome.tabs.create({ url: url, active: true });
+        chrome.tabs.create({ url: url, active: true }, (tab) => {
+            if (tab) chrome.windows.update(tab.windowId, { focused: true });
+        });
         sendResponse({ success: true });
         return true;
     }
 
-    if (request.action === "get-profiles") {
+    if (request.action === "get-sets") {
         ensureLoaded().then(() => {
-            sendResponse({ profiles: storedProfiles });
+            sendResponse({ sets: tabSets });
         });
         return true;
     }
 
-    if (request.action === "save-profile") {
+    if (request.action === "save-set") {
         ensureLoaded().then(async () => {
              const tabs = await chrome.tabs.query({ windowId: request.windowId || chrome.windows.WINDOW_ID_CURRENT });
              const protectedTabs = [];
              
              for(let t of tabs) {
-                 if (t.pinned || (t.groupId !== -1 && t.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1))) {
+                 let shouldSave = false;
+                 if (request.setType === 'group') {
+                     shouldSave = (t.groupId === request.groupId);
+                 } else {
+                     shouldSave = (t.pinned || (t.groupId !== -1 && t.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)));
+                 }
+                 
+                 if (shouldSave) {
                      let tabData = { url: t.url, pinned: t.pinned, groupId: t.groupId !== -1 ? t.groupId : -1 };
                      if (t.groupId !== -1 && t.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
                          try {
@@ -923,17 +1365,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                  }
              }
              
-             storedProfiles[request.name] = protectedTabs;
-             syncProfilesToStorage();
-             sendResponse({ success: true, profiles: storedProfiles });
+             tabSets[request.name] = { type: request.setType || 'workspace', tabs: protectedTabs };
+             syncSetsToStorage();
+             sendResponse({ success: true, sets: tabSets });
         });
         return true;
     }
 
-    if (request.action === "launch-profile") {
+    if (request.action === "launch-set") {
         ensureLoaded().then(async () => {
-             const profileTabs = storedProfiles[request.name];
-             if (!profileTabs || profileTabs.length === 0) {
+             const setObj = tabSets[request.name];
+             if (!setObj || !setObj.tabs || setObj.tabs.length === 0) {
                  sendResponse({ success: false });
                  return;
              }
@@ -941,7 +1383,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
              const newWin = await chrome.windows.create({ focused: true });
              let groupMap = {}; 
 
-             for (const data of profileTabs) {
+             for (const data of setObj.tabs) {
                  const newTab = await chrome.tabs.create({
                      url: data.url,
                      pinned: data.pinned,
@@ -960,12 +1402,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                      }
                  }
                  
-                // Strict discard optimized for Chrome's tab scheduling
                 if (!data.active) safeDiscard(newTab.id);
              }
              
              const allWinTabs = await chrome.tabs.query({ windowId: newWin.id });
-             if (allWinTabs.length > profileTabs.length) {
+             if (allWinTabs.length > setObj.tabs.length) {
                  chrome.tabs.remove(allWinTabs[0].id).catch(() => {});
              }
              
@@ -974,24 +1415,73 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
-    if (request.action === "delete-profile") {
-        ensureLoaded().then(() => {
-            delete storedProfiles[request.name];
-            syncProfilesToStorage();
-            sendResponse({ success: true, profiles: storedProfiles });
+    if (request.action === "summon-set") {
+        ensureLoaded().then(async () => {
+             const setObj = tabSets[request.name];
+             if (!setObj || !setObj.tabs || setObj.tabs.length === 0) {
+                 sendResponse({ success: false });
+                 return;
+             }
+             
+             const targetWinId = request.windowId || chrome.windows.WINDOW_ID_CURRENT;
+             
+             const existingGroups = chrome.tabGroups ? await chrome.tabGroups.query({ windowId: targetWinId }) : [];
+             let groupMap = {};
+             
+             for (const g of existingGroups) {
+                 let groupKey = `${g.title || ""}-${g.color || "grey"}`;
+                 groupMap[groupKey] = g.id;
+             }
+
+             for (const data of setObj.tabs) {
+                 const newTab = await chrome.tabs.create({
+                     url: data.url,
+                     pinned: data.pinned,
+                     windowId: targetWinId,
+                     active: false
+                 });
+                 
+                 if (data.groupId !== -1 && chrome.tabGroups) {
+                     let groupKey = `${data.groupTitle || ""}-${data.groupColor || "grey"}`;
+                     if (!groupMap[groupKey]) {
+                         let gid = await chrome.tabs.group({ tabIds: [newTab.id] });
+                         await chrome.tabGroups.update(gid, { title: data.groupTitle || "", color: data.groupColor || "grey" });
+                         groupMap[groupKey] = gid;
+                     } else {
+                         await chrome.tabs.group({ tabIds: [newTab.id], groupId: groupMap[groupKey] });
+                     }
+                 }
+                 
+                if (!data.active) safeDiscard(newTab.id);
+             }
+             
+             sendResponse({ success: true });
         });
         return true;
     }
 
-    if (request.action === "import-profiles") {
+    if (request.action === "delete-set") {
         ensureLoaded().then(() => {
-            const imported = request.profiles;
+            delete tabSets[request.name];
+            syncSetsToStorage();
+            sendResponse({ success: true, sets: tabSets });
+        });
+        return true;
+    }
+
+    if (request.action === "import-sets") {
+        ensureLoaded().then(() => {
+            const imported = request.sets;
             if (imported && typeof imported === 'object') {
                 for (let key in imported) {
-                    storedProfiles[key] = imported[key];
+                    if (Array.isArray(imported[key])) {
+                        tabSets[key] = { type: 'workspace', tabs: imported[key] };
+                    } else {
+                        tabSets[key] = imported[key];
+                    }
                 }
-                syncProfilesToStorage();
-                sendResponse({ success: true, profiles: storedProfiles });
+                syncSetsToStorage();
+                sendResponse({ success: true, sets: tabSets });
             } else {
                 sendResponse({ success: false });
             }
@@ -1061,334 +1551,356 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                  }
              });
         });
-        sendResponse({ success: true });
+        sendResponse({ success    if (request.action === 'execute-browser-action') {
+        executeBrowserAction(request.commandId, request.args).then(() => {
+            sendResponse({ success: true });
+        });
         return true;
     }
+});
 
-    if (request.action === 'execute-browser-action') {
-        ensureLoaded().then(async () => {
-            try {
-                switch(request.commandId) {
-                    case 'magic_organize': {
-                        const allT = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        let domainMap = {};
-                        for (let t of allT) {
-                            if (t.pinned) continue;
-                            try {
-                                let domain = new URL(t.url).hostname.replace('www.', '');
-                                if (!domainMap[domain]) domainMap[domain] = [];
-                                domainMap[domain].push(t);
-                            } catch(e) {}
-                        }
-                        for (let domain in domainMap) {
-                            if (domainMap[domain].length > 1) {
-                                let ids = domainMap[domain].map(t => t.id);
-                                let gid = await chrome.tabs.group({ tabIds: ids });
-                                await chrome.tabGroups.update(gid, { title: domain });
-                            }
-                        }
-                        break;
-                    }
-                    case 'ungroup_all': {
-                        const utabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        for (let t of utabs) {
-                            if (t.groupId !== -1 && t.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
-                                chrome.tabs.ungroup(t.id).catch(()=>{});
-                            }
-                        }
-                        break;
-                    }
-                    case 'dedupe_window': {
-                        const dtabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        let seenUrls = new Set();
-                        let toClose = [];
-                        for (let t of dtabs) {
-                            if (!t.url) continue;
-                            let cleanUrl = t.url.split('#')[0];
-                            if (seenUrls.has(cleanUrl)) {
-                                if (!t.active) toClose.push(t.id);
-                            } else seenUrls.add(cleanUrl);
-                        }
-                        if (toClose.length > 0) chrome.tabs.remove(toClose).catch(()=>{});
-                        break;
-                    }
-                    case 'gather_standalone': {
-                        const stabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT, pinned: false });
-                        let standaloneIds = stabs.filter(t => (t.groupId === -1 || t.groupId === (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) && !t.active).map(t => t.id);
-                        if (standaloneIds.length > 0) {
-                            chrome.windows.create({ tabId: standaloneIds[0] }, (w) => {
-                                if (standaloneIds.length > 1) {
-                                    chrome.tabs.move(standaloneIds.slice(1), { windowId: w.id, index: -1 });
-                                }
-                            });
-                        }
-                        break;
-                    }
-                    case 'consolidate_domain': {
-                        const activeArray = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        if (activeArray.length) {
-                            try {
-                                let d = new URL(activeArray[0].url).hostname.replace('www.', '');
-                                const allWindowsTabs = await chrome.tabs.query({});
-                                let matchingIds = allWindowsTabs.filter(t => t.url && t.url.includes(d) && t.windowId !== chrome.windows.WINDOW_ID_CURRENT).map(t => t.id);
-                                if (matchingIds.length > 0) {
-                                    chrome.tabs.move(matchingIds, { windowId: chrome.windows.WINDOW_ID_CURRENT, index: -1 });
-                                }
-                            } catch(e) {}
-                        }
-                        break;
-                    }
-                    case 'extract_group': {
-                        const extractTabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        if (extractTabs.length && extractTabs[0].groupId !== -1 && extractTabs[0].groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
-                            const gtabs = await chrome.tabs.query({ groupId: extractTabs[0].groupId });
-                            let gIds = gtabs.map(t => t.id);
-                            if (gIds.length > 0) {
-                                chrome.windows.create({ tabId: gIds[0] }, (w) => {
-                                    if (gIds.length > 1) {
-                                        chrome.tabs.move(gIds.slice(1), { windowId: w.id, index: -1 });
-                                    }
-                                });
-                            }
-                        }
-                        break;
-                    }
-                    case 'stash_workspace': {
-                        const stashTabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        const protectedStash = [];
-                        for(let t of stashTabs) {
-                             let tabData = { url: t.url, pinned: t.pinned, groupId: t.groupId !== -1 ? t.groupId : -1 };
-                             if (t.groupId !== -1 && chrome.tabGroups) {
-                                 try {
-                                      let g = await chrome.tabGroups.get(t.groupId);
-                                      tabData.groupTitle = g.title; 
-                                      tabData.groupColor = g.color;
-                                  } catch (e) { }
-                             }
-                             protectedStash.push(tabData);
-                        }
-                        const name = "Stash_" + new Date().toLocaleTimeString();
-                        storedProfiles[name] = protectedStash;
-                        syncProfilesToStorage();
-                        chrome.windows.remove(chrome.windows.WINDOW_ID_CURRENT).catch(()=>{});
-                        break;
-                    }
-                    case 'hibernate_all': {
-                        const hatabs = await chrome.tabs.query({ active: false });
-                        for (let t of hatabs) {
-                            if (!t.discarded) chrome.tabs.discard(t.id).catch(()=>{});
-                        }
-                        break;
-                    }
-                    case 'hibernate_window': {
-                        const hwtabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT, active: false });
-                        for (let t of hwtabs) {
-                            if (!t.discarded) chrome.tabs.discard(t.id).catch(()=>{});
-                        }
-                        break;
-                    }
-                    case 'pause_media': {
-                        const pmtabs = await chrome.tabs.query({});
-                        for (let t of pmtabs) {
-                            if (t.url && (t.url.startsWith('chrome://') || t.url.startsWith('edge://') || t.url.startsWith('chrome-extension://'))) continue;
-                            chrome.scripting.executeScript({
-                                target: { tabId: t.id },
-                                func: () => {
-                                    document.querySelectorAll('video, audio').forEach(m => m.pause());
-                                }
-                            }).catch(()=>{});
-                        }
-                        break;
-                    }
-                    case 'mute_background': {
-                        const mbtabs = await chrome.tabs.query({ active: false });
-                        for (let t of mbtabs) {
-                            chrome.tabs.update(t.id, { muted: true }).catch(()=>{});
-                        }
-                        break;
-                    }
-                    case 'zen_fullscreen': {
-                        chrome.windows.update(chrome.windows.WINDOW_ID_CURRENT, { state: 'fullscreen' }).catch(()=>{});
-                        break;
-                    }
-                    case 'snapshot_session': {
-                        syncBaselinesToStorage();
-                        saveSnapshot();
-                        break;
-                    }
-                    case 'clear_cache_hour': {
-                        if (chrome.browsingData) {
-                            const hourAgo = new Date().getTime() - (1000 * 60 * 60);
-                            chrome.browsingData.remove({ since: hourAgo }, { appcache: true, cache: true, cacheStorage: true, cookies: true, downloads: true, fileSystems: true, formData: true, history: true, indexedDB: true, localStorage: true, pluginData: true, passwords: true, webSQL: true });
-                        }
-                        break;
-                    }
-                    case 'clear_unprotected': {
-                        const tabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        const toClose = tabs.filter(t => !t.pinned && (t.groupId === -1 || (chrome.tabGroups && t.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE))).map(t => t.id);
-                        if (toClose.length > 0) chrome.tabs.remove(toClose).catch(()=>{});
-                        break;
-                    }
-                    case 'toggle_pin': {
-                        const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        if (tabs.length > 0) chrome.tabs.update(tabs[0].id, { pinned: !tabs[0].pinned }).catch(()=>{});
-                        break;
-                    }
-                    case 'duplicate_tab': {
-                        const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        if (tabs.length > 0) {
-                            try {
-                                await chrome.tabs.duplicate(tabs[0].id);
-                            } catch(e) {
-                                chrome.tabs.create({ url: tabs[0].url }).catch(()=>{});
-                            }
-                        }
-                        break;
-                    }
-                    case 'copy_md_link': {
-                        const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        if (tabs.length > 0) {
-                            const t = tabs[0];
-                            const mdLink = `[${t.title}](${t.url})`;
-                            chrome.scripting.executeScript({
-                                target: { tabId: t.id },
-                                func: (text) => navigator.clipboard.writeText(text),
-                                args: [mdLink]
-                            }).catch(()=>{});
-                        }
-                        break;
-                    }
-                    case 'new_incognito': {
-                        chrome.windows.create({ incognito: true }).catch(()=>{});
-                        break;
-                    }
-                    case 'update_baseline': {
-                        const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        if (tabs.length > 0) {
-                            const data = memoryBaselines.get(tabs[0].id);
-                            if (data) {
-                                data.url = tabs[0].url;
-                                syncBaselinesToStorage();
-                            }
-                        }
-                        break;
-                    }
-                    case 'toggle_group': {
-                        const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        if (tabs.length > 0) {
-                            const t = tabs[0];
-                            if (t.groupId !== -1 && (chrome.tabGroups && t.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE)) {
-                                chrome.tabs.ungroup(t.id).catch(()=>{});
-                            } else {
-                                chrome.tabs.group({ tabIds: [t.id] }).catch(()=>{});
-                            }
-                        }
-                        break;
-                    }
-                    case 'split_view': {
-                        const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        if (tabs.length > 0) {
-                            const t = tabs[0];
-                            if (t.pinned) chrome.tabs.update(t.id, { pinned: false }).catch(()=>{});
-                            if (chrome.tabGroups && t.groupId !== -1 && t.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
-                                chrome.tabs.ungroup(t.id).catch(()=>{});
-                            }
-
-                            chrome.windows.getCurrent(async (win) => {
-                                const w = Math.floor(win.width / 2);
-                                const h = win.height;
-                                const targetLeft = win.left + w;
-                                
-                                await chrome.windows.update(win.id, { width: w, left: win.left, state: 'normal' }).catch(()=>{});
-                                chrome.windows.create({ 
-                                    tabId: t.id, 
-                                    left: targetLeft, 
-                                    width: w, 
-                                    height: h,
-                                    top: win.top
-                                }).catch(()=>{});
-                            });
-                        }
-                        break;
-                    }
-                    case 'hard_reload': {
-                        const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        if (tabs.length > 0) chrome.tabs.reload(tabs[0].id, { bypassCache: true }).catch(()=>{});
-                        break;
-                    }
-                    case 'close_other_tabs': {
-                        const tabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        const activeTabs = tabs.filter(t => t.active);
-                        if (activeTabs.length > 0) {
-                            const activeId = activeTabs[0].id;
-                            const toClose = tabs.filter(t => t.id !== activeId).map(t => t.id);
-                            if (toClose.length > 0) chrome.tabs.remove(toClose).catch(()=>{});
-                        }
-                        break;
-                    }
-                    case 'toggle_mute': {
-                        const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        if (tabs.length > 0) {
-                            const isMuted = tabs[0].mutedInfo && tabs[0].mutedInfo.muted;
-                            chrome.tabs.update(tabs[0].id, { muted: !isMuted }).catch(()=>{});
-                        }
-                        break;
-                    }
-                    case 'open_downloads': {
-                        chrome.tabs.create({ url: 'chrome://downloads/' }).catch(()=>{});
-                        break;
-                    }
-                    case 'open_extensions': {
-                        chrome.tabs.create({ url: 'chrome://extensions/' }).catch(()=>{});
-                        break;
-                    }
-                    case 'open_settings': {
-                        chrome.tabs.create({ url: 'chrome://settings/' }).catch(()=>{});
-                        break;
-                    }
-                    // --- Big 30 Deep Settings Handlers ---
-                    case 'set_gpu': chrome.tabs.create({ url: 'chrome://settings/system' }); break;
-                    case 'set_performance': chrome.tabs.create({ url: 'chrome://settings/performance' }); break;
-                    case 'set_privacy': chrome.tabs.create({ url: 'chrome://settings/privacy' }); break;
-                    case 'set_clear_data': chrome.tabs.create({ url: 'chrome://settings/clearBrowserData' }); break;
-                    case 'set_cookies': chrome.tabs.create({ url: 'chrome://settings/cookies' }); break;
-                    case 'set_ad_privacy': chrome.tabs.create({ url: 'chrome://settings/adPrivacy' }); break;
-                    case 'set_permissions': chrome.tabs.create({ url: 'chrome://settings/content' }); break;
-                    case 'set_passwords': chrome.tabs.create({ url: 'chrome://password-manager/passwords' }); break;
-                    case 'set_autofill': chrome.tabs.create({ url: 'chrome://settings/addresses' }); break;
-                    case 'set_payments': chrome.tabs.create({ url: 'chrome://settings/payments' }); break;
-                    case 'set_appearance': chrome.tabs.create({ url: 'chrome://settings/appearance' }); break;
-                    case 'set_fonts': chrome.tabs.create({ url: 'chrome://settings/fonts' }); break;
-                    case 'set_search': chrome.tabs.create({ url: 'chrome://settings/search' }); break;
-                    case 'set_downloads': chrome.tabs.create({ url: 'chrome://settings/downloads' }); break;
-                    case 'set_languages': chrome.tabs.create({ url: 'chrome://settings/languages' }); break;
-                    case 'set_accessibility': chrome.tabs.create({ url: 'chrome://settings/accessibility' }); break;
-                    case 'set_flags': chrome.tabs.create({ url: 'chrome://flags' }); break;
-                    case 'set_reset': chrome.tabs.create({ url: 'chrome://settings/reset' }); break;
-                    case 'set_help': chrome.tabs.create({ url: 'chrome://settings/help' }); break;
-                    case 'set_sync': chrome.tabs.create({ url: 'chrome://settings/people' }); break;
-                    case 'set_startup': chrome.tabs.create({ url: 'chrome://settings/onStartup' }); break;
-                    case 'set_extensions': chrome.tabs.create({ url: 'chrome://extensions' }); break;
-                    case 'hibernate_pinned': {
-                        const tabs = await chrome.tabs.query({ pinned: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        tabs.forEach(t => {
-                            if (!t.active && !t.discarded) chrome.tabs.discard(t.id).catch(()=>{});
-                        });
-                        break;
-                    }
-                    case 'hibernate_current': {
-                        const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
-                        if (tabs.length > 0) {
-                            // Note: Chrome may ignore discard for the active tab, but we can try
-                            chrome.tabs.discard(tabs[0].id).catch(()=>{});
-                        }
-                        break;
+/**
+ * Optimized Action Dispatcher
+ * Maps command IDs to specific logic blocks
+ */
+async function executeBrowserAction(commandId, args) {
+    await ensureLoaded();
+    try {
+        switch(commandId) {
+            case 'magic_organize': {
+                const allT = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+                let domainMap = {};
+                for (let t of allT) {
+                    if (t.pinned) continue;
+                    try {
+                        let domain = new URL(t.url).hostname.replace('www.', '');
+                        if (!domainMap[domain]) domainMap[domain] = [];
+                        domainMap[domain].push(t);
+                    } catch(e) {}
+                }
+                for (let domain in domainMap) {
+                    if (domainMap[domain].length > 1) {
+                        let ids = domainMap[domain].map(t => t.id);
+                        let gid = await chrome.tabs.group({ tabIds: ids });
+                        await chrome.tabGroups.update(gid, { title: domain });
                     }
                 }
-            } catch (e) {
-                console.error("Action error:", e);
+                break;
             }
-            sendResponse({ success: true });
+            case 'ungroup_all': {
+                const utabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+                for (let t of utabs) {
+                    if (t.groupId !== -1 && t.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
+                        chrome.tabs.ungroup(t.id).catch(()=>{});
+                    }
+                }
+                break;
+            }
+            case 'dedupe_window': {
+                const dtabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+                let seenUrls = new Set();
+                let toClose = [];
+                for (let t of dtabs) {
+                    if (!t.url) continue;
+                    let cleanUrl = t.url.split('#')[0];
+                    if (seenUrls.has(cleanUrl)) {
+                        if (!t.active) toClose.push(t.id);
+                    } else seenUrls.add(cleanUrl);
+                }
+                if (toClose.length > 0) chrome.tabs.remove(toClose).catch(()=>{});
+                break;
+            }
+            case 'gather_standalone': {
+                const stabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT, pinned: false });
+                let standaloneIds = stabs.filter(t => (t.groupId === -1 || t.groupId === (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) && !t.active).map(t => t.id);
+                if (standaloneIds.length > 0) {
+                    chrome.windows.create({ tabId: standaloneIds[0] }, (w) => {
+                        if (standaloneIds.length > 1) {
+                            chrome.tabs.move(standaloneIds.slice(1), { windowId: w.id, index: -1 });
+                        }
+                    });
+                }
+                break;
+            }
+            case 'consolidate_domain': {
+                const activeArray = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (activeArray.length) {
+                    try {
+                        let d = new URL(activeArray[0].url).hostname.replace('www.', '');
+                        const allWindowsTabs = await chrome.tabs.query({});
+                        let matchingIds = allWindowsTabs.filter(t => t.url && t.url.includes(d) && t.windowId !== chrome.windows.WINDOW_ID_CURRENT).map(t => t.id);
+                        if (matchingIds.length > 0) {
+                            chrome.tabs.move(matchingIds, { windowId: chrome.windows.WINDOW_ID_CURRENT, index: -1 });
+                        }
+                    } catch(e) {}
+                }
+                break;
+            }
+            case 'extract_group': {
+                const extractTabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (extractTabs.length && extractTabs[0].groupId !== -1 && extractTabs[0].groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
+                    const gtabs = await chrome.tabs.query({ groupId: extractTabs[0].groupId });
+                    let gIds = gtabs.map(t => t.id);
+                    if (gIds.length > 0) {
+                        chrome.windows.create({ tabId: gIds[0] }, (w) => {
+                            if (gIds.length > 1) {
+                                chrome.tabs.move(gIds.slice(1), { windowId: w.id, index: -1 });
+                            }
+                        });
+                    }
+                }
+                break;
+            }
+            case 'gather_groups': {
+                const currentWinId = chrome.windows.WINDOW_ID_CURRENT;
+                const allGroups = await chrome.tabGroups.query({});
+                for (const g of allGroups) {
+                    if (g.windowId !== currentWinId) {
+                        const gTabs = await chrome.tabs.query({ groupId: g.id });
+                        if (gTabs.length > 0) {
+                            await chrome.tabs.move(gTabs.map(t => t.id), { windowId: currentWinId, index: -1 });
+                        }
+                    }
+                }
+                break;
+            }
+            case 'summon_group_palette': {
+                const currentWinId = chrome.windows.WINDOW_ID_CURRENT;
+                const gid = parseInt(args);
+                if (!isNaN(gid)) {
+                    const gTabs = await chrome.tabs.query({ groupId: gid });
+                    if (gTabs.length > 0) {
+                        await chrome.tabs.move(gTabs.map(t => t.id), { windowId: currentWinId, index: -1 });
+                    }
+                }
+                break;
+            }
+            case 'save_workspace': {
+                let setName = args || "Workspace - " + new Date().toLocaleTimeString();
+                chrome.runtime.onMessage.dispatch({ action: 'save-set', setType: 'workspace', name: setName }, {}, () => {});
+                break;
+            }
+            case 'export_sets': {
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(tabSets, null, 2));
+                chrome.downloads.download({
+                    url: dataStr,
+                    filename: "tabs_plus_plus_sets.json",
+                    saveAs: true
+                });
+                break;
+            }
+            case 'summon_set_palette':
+            case 'launch_set_palette':
+            case 'delete_set_palette': {
+                 let op = commandId.split('_')[0];
+                 let actionMap = { 'summon': 'summon-set', 'launch': 'launch-set', 'delete': 'delete-set' };
+                 chrome.runtime.onMessage.dispatch({ action: actionMap[op], name: args }, {}, () => {});
+                 break;
+            }
+            case 'save_group':
+            case 'stash_group': {
+                const activeArray = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (!activeArray.length) break;
+                const currentTab = activeArray[0];
+                if (currentTab.groupId === -1 || currentTab.groupId === (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) break;
+                
+                let gName = "Group";
+                if (chrome.tabGroups) {
+                    try { let g = await chrome.tabGroups.get(currentTab.groupId); gName = g.title || "Group"; } catch(e){}
+                }
+                
+                let setName = args || gName;
+                chrome.runtime.onMessage.dispatch({ action: 'save-set', setType: 'group', groupId: currentTab.groupId, name: setName }, {}, () => {
+                    if (commandId === 'stash_group') {
+                        chrome.tabs.query({ groupId: currentTab.groupId }, (tabsToStash) => {
+                            chrome.tabs.remove(tabsToStash.map(t => t.id)).catch(()=>{});
+                        });
+                    }
+                });
+                break;
+            }
+            case 'hibernate_all': {
+                const hatabs = await chrome.tabs.query({ active: false });
+                hatabs.forEach(t => { if (!t.discarded) chrome.tabs.discard(t.id).catch(()=>{}); });
+                break;
+            }
+            case 'hibernate_window': {
+                const hwtabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT, active: false });
+                hwtabs.forEach(t => { if (!t.discarded) chrome.tabs.discard(t.id).catch(()=>{}); });
+                break;
+            }
+            case 'pause_media': {
+                const pmtabs = await chrome.tabs.query({});
+                pmtabs.forEach(t => {
+                    if (t.url && (t.url.startsWith('chrome://') || t.url.startsWith('edge://') || t.url.startsWith('chrome-extension://'))) return;
+                    chrome.scripting.executeScript({
+                        target: { tabId: t.id },
+                        func: () => { document.querySelectorAll('video, audio').forEach(m => m.pause()); }
+                    }).catch(()=>{});
+                });
+                break;
+            }
+            case 'mute_background': {
+                const mbtabs = await chrome.tabs.query({ active: false });
+                mbtabs.forEach(t => { chrome.tabs.update(t.id, { muted: true }).catch(()=>{}); });
+                break;
+            }
+            case 'zen_fullscreen': {
+                chrome.windows.update(chrome.windows.WINDOW_ID_CURRENT, { state: 'fullscreen' }).catch(()=>{});
+                break;
+            }
+            case 'snapshot_session': {
+                syncBaselinesToStorage();
+                saveSnapshot();
+                break;
+            }
+            case 'clear_cache_hour': {
+                if (chrome.browsingData) {
+                    const hourAgo = new Date().getTime() - (1000 * 60 * 60);
+                    chrome.browsingData.remove({ since: hourAgo }, { appcache: true, cache: true, cacheStorage: true, cookies: true, downloads: true, fileSystems: true, formData: true, history: true, indexedDB: true, localStorage: true, pluginData: true, passwords: true, webSQL: true });
+                }
+                break;
+            }
+            case 'clear_unprotected': {
+                const tabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+                const toClose = tabs.filter(t => !t.pinned && (t.groupId === -1 || (chrome.tabGroups && t.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE))).map(t => t.id);
+                if (toClose.length > 0) chrome.tabs.remove(toClose).catch(()=>{});
+                break;
+            }
+            case 'toggle_pin': {
+                const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (tabs.length > 0) chrome.tabs.update(tabs[0].id, { pinned: !tabs[0].pinned }).catch(()=>{});
+                break;
+            }
+            case 'duplicate_tab': {
+                const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (tabs.length > 0) {
+                    try { await chrome.tabs.duplicate(tabs[0].id); }
+                    catch(e) { chrome.tabs.create({ url: tabs[0].url }).catch(()=>{}); }
+                }
+                break;
+            }
+            case 'copy_md_link': {
+                const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (tabs.length > 0) {
+                    const t = tabs[0];
+                    const mdLink = `[${t.title}](${t.url})`;
+                    chrome.scripting.executeScript({
+                        target: { tabId: t.id },
+                        func: (text) => navigator.clipboard.writeText(text),
+                        args: [mdLink]
+                    }).catch(()=>{});
+                }
+                break;
+            }
+            case 'new_incognito': {
+                chrome.windows.create({ incognito: true }).catch(()=>{});
+                break;
+            }
+            case 'update_baseline': {
+                const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (tabs.length > 0) {
+                    const data = memoryBaselines.get(tabs[0].id);
+                    if (data) {
+                        data.url = tabs[0].url;
+                        syncBaselinesToStorage();
+                    }
+                }
+                break;
+            }
+            case 'toggle_group': {
+                const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (tabs.length > 0) {
+                    const t = tabs[0];
+                    if (t.groupId !== -1 && (chrome.tabGroups && t.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE)) {
+                        chrome.tabs.ungroup(t.id).catch(()=>{});
+                    } else {
+                        chrome.tabs.group({ tabIds: [t.id] }).catch(()=>{});
+                    }
+                }
+                break;
+            }
+            case 'split_view': {
+                const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (tabs.length > 0) {
+                    const t = tabs[0];
+                    if (t.pinned) chrome.tabs.update(t.id, { pinned: false }).catch(()=>{});
+                    if (chrome.tabGroups && t.groupId !== -1 && t.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+                        chrome.tabs.ungroup(t.id).catch(()=>{});
+                    }
+                    chrome.windows.getCurrent(async (win) => {
+                        const w = Math.floor(win.width / 2);
+                        const targetLeft = win.left + w;
+                        await chrome.windows.update(win.id, { width: w, left: win.left, state: 'normal' }).catch(()=>{});
+                        chrome.windows.create({ tabId: t.id, left: targetLeft, width: w, height: win.height, top: win.top }).catch(()=>{});
+                    });
+                }
+                break;
+            }
+            case 'hard_reload': {
+                const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (tabs.length > 0) chrome.tabs.reload(tabs[0].id, { bypassCache: true }).catch(()=>{});
+                break;
+            }
+            case 'close_other_tabs': {
+                const tabs = await chrome.tabs.query({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+                const activeId = tabs.find(t => t.active)?.id;
+                if (activeId) {
+                    const toClose = tabs.filter(t => t.id !== activeId).map(t => t.id);
+                    if (toClose.length > 0) chrome.tabs.remove(toClose).catch(()=>{});
+                }
+                break;
+            }
+            case 'toggle_mute': {
+                const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (tabs.length > 0) {
+                    const isMuted = tabs[0].mutedInfo && tabs[0].mutedInfo.muted;
+                    chrome.tabs.update(tabs[0].id, { muted: !isMuted }).catch(()=>{});
+                }
+                break;
+            }
+            case 'open_downloads': chrome.tabs.create({ url: 'chrome://downloads/' }); break;
+            case 'open_extensions': chrome.tabs.create({ url: 'chrome://extensions/' }); break;
+            case 'open_settings': chrome.tabs.create({ url: 'chrome://settings/' }); break;
+            
+            // --- Settings Direct Links ---
+            case 'set_gpu': chrome.tabs.create({ url: 'chrome://settings/system' }); break;
+            case 'set_performance': chrome.tabs.create({ url: 'chrome://settings/performance' }); break;
+            case 'set_privacy': chrome.tabs.create({ url: 'chrome://settings/privacy' }); break;
+            case 'set_clear_data': chrome.tabs.create({ url: 'chrome://settings/clearBrowserData' }); break;
+            case 'set_cookies': chrome.tabs.create({ url: 'chrome://settings/cookies' }); break;
+            case 'set_ad_privacy': chrome.tabs.create({ url: 'chrome://settings/adPrivacy' }); break;
+            case 'set_permissions': chrome.tabs.create({ url: 'chrome://settings/content' }); break;
+            case 'set_passwords': chrome.tabs.create({ url: 'chrome://password-manager/passwords' }); break;
+            case 'set_autofill': chrome.tabs.create({ url: 'chrome://settings/addresses' }); break;
+            case 'set_payments': chrome.tabs.create({ url: 'chrome://settings/payments' }); break;
+            case 'set_appearance': chrome.tabs.create({ url: 'chrome://settings/appearance' }); break;
+            case 'set_fonts': chrome.tabs.create({ url: 'chrome://settings/fonts' }); break;
+            case 'set_search': chrome.tabs.create({ url: 'chrome://settings/search' }); break;
+            case 'set_downloads': chrome.tabs.create({ url: 'chrome://settings/downloads' }); break;
+            case 'set_languages': chrome.tabs.create({ url: 'chrome://settings/languages' }); break;
+            case 'set_accessibility': chrome.tabs.create({ url: 'chrome://settings/accessibility' }); break;
+            case 'set_flags': chrome.tabs.create({ url: 'chrome://flags' }); break;
+            case 'set_reset': chrome.tabs.create({ url: 'chrome://settings/reset' }); break;
+            case 'set_help': chrome.tabs.create({ url: 'chrome://settings/help' }); break;
+            case 'set_sync': chrome.tabs.create({ url: 'chrome://settings/people' }); break;
+            case 'set_startup': chrome.tabs.create({ url: 'chrome://settings/onStartup' }); break;
+            case 'set_extensions': chrome.tabs.create({ url: 'chrome://extensions' }); break;
+            case 'hibernate_pinned': {
+                const tabs = await chrome.tabs.query({ pinned: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                tabs.forEach(t => { if (!t.active && !t.discarded) chrome.tabs.discard(t.id).catch(()=>{}); });
+                break;
+            }
+            case 'hibernate_current': {
+                const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (tabs.length > 0) chrome.tabs.discard(tabs[0].id).catch(()=>{});
+                break;
+            }
+        }
+    } catch (e) {
+        console.error("Action error:", e);
+    }
+}
         });
         return true;
     }

@@ -7,7 +7,10 @@ chrome.storage.local.get({ settings: { enablePalette: false } }, (data) => {
 
 let input, resultsContainer;
 let currentResults = [];
+let domOrderedResults = [];
 let selectedIndex = -1;
+let pendingCommand = null;
+let focusInterval = null;
 
 function initDashboard() {
     updateClock();
@@ -18,10 +21,10 @@ function initDashboard() {
 
     // Aggressively attempt to focus the input to fight Chrome's omnibox
     let attempts = 0;
-    let focusInt = setInterval(() => {
+    focusInterval = setInterval(() => {
         if (input) input.focus();
         attempts++;
-        if (attempts > 15) clearInterval(focusInt); // Try for ~750ms
+        if (attempts > 15) clearInterval(focusInterval); // Try for ~750ms
     }, 50);
 
     // Also focus if they click anywhere on the page
@@ -98,6 +101,7 @@ function getFaviconHtml(result) {
 function renderResults(results, query) {
     resultsContainer.innerHTML = '';
     resultsContainer.scrollTop = 0;
+    domOrderedResults = [];
     selectedIndex = results.length > 0 ? 0 : -1;
 
     if (results.length === 0) {
@@ -131,10 +135,13 @@ function renderResults(results, query) {
             resultsContainer.appendChild(header);
         }
 
-        items.forEach(({ result, index }) => {
+        items.forEach(({ result }) => {
+            const domIndex = domOrderedResults.length;
+            domOrderedResults.push(result);
+
             const item = document.createElement('div');
             item.className = 'result-item';
-            if (index === selectedIndex) item.classList.add('selected');
+            if (domIndex === 0) item.classList.add('selected');
 
             const faviconContent = getFaviconHtml(result);
             const groupDot = (result.groupColor && GROUP_COLORS[result.groupColor])
@@ -152,7 +159,9 @@ function renderResults(results, query) {
             item.innerHTML = `${iconHtml}<div class="details"><div class="title">${highlight(result.title, query)}</div><div class="subtext">${escapeHTML(subtext)}</div></div><div class="badge">${escapeHTML(badge)}</div>`;
 
             item.addEventListener('click', () => activateResult(result));
-            item.addEventListener('mousemove', () => updateSelection(index));
+            item.addEventListener('mousemove', () => {
+                if (selectedIndex !== domIndex) updateSelection(domIndex);
+            });
 
             resultsContainer.appendChild(item);
             
@@ -173,17 +182,42 @@ function updateSelection(index) {
 }
 
 function handleKeydown(e) {
-    if (currentResults.length === 0) return;
+    if (e.key === 'Escape') {
+        if (pendingCommand) {
+            pendingCommand = null;
+            input.value = "";
+            input.placeholder = "Search tabs, history, bookmarks... or try !yt, !gh";
+            handleSearch();
+            e.preventDefault();
+            return;
+        }
+    }
+
+    if (pendingCommand) {
+        if (e.key === 'Enter') {
+            const name = input.value.trim();
+            chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: pendingCommand, args: name });
+            pendingCommand = null;
+            input.value = "";
+            input.placeholder = "Search tabs, history, bookmarks... or try !yt, !gh";
+            if (isFallback) window.close();
+            else handleSearch();
+            e.preventDefault();
+        }
+        return;
+    }
+
+    if (domOrderedResults.length === 0) return;
 
     if (e.key === 'ArrowDown') {
-        updateSelection((selectedIndex + 1) % currentResults.length);
+        updateSelection((selectedIndex + 1) % domOrderedResults.length);
         e.preventDefault();
     } else if (e.key === 'ArrowUp') {
-        updateSelection(selectedIndex - 1 < 0 ? currentResults.length - 1 : selectedIndex - 1);
+        updateSelection(selectedIndex - 1 < 0 ? domOrderedResults.length - 1 : selectedIndex - 1);
         e.preventDefault();
     } else if (e.key === 'Enter') {
-        if (selectedIndex >= 0 && selectedIndex < currentResults.length) {
-            activateResult(currentResults[selectedIndex]);
+        if (selectedIndex >= 0 && selectedIndex < domOrderedResults.length) {
+            activateResult(domOrderedResults[selectedIndex]);
         }
         e.preventDefault();
     }
@@ -191,20 +225,38 @@ function handleKeydown(e) {
 
 function activateResult(result) {
     if (result.type === 'action') {
+        if (result.id === 'save_workspace' || result.id === 'save_group' || result.id === 'stash_group') {
+            pendingCommand = result.id;
+            input.value = '';
+            input.placeholder = `Enter name for this Set (or Esc to cancel)...`;
+            resultsContainer.innerHTML = '';
+            return;
+        }
+
+        if (result.id.startsWith('summon_set_palette|') || result.id.startsWith('launch_set_palette|') || result.id.startsWith('delete_set_palette|')) {
+            const parts = result.id.split('|');
+            chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: parts[0], args: parts.slice(1).join('|') });
+            if (isFallback) window.close();
+            else {
+                input.value = '';
+                handleSearch();
+            }
+            return;
+        }
+
         chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: result.id });
         if (isFallback) window.close();
+        else {
+            input.value = '';
+            handleSearch();
+        }
     } else if (result.type === 'tab') {
         chrome.runtime.sendMessage({ action: 'switch-to-tab', tabId: result.id, windowId: result.windowId }, () => {
-            if (isFallback) window.close(); // Close the fallback tab if used as a router
+            if (isFallback) window.close();
         });
     } else {
-        if (isFallback) {
-             chrome.runtime.sendMessage({ action: 'open-url', url: result.url });
-             window.close(); // Close fallback tab
-        } else {
-             // We are acting as a real new tab page, so reuse default behavior for navigating
-             // If they command-clicked or something, we could open in BG, but standard is self-navigate
-             window.location.href = result.url;
-        }
+        if (focusInterval) clearInterval(focusInterval);
+        chrome.runtime.sendMessage({ action: 'open-url', url: result.url });
+        if (isFallback) window.close();
     }
 }
