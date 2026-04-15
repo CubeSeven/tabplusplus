@@ -1,4 +1,5 @@
 # Tabs++
+[**Live Demo & Docs**](https://cubeseven.github.io/tabplusplus/)
 
 **Tabs++** is a minimalist, high-performance Chrome extension designed to make your browsing experience more persistent. It ensures that your **Pinned Tabs** and **Tab Groups** never stay closed accidentally. It enhances your browser's **native** vertical/horizontal tabs silently—no bulky custom sidebars are injected.
 
