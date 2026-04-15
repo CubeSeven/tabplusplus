@@ -28,11 +28,14 @@ jobs:
       - name: Prepare documentation
         run: |
           mkdir out
-          cp docs.html out/index.html
+          cp index.html out/
+          cp docs.html out/
           cp docs_styles.css out/
           cp docs_scripts.js out/
           cp -r assets out/
           cp -r docs out/
+          # Ensure ntp.html and other extension resources are NOT deployed to public web unless needed
+          # But assets/ icons are needed for the site.
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
