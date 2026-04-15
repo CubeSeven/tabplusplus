@@ -16,6 +16,37 @@ Restored tabs return to their exact original position and group within your wind
 Performance Optimization
 To preserve system resources, restored tabs are automatically hibernated. They consume zero RAM or CPU until you click on them, ensuring that a large workspace does not slow down your computer.
 
+Latest Update: v1.5.6 (UI & UX Stabilization)
+
+This update focuses on UI robustness and fixes visual regressions.
+
+### Popup Stabilization
+- **Displacement Fix**: Hardened the extension popup's CSS and added viewport metadata to ensure reliable anchoring under the extension icon on Linux, High-DPI, and Wayland environments.
+- **Visual Assets**: Fixed a broken path for the header logo.
+
+---
+
+Latest Update: v1.5.5 (The "Focus Guard" Update)
+
+This update resolves critical layout issues with the "Focus Guard" feature and improves palette ergonomics.
+
+### Focus Guard Intelligence
+Improved the synchronization between "Focus Guard" and the "Survival Engine":
+- **Position Preservation**: Fixed a bug where closing a protected tab with Focus Guard ON would cause it to restore at the end of the tab strip. Tabs now return exactly to their original index.
+- **Standalone Focus**: When closing an active tab, focus now lands on a clean, standalone New Tab Page at the end of the strip, while your protected content reloads silently in its original spot.
+- **Group/Pin Stability**: Prevented race conditions that could cause restored tabs to be accidentally ungrouped or unpinned during focus redirection.
+
+### Palette Navigation
+- **ArrowRight Shortcut**: Pressing the Right Arrow key while at the end of a search query in the Command Palette now automatically triggers **Action Mode** (prefixed with `>`), making it faster to execute system commands.
+
+---
+
+Latest Update: v1.5.4 (Maintenance Patch)
+
+Cleaned up session restoration logic and improved reliability of the Tab Sets feature. Adjusted background worker wakeup timers for better battery performance.
+
+---
+
 Latest Update: v1.5.2 (The "Power User" Patch)
 
 This update focuses on keyboard-first productivity, architectural stability, and addressing user feedback regarding shortcut conflicts.

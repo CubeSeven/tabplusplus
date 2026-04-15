@@ -2,10 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tabs++</title>
   <style>
     /* ── Reset & Base ─────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html {
+      width: 300px;
+    }
 
     body {
       width: 300px;
@@ -15,6 +20,7 @@
       color: #111;
       -webkit-font-smoothing: antialiased;
       user-select: none;
+      overflow-x: hidden;
     }
 
     /* ── Header ───────────────────────────────── */
@@ -358,10 +364,10 @@
   <!-- Header -->
   <div class="header">
     <div class="header-left">
-      <img src="icon16.png" class="logo" alt="" />
+      <img src="assets/icon16.png" class="logo" alt="" />
       <span class="brand">Tabs<span>++</span></span>
     </div>
-    <span class="version">v1.5.5</span>
+    <span class="version">v1.5.6</span>
   </div>
 
   <div id="vault-container" style="display: none; padding: 14px 16px; border-bottom: 1px solid #f4f4f4; text-align: center; background: #fffcf0;">
