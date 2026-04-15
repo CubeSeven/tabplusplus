@@ -628,7 +628,14 @@ function handleKeydown(e) {
         return;
     }
 
-    if (domOrderedResults.length === 0) return;
+    if (domOrderedResults.length === 0 && e.key !== 'ArrowRight') return;
+
+    if (e.key === 'ArrowRight' && input.selectionStart === input.value.length && !input.value.startsWith('>')) {
+        input.value = '>' + input.value;
+        handleSearch();
+        e.preventDefault();
+        return;
+    }
 
     if (e.key === 'ArrowDown') {
         let newIndex = selectedIndex + 1;

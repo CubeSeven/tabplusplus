@@ -482,18 +482,18 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                 const existingNtp = windowTabs.find(t => t.url && t.url.startsWith(ntpUrl));
 
                 if (existingNtp) {
-                    // Already exists — just focus it (it should already be standalone)
+                    // Already exists — just focus it
                     chrome.tabs.update(existingNtp.id, { active: true }).catch(() => {});
                 } else {
-                    // Create at end of strip (high index prevents group inheritance)
+                    // Create standalone at end of strip (high index prevents group inheritance)
                     const created = await chrome.tabs.create({
                         url: ntpUrl,
                         active: true,
                         windowId: removeInfo.windowId,
-                        index: 9999 // Forces placement at end of tab strip, away from any group
+                        index: 9999
                     });
-                    // Chrome may still auto-group it if the last tab was in a group — strip it
-                    if (created.groupId !== undefined && created.groupId !== -1 &&
+                    // Force standalone status
+                    if (created.groupId !== undefined && created.groupId !== -1 && 
                         chrome.tabGroups && created.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
                         chrome.tabs.ungroup([created.id]).catch(() => {});
                     }
@@ -587,7 +587,10 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                 // NOTE: We query all tabs then filter manually for NTP — chrome-extension match patterns
                 //       can be unreliable in tabs.query.
                 const allWindowTabs = await chrome.tabs.query({ windowId: removeInfo.windowId });
-                const potentialBlankTabs = allWindowTabs.filter(t => {
+                
+                // If Focus Guard is active, we SKIP hijacking to preserve the standalone NTP 
+                // and restore the site to its original index via a fresh tab.
+                const potentialBlankTabs = globalSettings.focusNTPOnClose ? [] : allWindowTabs.filter(t => {
                     const u = t.url || '';
                     return u === 'chrome://newtab/' ||
                            u === 'chrome-search://local-ntp/local-ntp.html' ||
@@ -600,11 +603,10 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 
                 let newTab;
                 if (potentialBlankTabs.length > 0) {
-
                     newTab = await chrome.tabs.update(potentialBlankTabs[0].id, {
                         url: data.url,
                         pinned: data.pinned,
-                        active: true // Always make it active if we are hijacking the current focus
+                        active: true 
                     });
                 } else {
                     newTab = await chrome.tabs.create({
@@ -612,7 +614,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                         pinned: data.pinned,
                         index: data.index >= 0 ? data.index : undefined,
                         windowId: data.windowId,
-                        active: windowWillBeEmpty
+                        active: windowWillBeEmpty // Focus Guard NTP usually means this is false
                     });
                 }
                 
