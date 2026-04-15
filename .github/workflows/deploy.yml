@@ -25,11 +25,18 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v4
+      - name: Prepare documentation
+        run: |
+          mkdir out
+          cp docs.html out/index.html
+          cp docs_styles.css out/
+          cp docs_scripts.js out/
+          cp -r assets out/
+          cp -r docs out/
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Include all files needed for the landing page
-          path: '.'
+          path: 'out'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
