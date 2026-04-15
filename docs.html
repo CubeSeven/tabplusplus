@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation | Tabs++</title>
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="docs_styles.css">
+    <style>
+        body { display: block; overflow-y: auto; }
+        .docs-page { display: flex; min-height: 100vh; }
+        .docs-sidebar-fixed {
+            width: 300px;
+            height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+            background: rgba(5, 5, 5, 0.8);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid var(--glass-border);
+            padding: 40px 20px;
+            overflow-y: auto;
+            z-index: 1001;
+        }
+        .docs-main {
+            margin-left: 300px;
+            flex: 1;
+            padding: 80px 60px;
+            max-width: 900px;
+        }
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 40px;
+            text-decoration: none;
+            color: #fff;
+        }
+        .sidebar-logo span span { color: var(--text-dim); font-weight: 400; }
+        .sidebar-nav { display: flex; flex-direction: column; gap: 8px; }
+        .sidebar-link {
+            padding: 10px 16px;
+            border-radius: 8px;
+            color: var(--text-dim);
+            text-decoration: none;
+            font-size: 15px;
+            transition: all 0.2s;
+        }
+        .sidebar-link:hover { background: var(--card-hover); color: #fff; }
+        .sidebar-link.active { background: #fff; color: #000; font-weight: 600; }
+        .sidebar-group { margin-top: 24px; margin-bottom: 8px; font-size: 12px; text-transform: uppercase; color: rgba(255,255,255,0.2); letter-spacing: 1px; padding-left: 16px; }
+        
+        .feature-block { margin-bottom: 100px; scroll-margin-top: 100px; }
+        .feature-block h2 { font-size: 36px; margin-bottom: 24px; color: #fff; }
+        .feature-block p { font-size: 18px; color: var(--text-dim); margin-bottom: 20px; }
+        .feature-block pre { 
+            background: rgba(255,255,255,0.03); 
+            border: 1px solid var(--glass-border); 
+            padding: 20px; 
+            border-radius: 12px; 
+            color: #fff; 
+            font-family: monospace; 
+            margin: 20px 0;
+            overflow-x: auto;
+        }
+        .feature-block code { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-family: monospace; color: #fff; }
+        
+        .command-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        .command-table th { text-align: left; padding: 12px; border-bottom: 2px solid var(--glass-border); color: #fff; }
+        .command-table td { padding: 12px; border-bottom: 1px solid var(--glass-border); color: var(--text-dim); }
+        .command-table tr:hover td { color: #fff; }
+
+        @media (max-width: 768px) {
+            .docs-sidebar-fixed { display: none; }
+            .docs-main { margin-left: 0; padding: 40px 20px; }
+        }
+    </style>
+</head>
+<body class="dark-theme">
+    <div class="docs-page">
+        <aside class="docs-sidebar-fixed">
+            <a href="index.html" class="sidebar-logo">
+                <img src="assets/icon32.png" alt="">
+                <span>Tabs<span>++</span></span>
+            </a>
+            
+            <nav class="sidebar-nav">
+                <a href="#intro" class="sidebar-link active">Introduction</a>
+                
+                <div class="sidebar-group">Persistence</div>
+                <a href="#persistence" class="sidebar-link">Protection Engine</a>
+                <a href="#session-vault" class="sidebar-link">Session Vault</a>
+                
+                <div class="sidebar-group">Performance</div>
+                <a href="#hibernation" class="sidebar-link">Tab Hibernation</a>
+                
+                <div class="sidebar-group">Command UI</div>
+                <a href="#palette" class="sidebar-link">Command Palette</a>
+                <a href="#actions" class="sidebar-link">Action Engine (>)</a>
+                <a href="#bangs" class="sidebar-link">Search Bangs (!)</a>
+                
+                <div class="sidebar-group">Exploration</div>
+                <a href="#peek" class="sidebar-link">Transient Peek</a>
+                <a href="#zen" class="sidebar-link">Zen Dashboard</a>
+                
+                <div class="sidebar-group">Support</div>
+                <a href="#faq" class="sidebar-link">FAQ</a>
+            </nav>
+        </aside>
+
+        <main class="docs-main">
+            <section id="intro" class="feature-block">
+                <h2>Introduction</h2>
+                <p>Tabs++ is a high-performance productivity layer for Chrome. It treats your browser as a workspace, ensuring that your organization survives accidental closures, browser crashes, and resource exhaustion.</p>
+                <p>Designed for power users who rely on <strong>Pinned Tabs</strong> and <strong>Tab Groups</strong> as their primary state managers.</p>
+            </section>
+
+            <section id="persistence" class="feature-block">
+                <h2>Protection Engine</h2>
+                <p>The core of Tabs++ is the real-time protection engine. It monitors your vertical and horizontal tabs silently in the background.</p>
+                <h3>How it works:</h3>
+                <ul>
+                    <li><strong>Pinned Tabs:</strong> Tabs++ locks pinned tabs. If you close one, it recreates the tab immediately and pins it back to its starting URL.</li>
+                    <li><strong>Protected Groups:</strong> Any tab inside a native Chrome Tab Group is considered "protected". If closed, it is restored back into its exact group and original position.</li>
+                </ul>
+                <div class="info-box glass" style="padding: 20px; border-radius: 12px; margin-top: 20px;">
+                    <strong>Atomic Restoration:</strong> Position integrity is maintained even during complex batch-move operations.
+                </div>
+            </section>
+
+            <section id="session-vault" class="feature-block">
+                <h2>Session Vault</h2>
+                <p>While the protection engine handles real-time accidents, the Vault handles system-level failures.</p>
+                <p>Tabs++ takes periodic snapshots of your entire workspace state. If Chrome fails to restore your sessions on startup, you can summon the Vault to revive everything.</p>
+                <pre>> Revive Vault</pre>
+                <p>The Vault stores URLs, titles, group colors, and window assignments locally using <code>chrome.storage.local</code>.</p>
+            </section>
+
+            <section id="hibernation" class="feature-block">
+                <h2>Tab Hibernation</h2>
+                <p>Modern browsers consume gigabytes of RAM. Tabs++ solves this by forcing all restored tabs into a "Discarded" (hibernated) state 1 second after they appear.</p>
+                <p>Restored tabs use <strong>zero CPU</strong> and <strong>zero RAM</strong> until you actually click to focus them. This allows you to maintain massive workspaces of 100+ tabs without system slowdown.</p>
+            </section>
+
+            <section id="palette" class="feature-block">
+                <h2>Command Palette</h2>
+                <p>Access your entire browser state via <code>Ctrl + Shift + K</code> (Win/Linux) or <code>Cmd + Shift + K</code> (Mac).</p>
+                <ul>
+                    <li>Search <strong>Open Tabs</strong> instantly.</li>
+                    <li>Search <strong>Bookmarks</strong> and <strong>History</strong>.</li>
+                    <li>Fuzzy matching allows for fast navigation without precise typing.</li>
+                </ul>
+            </section>
+
+            <section id="actions" class="feature-block">
+                <h2>Action Engine (>)</h2>
+                <p>The palette is more than a search bar. Type the <code>></code> prefix to trigger powerful system actions.</p>
+                <table class="command-table">
+                    <thead>
+                        <tr>
+                            <th>Command</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>> Tidy</code></td>
+                            <td>Automatically cluster all loose tabs into groups by domain.</td>
+                        </tr>
+                        <tr>
+                            <td><code>> Hibernate All</code></td>
+                            <td>Instantly flush RAM for all background tabs.</td>
+                        </tr>
+                        <tr>
+                            <td><code>> Dedupe</code></td>
+                            <td>Remove duplicate URLs across your current window.</td>
+                        </tr>
+                        <tr>
+                            <td><code>> Pause Media</code></td>
+                            <td>Kill-switch for all audio and video playback.</td>
+                        </tr>
+                        <tr>
+                            <td><code>> Panic Close</code></td>
+                            <td>Instantly close all tabs and wipe the last 1 hour of history.</td>
+                        </tr>
+                        <tr>
+                            <td><code>> Zen Fullscreen</code></td>
+                            <td>Enter a focused mode with no distractions.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="bangs" class="feature-block">
+                <h2>Search Bangs (!)</h2>
+                <p>Skip the middleman. Search external sites directly from the palette using <code>!</code> bangs.</p>
+                <table class="command-table">
+                    <thead>
+                        <tr>
+                            <th>Bang</th>
+                            <th>Destination</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>!yt</code></td>
+                            <td>YouTube</td>
+                        </tr>
+                        <tr>
+                            <td><code>!gh</code></td>
+                            <td>GitHub</td>
+                        </tr>
+                        <tr>
+                            <td><code>!gpt</code></td>
+                            <td>ChatGPT</td>
+                        </tr>
+                        <tr>
+                            <td><code>!w</code></td>
+                            <td>Wikipedia</td>
+                        </tr>
+                        <tr>
+                            <td><code>!amz</code></td>
+                            <td>Amazon</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="peek" class="feature-block">
+                <h2>Transient Peek</h2>
+                <p>Explore links without bloating your workspace. <code>Shift + Click</code> any link to open it in a transient popup window.</p>
+                <p>If the content is useful, click the <strong>Promote to Workspace</strong> button in the bottom-right corner to move it back into your main browser window.</p>
+            </section>
+
+            <section id="zen" class="feature-block">
+                <h2>Zen Dashboard</h2>
+                <p>Tabs++ replaces the cluttered standard New Tab Page with a minimalist dashboard. It features a clock, date, and a lightning-fast version of the global search palette.</p>
+            </section>
+
+            <section id="faq" class="feature-block">
+                <h2>FAQ</h2>
+                <div class="faq-list">
+                    <div class="faq-item glass" style="margin-bottom: 20px; padding: 20px; border-radius: 12px;">
+                        <div class="faq-q" style="font-weight: 600; color: #fff; margin-bottom: 8px;">How do I rebind the keys?</div>
+                        <div class="faq-a">Chrome controls all extension shortcuts via <code>chrome://extensions/shortcuts</code>. Visit that page to customize your hotkeys.</div>
+                    </div>
+                    <div class="faq-item glass" style="margin-bottom: 20px; padding: 20px; border-radius: 12px;">
+                        <div class="faq-q" style="font-weight: 600; color: #fff; margin-bottom: 8px;">Is my history synced?</div>
+                        <div class="faq-a">No. Tabs++ prioritizes privacy. All data is stored locally on your machine and never synced to external servers.</div>
+                    </div>
+                </div>
+            </section>
+
+            <footer class="footer" style="margin-top: 100px; padding-top: 40px; border-top: 1px solid var(--glass-border);">
+                <p class="copyright" style="color: var(--text-dim); font-size: 14px;">&copy; 2026 CubeSeven. Designed for Workspace Masters.</p>
+            </footer>
+        </main>
+    </div>
+
+    <script src="docs_scripts.js"></script>
+    <script>
+        // Simple sidebar active state tracking
+        window.addEventListener('scroll', () => {
+            const sections = document.querySelectorAll('.feature-block');
+            const navLinks = document.querySelectorAll('.sidebar-link');
+            
+            let current = '';
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop;
+                if (pageYOffset >= sectionTop - 150) {
+                    current = section.getAttribute('id');
+                }
+            });
+
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href').includes(current)) {
+                    link.classList.add('active');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
