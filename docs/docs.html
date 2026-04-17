@@ -18,9 +18,9 @@
             position: fixed;
             left: 0;
             top: 0;
-            background: rgba(5, 5, 5, 0.8);
+            background: var(--bg-page);
             backdrop-filter: blur(20px);
-            border-right: 1px solid var(--glass-border);
+            border-right: 1px solid var(--surface-border);
             padding: 40px 20px;
             overflow-y: auto;
             z-index: 1001;
@@ -30,6 +30,13 @@
             flex: 1;
             padding: 80px 60px;
             max-width: 900px;
+            transition: background-color 0.4s ease, color 0.4s ease;
+        }
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 40px;
         }
         .sidebar-logo {
             display: flex;
@@ -37,43 +44,61 @@
             gap: 12px;
             font-size: 20px;
             font-weight: 700;
-            margin-bottom: 40px;
             text-decoration: none;
-            color: #fff;
+            color: var(--text-primary);
         }
-        .sidebar-logo span span { color: var(--text-dim); font-weight: 400; }
+        .sidebar-logo span span { color: var(--text-secondary); font-weight: 400; }
+        
+        #theme-toggle {
+            background: var(--glass-surface);
+            border: 1px solid var(--surface-border);
+            color: var(--text-primary);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #theme-toggle:hover {
+            background: var(--surface-hover);
+            border-color: var(--accent-color);
+        }
+
         .sidebar-nav { display: flex; flex-direction: column; gap: 8px; }
         .sidebar-link {
             padding: 10px 16px;
             border-radius: 8px;
-            color: var(--text-dim);
+            color: var(--text-secondary);
             text-decoration: none;
             font-size: 15px;
             transition: all 0.2s;
         }
-        .sidebar-link:hover { background: var(--card-hover); color: #fff; }
-        .sidebar-link.active { background: #fff; color: #000; font-weight: 600; }
-        .sidebar-group { margin-top: 24px; margin-bottom: 8px; font-size: 12px; text-transform: uppercase; color: rgba(255,255,255,0.2); letter-spacing: 1px; padding-left: 16px; }
+        .sidebar-link:hover { background: var(--surface-hover); color: var(--text-primary); }
+        .sidebar-link.active { background: var(--accent-color); color: var(--bg-page); font-weight: 600; }
+        .sidebar-group { margin-top: 24px; margin-bottom: 8px; font-size: 11px; text-transform: uppercase; color: var(--text-secondary); opacity: 0.4; letter-spacing: 1.5px; padding-left: 16px; }
         
         .feature-block { margin-bottom: 100px; scroll-margin-top: 100px; }
-        .feature-block h2 { font-size: 36px; margin-bottom: 24px; color: #fff; }
-        .feature-block p { font-size: 18px; color: var(--text-dim); margin-bottom: 20px; }
+        .feature-block h2 { font-size: 36px; margin-bottom: 24px; color: var(--text-primary); }
+        .feature-block p { font-size: 18px; color: var(--text-secondary); margin-bottom: 20px; }
         .feature-block pre { 
-            background: rgba(255,255,255,0.03); 
-            border: 1px solid var(--glass-border); 
+            background: var(--glass-surface);
+            border: 1px solid var(--surface-border);
             padding: 20px; 
             border-radius: 12px; 
-            color: #fff; 
+            color: var(--text-primary);
             font-family: monospace; 
             margin: 20px 0;
             overflow-x: auto;
         }
-        .feature-block code { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; font-family: monospace; color: #fff; }
+        .feature-block code { background: var(--surface-hover); padding: 2px 6px; border-radius: 4px; font-family: monospace; color: var(--accent-color); }
         
         .command-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-        .command-table th { text-align: left; padding: 12px; border-bottom: 2px solid var(--glass-border); color: #fff; }
-        .command-table td { padding: 12px; border-bottom: 1px solid var(--glass-border); color: var(--text-dim); }
-        .command-table tr:hover td { color: #fff; }
+        .command-table th { text-align: left; padding: 12px; border-bottom: 2px solid var(--surface-border); color: var(--text-primary); }
+        .command-table td { padding: 12px; border-bottom: 1px solid var(--surface-border); color: var(--text-secondary); }
+        .command-table tr:hover td { color: var(--text-primary); }
 
         @media (max-width: 768px) {
             .docs-sidebar-fixed { display: none; }
@@ -84,10 +109,13 @@
 <body class="dark-theme">
     <div class="docs-page">
         <aside class="docs-sidebar-fixed">
-            <a href="index.html" class="sidebar-logo">
-                <img src="../assets/icon32.png" alt="">
-                <span>Tabs<span>++</span></span>
-            </a>
+            <div class="sidebar-header">
+                <a href="index.html" class="sidebar-logo">
+                    <img src="../assets/icon32.png" alt="">
+                    <span>Tabs<span>++</span></span>
+                </a>
+                <div id="theme-toggle" title="Toggle Dark/Light Mode"></div>
+            </div>
             
             <nav class="sidebar-nav">
                 <a href="#intro" class="sidebar-link active">Introduction</a>
@@ -343,6 +371,7 @@
     </div>
 
     <script src="docs_scripts.js"></script>
+    <script src="theme.js"></script>
     <script>
         // Simple sidebar active state tracking
         window.addEventListener('scroll', () => {
