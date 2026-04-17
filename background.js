@@ -96,38 +96,94 @@ function saveSnapshot() {
     chrome.storage.local.set({ lastSession: snapshot });
 }
 
+// Helper to get base URL for fuzzy matching (ignores query params/hashes)
+function getCanonicalUrl(url) {
+    if (!url) return '';
+    try {
+        const u = new URL(url);
+        // We keep protocol, hostname and pathname. We ignore search and hash.
+        return (u.protocol + '//' + u.hostname + u.pathname).toLowerCase().replace(/\/$/, "");
+    } catch (e) {
+        return url.toLowerCase().replace(/\/$/, "");
+    }
+}
+
 // Auto-cleanup for the vault when user manually opens a URL
 function removeFromVault(url) {
     if (!url) return;
     const initialLens = sessionVault.length;
-    sessionVault = sessionVault.filter(t => t.url !== url);
+    const canonical = getCanonicalUrl(url);
+    
+    sessionVault = sessionVault.filter(t => getCanonicalUrl(t.url) !== canonical);
+    
     if (sessionVault.length !== initialLens) {
         syncVaultToStorage();
     }
 }
 
+// Logic to restore a set of tabs into a new, clean window
+async function restoreVault(vaultData) {
+    if (!vaultData || vaultData.length === 0) return false;
+
+    try {
+        // Sort: pinned first → grouped (by title)
+        const sorted = vaultData.slice().sort((a, b) => {
+            if (a.pinned && !b.pinned) return -1;
+            if (b.pinned && !a.pinned) return 1;
+            return (a.groupTitle || '').localeCompare(b.groupTitle || '');
+        });
+
+        const newWin = await chrome.windows.create({ focused: true });
+        const startTabs = await chrome.tabs.query({ windowId: newWin.id });
+
+        let groupMap = {};
+        let first = true;
+        
+        for (const data of sorted) {
+            const newTab = await chrome.tabs.create({
+                url: data.url,
+                pinned: data.pinned,
+                windowId: newWin.id,
+                active: first
+            });
+
+            if (first) {
+                first = false;
+                await Promise.all(startTabs.map(t => chrome.tabs.remove(t.id).catch(() => {})));
+            }
+
+            if (!data.pinned && data.groupId !== -1 && data.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
+                const groupKey = `${data.groupTitle || ''}-${data.groupColor || 'grey'}`;
+                if (!groupMap[groupKey]) {
+                    const gid = await chrome.tabs.group({ tabIds: [newTab.id] });
+                    await chrome.tabGroups.update(gid, {
+                        title: data.groupTitle || '',
+                        color: data.groupColor || 'grey'
+                    });
+                    groupMap[groupKey] = gid;
+                } else {
+                    await chrome.tabs.group({ tabIds: [newTab.id], groupId: groupMap[groupKey] });
+                }
+            }
+            safeDiscard(newTab.id);
+        }
+        return true;
+    } catch (e) {
+        console.error("Vault restoration failed", e);
+        return false;
+    }
+}
+
 let loadPromise = null;
-function ensureLoaded() {
-    if (isInitialized) return Promise.resolve();
+async function ensureLoaded() {
+    if (isInitialized) return;
     if (!loadPromise) {
-        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'lastSession', 'profiles', 'tabSets']).then((data) => {
+        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'lastSession', 'tabSets']).then((data) => {
             if (data.settings) globalSettings = { ...globalSettings, ...data.settings };
             sessionVault = data.vault || [];
             lastSession = data.lastSession || [];
-            
-            // Migration: Profiles to Sets
             tabSets = data.tabSets || {};
-            if (data.profiles && Object.keys(data.profiles).length > 0) {
-                for (const [key, value] of Object.entries(data.profiles)) {
-                    if (!tabSets[key]) {
-                        tabSets[key] = { type: 'workspace', tabs: value };
-                    }
-                }
-                chrome.storage.local.set({ tabSets: tabSets });
-                chrome.storage.local.remove('profiles');
-            }
 
-            
             const storedBaselines = data.baselines || {};
             memoryBaselines.clear();
             for (const [key, value] of Object.entries(storedBaselines)) {
@@ -140,9 +196,17 @@ function ensureLoaded() {
 }
 
 // Full initialization and sync (Run on startup/install)
-async function initializeState() {
+async function initializeState(isFreshStartup = false) {
     await ensureLoaded();
     
+    // On fresh startup, we clear the vault of ancient history 
+    // to strictly respect the "Last Session Only" requirement.
+    if (isFreshStartup) {
+        const now = Date.now();
+        const cutoff = now - (24 * 60 * 60 * 1000); // 24 hours
+        sessionVault = sessionVault.filter(v => v.savedAt && v.savedAt > cutoff);
+    }
+
     const tabs = await chrome.tabs.query({});
     if (chrome.tabGroups) {
         try {
@@ -152,6 +216,7 @@ async function initializeState() {
         } catch (e) {}
     }
     const currentActiveIds = new Set(tabs.map(t => t.id));
+    const currentUrls = new Set(tabs.map(t => getCanonicalUrl(t.url || t.pendingUrl)));
     let changed = false;
     
     // Cleanup ghosts and move to vault if they are lost during startup
@@ -159,8 +224,14 @@ async function initializeState() {
         if (!currentActiveIds.has(id)) {
             // Check if this was a legitimate tab that we lost
             if (data && data.url) {
-                if (!sessionVault.some(t => t.url === data.url && t.groupId === data.groupId)) {
-                    sessionVault.push(data);
+                const canonical = getCanonicalUrl(data.url);
+                // Don't add to vault if the tab is already open (maybe ID changed or natively restored but misaligned)
+                if (!currentUrls.has(canonical)) {
+                    if (!sessionVault.some(t => getCanonicalUrl(t.url) === canonical)) {
+                        data.savedAt = Date.now();
+                        sessionVault.push(data);
+                        changed = true;
+                    }
                 }
             }
             memoryBaselines.delete(id);
@@ -310,7 +381,8 @@ function processTab(tab) {
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.url && changeInfo.url !== '' && !changeInfo.url.startsWith('chrome')) {
         // Vault Auto-Heal: Catch native session restore dropping groups
-        const vIndex = sessionVault.findIndex(v => v.url === changeInfo.url);
+        const canonical = getCanonicalUrl(changeInfo.url);
+        const vIndex = sessionVault.findIndex(v => getCanonicalUrl(v.url) === canonical);
         if (vIndex !== -1) {
             const vData = sessionVault.splice(vIndex, 1)[0];
             syncVaultToStorage();
@@ -575,7 +647,9 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             const windowBaselines = Array.from(memoryBaselines.values())
                 .filter(d => d.windowId === removeInfo.windowId && d.url);
             for (const d of windowBaselines) {
-                if (!sessionVault.some(t => t.url === d.url && t.windowId === d.windowId)) {
+                const canonical = getCanonicalUrl(d.url);
+                if (!sessionVault.some(t => getCanonicalUrl(t.url) === canonical)) {
+                    d.savedAt = Date.now();
                     sessionVault.push(d);
                 }
             }
@@ -595,7 +669,9 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             let batchTracker = windowBatchTracker.get(removeInfo.windowId);
             if (batchTracker && batchTracker.count > 1) {
                 // USER ISSUED A BATCH CLOSE COMMAND
-                if (!sessionVault.some(t => t.url === data.url && t.groupId === data.groupId)) {
+                const canonical = getCanonicalUrl(data.url);
+                if (!sessionVault.some(t => getCanonicalUrl(t.url) === canonical)) {
+                    data.savedAt = Date.now();
                     sessionVault.push(data);
                     syncVaultToStorage();
                 }
@@ -608,7 +684,9 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                 if (tracker && tracker.closedIds.size >= tracker.baselineCount) {
                     // USER DELIBERATELY DELETED/CLOSED THE ENTIRE GROUP!
                     // Do NOT revive. Instead, just save to vault.
-                    if (!sessionVault.some(t => t.url === data.url && t.groupId === data.groupId)) {
+                    const canonical = getCanonicalUrl(data.url);
+                    if (!sessionVault.some(t => getCanonicalUrl(t.url) === canonical)) {
+                        data.savedAt = Date.now();
                         sessionVault.push(data);
                         syncVaultToStorage();
                     }
@@ -784,15 +862,15 @@ chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
 });
 
 // Init Hooks
-chrome.runtime.onInstalled.addListener(() => {
-    initializeState();
+chrome.runtime.onInstalled.addListener((details) => {
+    initializeState(false); // Not necessarily a fresh startup (could be an update)
     chrome.alarms.create("archiveCheck", { periodInMinutes: 60 });
 });
 chrome.runtime.onStartup.addListener(() => {
-    initializeState();
+    initializeState(true); // DEFINITE FRESH STARTUP
     chrome.alarms.create("archiveCheck", { periodInMinutes: 60 });
 });
-initializeState();
+initializeState(false); 
 
 // Last-resort flush: fires when Chrome is about to kill the service worker
 // (complements windows.onRemoved which handles clean window-close path)
@@ -1217,56 +1295,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 sendResponse({ success: false });
                 return;
             }
-            
-            // Sort: pinned first → grouped (by title) → standalone
-            // Pinned tabs MUST be created before grouped tabs so Chrome anchors them at index 0.
-            const sorted = sessionVault.slice().sort((a, b) => {
-                if (a.pinned && !b.pinned) return -1;
-                if (b.pinned && !a.pinned) return 1;
-                return (a.groupTitle || '').localeCompare(b.groupTitle || '');
-            });
-            
-            // ONE window for everything — old windowIds are stale across sessions.
-            // Opening N windows (by original windowId) is wrong and confusing.
-            const newWin = await chrome.windows.create({ focused: true });
-            const startTabs = await chrome.tabs.query({ windowId: newWin.id });
-
-            let groupMap = {};
-            let first = true;
-            for (const data of sorted) {
-                const newTab = await chrome.tabs.create({
-                    url: data.url,
-                    pinned: data.pinned,
-                    windowId: newWin.id,
-                    active: first // Make the first real tab active
-                });
-
-                if (first) {
-                    // Now that we have a real tab, safely remove the default blank tab(s)
-                    first = false;
-                    await Promise.all(startTabs.map(t => chrome.tabs.remove(t.id).catch(() => {})));
-                }
-
-                // Only group non-pinned tabs — Chrome rejects grouping pinned tabs
-                if (!data.pinned && data.groupId !== -1 && data.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
-                    const groupKey = `${data.groupTitle || ''}-${data.groupColor || 'grey'}`;
-                    if (!groupMap[groupKey]) {
-                        const gid = await chrome.tabs.group({ tabIds: [newTab.id] });
-                        await chrome.tabGroups.update(gid, {
-                            title: data.groupTitle || '',
-                            color: data.groupColor || 'grey'
-                        });
-                        groupMap[groupKey] = gid;
-                    } else {
-                        await chrome.tabs.group({ tabIds: [newTab.id], groupId: groupMap[groupKey] });
-                    }
-                }
-                safeDiscard(newTab.id);
+            const success = await restoreVault(sessionVault);
+            if (success) {
+                sessionVault = [];
+                syncVaultToStorage();
             }
-            
-            sessionVault = [];
-            syncVaultToStorage();
-            sendResponse({ success: true });
+            sendResponse({ success });
         });
         return true;
     }
@@ -1279,59 +1313,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
         return true;
     }
-    
+
     if (request.action === "open-url") {
         if (request.url === 'virtual:restore-vault') {
-            // Palette vault restore — same single-window logic as restore-vault action
             ensureLoaded().then(async () => {
-                if (!sessionVault || sessionVault.length === 0) {
-                    sendResponse({ success: false });
-                    return;
+                const success = await restoreVault(sessionVault);
+                if (success) {
+                    sessionVault = [];
+                    syncVaultToStorage();
                 }
-                
-                const sorted = sessionVault.slice().sort((a, b) => {
-                    if (a.pinned && !b.pinned) return -1;
-                    if (b.pinned && !a.pinned) return 1;
-                    return (a.groupTitle || '').localeCompare(b.groupTitle || '');
-                });
-                
-                const newWin = await chrome.windows.create({ focused: true });
-                const startTabs = await chrome.tabs.query({ windowId: newWin.id });
-
-                let groupMap = {};
-                let first = true;
-                for (const data of sorted) {
-                    const newTab = await chrome.tabs.create({
-                        url: data.url,
-                        pinned: data.pinned,
-                        windowId: newWin.id,
-                        active: first
-                    });
-
-                    if (first) {
-                        first = false;
-                        await Promise.all(startTabs.map(t => chrome.tabs.remove(t.id).catch(() => {})));
-                    }
-
-                    if (!data.pinned && data.groupId !== -1 && data.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
-                        const groupKey = `${data.groupTitle || ''}-${data.groupColor || 'grey'}`;
-                        if (!groupMap[groupKey]) {
-                            const gid = await chrome.tabs.group({ tabIds: [newTab.id] });
-                            await chrome.tabGroups.update(gid, {
-                                title: data.groupTitle || '',
-                                color: data.groupColor || 'grey'
-                            });
-                            groupMap[groupKey] = gid;
-                        } else {
-                            await chrome.tabs.group({ tabIds: [newTab.id], groupId: groupMap[groupKey] });
-                        }
-                    }
-                    safeDiscard(newTab.id);
-                }
-                
-                sessionVault = [];
-                syncVaultToStorage();
-                sendResponse({ success: true });
+                sendResponse({ success });
             });
             return true;
         }

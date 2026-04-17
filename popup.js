@@ -4,105 +4,87 @@
 const FEATURES = [
   {
     id: 'protectPinned',
-    title: 'Protect Pinned Tabs',
-    description: 'Automatically recreates pinned tabs if accidentally closed.',
+    title: 'Pinned Protection',
+    description: 'Auto-recreates pinned tabs if closed.',
     default: true,
     badge: null,
+    category: 'Guard',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`
   },
   {
     id: 'protectGrouped',
-    title: 'Protect Grouped Tabs',
-    description: 'Keeps grouped tabs alive — they reopen at their original URL.',
+    title: 'Group Guard',
+    description: 'Keeps grouped tabs alive and persistent.',
     default: true,
     badge: null,
+    category: 'Guard',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`
   },
   {
     id: 'enablePalette',
     title: 'Command Palette',
-    description: 'Press Ctrl+Shift+K (Cmd+Shift+K Mac) to search tabs, history, and bookmarks instantly.',
+    description: 'Search tabs & history instantly.',
     default: true,
     badge: 'Beta',
+    category: 'Tools',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect><path d="M6 8h.01"></path><path d="M10 8h.01"></path><path d="M14 8h.01"></path><path d="M18 8h.01"></path><path d="M8 12h.01"></path><path d="M12 12h.01"></path><path d="M16 12h.01"></path><path d="M7 16h10"></path></svg>`
   },
   {
     id: 'enableAutoGroup',
-    title: 'Smart Workspace',
-    description: 'Automatically sorts tabs into Dev, Design, AI, Media, News, or Social groups based on the domain.',
+    title: 'Smart Groups',
+    description: 'Auto-sorts tabs by domain category.',
     default: false,
     badge: 'Beta',
+    category: 'Tools',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>`
   },
   {
     id: 'enableAutoArchive',
     title: 'Ruthless Clean',
-    description: 'Automatically closes unprotected tabs (not grouped, not pinned) that have not been viewed in 12 hours.',
+    description: 'Auto-closes idle tabs after 12h.',
     default: false,
-    badge: 'Arc UI',
+    badge: 'Arc',
+    category: 'Logic',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`
   },
   {
     id: 'focusNTPOnClose',
     title: 'Focus Guard',
-    description: 'When you close the active tab, focus always lands on the New Tab Page instead of a neighbor.',
+    description: 'Always land on NTP when closing tabs.',
     default: false,
     badge: 'New',
+    category: 'Logic',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>`
   }
 ];
 
 // ─────────────────────────────────────────────
-//  Render feature cards
+//  Render feature cards (Grid)
 // ─────────────────────────────────────────────
-function renderFeatures(settings) {
+function renderFeatures(settings, filter = '') {
   const container = document.getElementById('feature-list');
   container.innerHTML = '';
 
-  FEATURES.forEach((feature) => {
+  const filtered = FEATURES.filter(f => 
+    f.title.toLowerCase().includes(filter.toLowerCase()) || 
+    f.description.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  filtered.forEach((feature) => {
     const isEnabled = settings[feature.id] ?? feature.default;
 
     // Card
     const card = document.createElement('div');
-    card.className = 'feature-card';
+    card.className = 'feature-card' + (isEnabled ? ' is-on' : '');
+    
+    // Header Row (Icon + Toggle)
+    const cardHeader = document.createElement('div');
+    cardHeader.className = 'card-header';
 
-    // Info section
-    const info = document.createElement('div');
-    info.className = 'feature-info';
+    const iconBox = document.createElement('div');
+    iconBox.className = 'card-icon';
+    iconBox.innerHTML = feature.icon;
 
-    const titleRow = document.createElement('div');
-    titleRow.className = 'feature-title-row';
-
-    const title = document.createElement('span');
-    title.className = 'feature-title';
-    title.textContent = feature.title;
-    titleRow.appendChild(title);
-
-    if (feature.badge) {
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      badge.textContent = feature.badge;
-      titleRow.appendChild(badge);
-    }
-
-    const desc = document.createElement('p');
-    desc.className = 'feature-desc';
-    desc.textContent = feature.description;
-
-    info.appendChild(titleRow);
-    info.appendChild(desc);
-
-    if (feature.id === 'enablePalette') {
-      const shortcutLink = document.createElement('a');
-      shortcutLink.href = '#';
-      shortcutLink.textContent = 'Change Shortcut ⚙️';
-      shortcutLink.style.display = 'inline-block';
-      shortcutLink.style.marginTop = '4px';
-      shortcutLink.style.fontSize = '10px';
-      shortcutLink.style.color = '#0a84ff';
-      shortcutLink.style.textDecoration = 'none';
-      shortcutLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        chrome.tabs.create({ url: 'chrome://extensions/shortcuts' });
-      });
-      info.appendChild(shortcutLink);
-    }
-
-    // Toggle
     const toggleWrap = document.createElement('div');
     toggleWrap.className = 'toggle-wrap' + (isEnabled ? ' is-on' : '');
 
@@ -113,7 +95,6 @@ function renderFeatures(settings) {
 
     const track = document.createElement('div');
     track.className = 'toggle-track';
-
     const thumb = document.createElement('div');
     thumb.className = 'toggle-thumb';
 
@@ -121,21 +102,65 @@ function renderFeatures(settings) {
     toggleWrap.appendChild(checkbox);
     toggleWrap.appendChild(track);
 
+    const rightGroup = document.createElement('div');
+    rightGroup.style.display = 'flex';
+    rightGroup.style.alignItems = 'center';
+
+    if (feature.badge) {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = feature.badge;
+      rightGroup.appendChild(badge);
+    }
+
+    rightGroup.appendChild(toggleWrap);
+    cardHeader.appendChild(iconBox);
+    cardHeader.appendChild(rightGroup);
+
+    // Title & Desc
+    const title = document.createElement('div');
+    title.className = 'feature-title';
+    title.textContent = feature.title;
+
+    const desc = document.createElement('div');
+    desc.className = 'feature-desc';
+    desc.textContent = feature.description;
+
+    card.appendChild(cardHeader);
+    card.appendChild(title);
+    card.appendChild(desc);
+
     // Toggle interaction
-    checkbox.addEventListener('change', () => {
-      if (checkbox.checked) {
+    checkbox.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const newState = checkbox.checked;
+      if (newState) {
+        card.classList.add('is-on');
         toggleWrap.classList.add('is-on');
       } else {
+        card.classList.remove('is-on');
         toggleWrap.classList.remove('is-on');
       }
       saveSettings();
     });
 
-    card.appendChild(info);
-    card.appendChild(toggleWrap);
+    // Clicking card also toggles it
+    card.addEventListener('click', (e) => {
+      if (e.target.type === 'checkbox') return;
+      checkbox.click();
+    });
+
     container.appendChild(card);
   });
 }
+
+// Search interaction
+document.getElementById('feature-search').addEventListener('input', (e) => {
+  const query = e.target.value;
+  chrome.storage.local.get({ settings: getDefaults() }, (data) => {
+    renderFeatures(data.settings, query);
+  });
+});
 
 // ─────────────────────────────────────────────
 //  Load & Save
@@ -157,19 +182,30 @@ function saveSettings() {
 }
 
 // Init
-chrome.storage.local.get({ settings: getDefaults() }, (data) => {
+chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data) => {
   const merged = { ...getDefaults(), ...data.settings };
   renderFeatures(merged);
+  
+  // Hide tip if already dismissed
+  if (data.tipDismissed) {
+    document.getElementById('startup-alert').style.display = 'none';
+  }
+});
+
+// Tip dismissal listener
+document.getElementById('close-startup-tip').addEventListener('click', () => {
+    document.getElementById('startup-alert').style.display = 'none';
+    chrome.storage.local.set({ tipDismissed: true });
 });
 
 // Check for session vault
 chrome.storage.local.get(['vault'], (data) => {
   if (data.vault && data.vault.length > 0) {
-    document.getElementById('vault-container').style.display = 'block';
+    document.getElementById('vault-container').style.display = 'flex';
     
     const vaultText = document.getElementById('vault-text');
     if (vaultText) {
-        vaultText.textContent = `Found ${data.vault.length} protected tab${data.vault.length > 1 ? 's' : ''} from your last session.`;
+        vaultText.textContent = `${data.vault.length} protected tabs saved`;
     }
     
     document.getElementById('restore-vault-btn').addEventListener('click', () => {
@@ -214,8 +250,9 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // ─────────────────────────────────────────────
 function loadAndRenderSets() {
   chrome.runtime.sendMessage({ action: 'get-sets' }, (response) => {
-    if (!response || !response.sets) return;
-    renderSetList(response.sets);
+    if (response?.sets) {
+        renderSetList(response.sets);
+    }
   });
 }
 
@@ -262,8 +299,8 @@ function renderSetList(sets) {
     summonBtn.title = 'Summon into current window';
     summonBtn.innerHTML = '↓'; 
     summonBtn.onclick = () => {
-      chrome.runtime.sendMessage({ action: 'summon-set', name: name }, () => {
-        window.close(); // Close popup after summon
+      chrome.runtime.sendMessage({ action: 'summon-set', name }, () => {
+        window.close();
       });
     };
 
@@ -272,8 +309,8 @@ function renderSetList(sets) {
     launchBtn.title = 'Launch in new window';
     launchBtn.innerHTML = '↗';
     launchBtn.onclick = () => {
-      chrome.runtime.sendMessage({ action: 'launch-set', name: name }, () => {
-        window.close(); // Close popup after launch
+      chrome.runtime.sendMessage({ action: 'launch-set', name }, () => {
+        window.close();
       });
     };
     
@@ -282,9 +319,9 @@ function renderSetList(sets) {
     deleteBtn.title = 'Delete set';
     deleteBtn.innerHTML = '×';
     deleteBtn.onclick = () => {
-      if(confirm(`Delete set "${name}"?`)) {
-        chrome.runtime.sendMessage({ action: 'delete-set', name: name }, (res) => {
-          if(res && res.success) renderSetList(res.sets);
+      if (confirm(`Delete set "${name}"?`)) {
+        chrome.runtime.sendMessage({ action: 'delete-set', name }, (res) => {
+          if (res?.success) renderSetList(res.sets);
         });
       }
     };
@@ -349,8 +386,6 @@ importInput.addEventListener('change', (e) => {
       chrome.runtime.sendMessage({ action: 'import-sets', sets: parsed }, (response) => {
         if (response && response.success) {
           renderSetList(response.sets);
-        } else {
-          alert('Failed to import sets. Invalid file format.');
         }
       });
     } catch (err) {
