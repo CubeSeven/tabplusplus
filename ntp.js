@@ -17,6 +17,7 @@ function initDashboard() {
     setInterval(updateClock, 1000);
 
     input = document.getElementById('search-input');
+    input.value = ''; // Ensure clean slate on load
     resultsContainer = document.getElementById('results-container');
 
     // Aggressively attempt to focus the input to fight Chrome's omnibox
@@ -232,10 +233,16 @@ function handleKeydown(e) {
 
 function activateResult(result) {
     if (result.type === 'action') {
-        if (result.id === 'save_workspace' || result.id === 'save_group' || result.id === 'stash_group') {
+        if (result.id === 'save_workspace' || result.id === 'save_group' || result.id === 'stash_group' || result.id === 'set_baseline_url') {
             pendingCommand = result.id;
             input.value = '';
-            input.placeholder = `Enter name for this Set (or Esc to cancel)...`;
+            const promptMap = {
+                'save_workspace': 'Enter name for this Workspace Set...',
+                'save_group': 'Enter name for this Group Set...',
+                'stash_group': 'Enter name for stashed Group...',
+                'set_baseline_url': 'Enter/Paste new persistent URL for this tab...'
+            };
+            input.placeholder = `${promptMap[result.id]} (or Esc to cancel)`;
             resultsContainer.innerHTML = '';
             return;
         }
@@ -260,10 +267,18 @@ function activateResult(result) {
     } else if (result.type === 'tab') {
         chrome.runtime.sendMessage({ action: 'switch-to-tab', tabId: result.id, windowId: result.windowId }, () => {
             if (isFallback) window.close();
+            else {
+                input.value = '';
+                handleSearch();
+            }
         });
     } else {
         if (focusInterval) clearInterval(focusInterval);
         chrome.runtime.sendMessage({ action: 'open-url', url: result.url });
         if (isFallback) window.close();
+        else {
+            input.value = '';
+            handleSearch();
+        }
     }
 }

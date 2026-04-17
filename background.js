@@ -334,6 +334,15 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     
     // Trigger sync on structural changes OR load completion (ensures windowId/index are mapped)
     if (changeInfo.pinned !== undefined || changeInfo.groupId !== undefined || changeInfo.url !== undefined || changeInfo.status === 'complete') {
+        // Inheritance Suppression: If this tab was recently created from a protected opener, 
+        // and it just got assigned a group (possibly by Chrome native inheritance), ungroup it.
+        if (changeInfo.groupId !== undefined && changeInfo.groupId !== -1 && 
+            chrome.tabGroups && changeInfo.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+            if (evictionGraveyard.has(`inheritance_${tabId}`)) {
+                chrome.tabs.ungroup(tabId).catch(() => {});
+            }
+        }
+
         if (processTab(tab)) {
             syncBaselinesToStorage();
         }
@@ -427,6 +436,34 @@ chrome.tabs.onMoved.addListener((tabId, moveInfo) => {
     chrome.tabs.get(tabId, (tab) => {
         if (tab && processTab(tab)) syncBaselinesToStorage();
     });
+});
+
+chrome.tabs.onCreated.addListener(async (tab) => {
+    if (!tab.openerTabId) return;
+    
+    await ensureLoaded();
+    
+    try {
+        const opener = await chrome.tabs.get(tab.openerTabId);
+        let isProtected = false;
+        if (globalSettings.protectPinned && opener.pinned) isProtected = true;
+        if (globalSettings.protectGrouped && opener.groupId !== -1 && opener.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) {
+            isProtected = true;
+        }
+
+        if (isProtected) {
+            // Force standalone status if it inherited a group
+            // We do this immediately AND again onUpdated to fight Chrome's native re-grouping
+            if (tab.groupId !== undefined && tab.groupId !== -1 && 
+                chrome.tabGroups && tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
+                chrome.tabs.ungroup(tab.id).catch(() => {});
+            }
+            
+            // Set a flag to catch latent grouping in onUpdated
+            evictionGraveyard.set(`inheritance_${tab.id}`, { timestamp: Date.now() });
+            setTimeout(() => evictionGraveyard.delete(`inheritance_${tab.id}`), 3000);
+        }
+    } catch (e) {}
 });
 
 chrome.tabs.onActivated.addListener((activeInfo) => {
@@ -818,11 +855,9 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'toggle_pin', category: 'Organization', title: 'Toggle Pin', aliases: ['pin', 'unpin'] },
     { type: 'action', id: 'toggle_group', category: 'Organization', title: 'Toggle Group', aliases: ['group', 'ungroup', 'cluster'] },
     { type: 'action', id: 'duplicate_tab', category: 'Organization', title: 'Duplicate Tab', aliases: ['clone', 'copy tab'] },
+    { type: 'action', id: 'update_baseline', category: 'Control', title: 'Update Pinned URL', aliases: ['reset url', 'change baseline', 'smart update'] },
+    { type: 'action', id: 'set_baseline_url', category: 'Control', title: 'Set Custom Baseline URL', aliases: ['set url', 'change url', 'paste url'] },
     { type: 'action', id: 'copy_md_link', category: 'Productivity', title: 'Copy Markdown Link', aliases: ['markdown', 'url', 'copy link'] },
-    { type: 'action', id: 'new_incognito', category: 'Window', title: 'New Incognito Window', aliases: ['private', 'secret', 'incognito'] },
-    
-    { type: 'action', id: 'gather_groups', category: 'Organization', title: 'Gather All Groups to Window', aliases: ['summon all groups', 'collect groups', 'move groups'] },
-    { type: 'action', id: 'update_baseline', category: 'Control', title: 'Update Pinned URL', aliases: ['reset url', 'change baseline', 'set url'] },
 
     { type: 'action', id: 'split_view', category: 'Window', title: 'Split View (Side-by-Side)', aliases: ['split', 'half', 'tile', 'side by side'] },
     { type: 'action', id: 'hard_reload', category: 'Control', title: 'Hard Reload', aliases: ['refresh', 'f5', 'cache', 'bypass'] },
@@ -1804,10 +1839,49 @@ async function executeBrowserAction(commandId, args) {
             case 'update_baseline': {
                 const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
                 if (tabs.length > 0) {
+                    const tab = tabs[0];
+                    const data = memoryBaselines.get(tab.id);
+                    if (data) {
+                        let finalUrl = tab.url;
+                        
+                        // Smart Timestamping for Video Sites
+                        const isVideo = tab.url.includes('youtube.com/watch') || tab.url.includes('vimeo.com') || tab.url.includes('twitch.tv/videos');
+                        if (isVideo) {
+                            try {
+                                const results = await chrome.scripting.executeScript({
+                                    target: { tabId: tab.id },
+                                    func: () => {
+                                        const v = document.querySelector('video');
+                                        return v ? Math.floor(v.currentTime) : null;
+                                    }
+                                });
+                                
+                                const seconds = results[0].result;
+                                if (seconds !== null && seconds > 0) {
+                                    const urlObj = new URL(tab.url);
+                                    urlObj.searchParams.set('t', seconds + 's');
+                                    finalUrl = urlObj.toString();
+                                }
+                            } catch (e) {}
+                        }
+                        
+                        data.url = finalUrl;
+                        syncBaselinesToStorage();
+                    }
+                }
+                break;
+            }
+            case 'set_baseline_url': {
+                const tabs = await chrome.tabs.query({ active: true, windowId: chrome.windows.WINDOW_ID_CURRENT });
+                if (tabs.length > 0 && args) {
                     const data = memoryBaselines.get(tabs[0].id);
                     if (data) {
-                        data.url = tabs[0].url;
-                        syncBaselinesToStorage();
+                        try {
+                            // Basic URL validation
+                            new URL(args);
+                            data.url = args;
+                            syncBaselinesToStorage();
+                        } catch (e) {}
                     }
                 }
                 break;
