@@ -96,6 +96,10 @@
                 <a href="#persistence" class="sidebar-link">Protection Engine</a>
                 <a href="#session-vault" class="sidebar-link">Session Vault</a>
                 
+                <div class="sidebar-group">Intelligence</div>
+                <a href="#auto-grouping" class="sidebar-link">Auto-Grouping</a>
+                <a href="#auto-archive" class="sidebar-link">Auto-Archive</a>
+                
                 <div class="sidebar-group">Performance</div>
                 <a href="#hibernation" class="sidebar-link">Tab Hibernation</a>
                 
@@ -103,8 +107,11 @@
                 <a href="#palette" class="sidebar-link">Command Palette</a>
                 <a href="#actions" class="sidebar-link">Action Engine (>)</a>
                 <a href="#bangs" class="sidebar-link">Search Bangs (!)</a>
+                <a href="#popup" class="sidebar-link">Popup Menu</a>
                 
-                <div class="sidebar-group">Exploration</div>
+                <div class="sidebar-group">Smart Features</div>
+                <a href="#video-baselines" class="sidebar-link">Smart URL Update</a>
+                <a href="#focus-guard" class="sidebar-link">Focus Guard</a>
                 <a href="#peek" class="sidebar-link">Transient Peek</a>
                 <a href="#zen" class="sidebar-link">Zen Dashboard</a>
                 
@@ -127,9 +134,13 @@
                 <ul>
                     <li><strong>Pinned Tabs:</strong> Tabs++ locks pinned tabs. If you close one, it recreates the tab immediately and pins it back to its starting URL.</li>
                     <li><strong>Protected Groups:</strong> Any tab inside a native Chrome Tab Group is considered "protected". If closed, it is restored back into its exact group and original position.</li>
+                    <li><strong>Enhanced Inheritance:</strong> New tabs opened from protected (pinned/grouped) tabs are automatically opened as <em>standalone</em> instances. This prevents your organized groups from being polluted by temporary navigation tabs.</li>
                 </ul>
                 <div class="info-box glass" style="padding: 20px; border-radius: 12px; margin-top: 20px;">
-                    <strong>Atomic Restoration:</strong> Position integrity is maintained even during complex batch-move operations.
+                    <strong>Memory Baseline System:</strong> Tabs++ tracks the "ground truth" of your workspace in a high-speed background map. This ensures that even after a browser update or crash, your critical tabs return to their exact state.
+                </div>
+                <div class="info-box glass" style="padding: 20px; border-radius: 12px; margin-top: 20px; background: rgba(255, 69, 58, 0.05); border: 1px solid rgba(255, 69, 58, 0.1);">
+                    <strong>Atomic Restoration:</strong> Position integrity is maintained even during complex batch-move operations. To prevent infinite loops and race conditions, the engine uses an <em>Eviction Graveyard</em> to track tabs in the process of being restored.
                 </div>
             </section>
 
@@ -139,6 +150,28 @@
                 <p>Tabs++ takes periodic snapshots of your entire workspace state. If Chrome fails to restore your sessions on startup, you can summon the Vault to revive everything.</p>
                 <pre>> Revive Vault</pre>
                 <p>The Vault stores URLs, titles, group colors, and window assignments locally using <code>chrome.storage.local</code>.</p>
+            </section>
+
+            <section id="auto-grouping" class="feature-block">
+                <h2>Auto-Grouping</h2>
+                <p>Tabs++ includes a background intelligence engine that automatically organizes high-frequency domains into themed groups as you browse.</p>
+                <div class="info-box glass" style="padding: 20px; border-radius: 12px; margin-top: 20px;">
+                    <strong>Thematic Rules:</strong>
+                    <ul style="margin-top: 10px; font-size: 15px;">
+                        <li><strong>AI:</strong> ChatGPT, Claude, Gemini, Perplexity, and all <code>.ai</code> domains.</li>
+                        <li><strong>Dev:</strong> GitHub, GitLab, StackOverflow, AWS, Vercel, Docker.</li>
+                        <li><strong>Design:</strong> Figma, Canva, Dribbble, Adobe, Spline.</li>
+                        <li><strong>Social:</strong> X (Twitter), Reddit, LinkedIn, Discord.</li>
+                        <li><strong>Media:</strong> YouTube, Netflix, Spotify, Twitch.</li>
+                        <li><strong>News:</strong> NYT, BBC, TechCrunch, Verge, Wikipedia.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section id="auto-archive" class="feature-block">
+                <h2>Auto-Archive</h2>
+                <p>To prevent tab sprawl, Tabs++ monitors unprotected (non-pinned, non-grouped) tabs. Any unprotected tab that hasn't been accessed for <strong>12 hours</strong> is automatically closed to keep your workspace lean.</p>
+                <p>Protected tabs are <em>never</em> archived.</p>
             </section>
 
             <section id="hibernation" class="feature-block">
@@ -159,76 +192,109 @@
 
             <section id="actions" class="feature-block">
                 <h2>Action Engine (>)</h2>
-                <p>The palette is more than a search bar. Type the <code>></code> prefix to trigger powerful system actions.</p>
+                <p>The palette is more than a search bar. Type the <code>></code> prefix to trigger powerful system actions. You can also use dynamic commands like <code>> summon [set name]</code> or <code>> launch [group name]</code>.</p>
+                
+                <h3>Organization</h3>
                 <table class="command-table">
-                    <thead>
-                        <tr>
-                            <th>Command</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
                     <tbody>
-                        <tr>
-                            <td><code>> Tidy</code></td>
-                            <td>Automatically cluster all loose tabs into groups by domain.</td>
-                        </tr>
-                        <tr>
-                            <td><code>> Hibernate All</code></td>
-                            <td>Instantly flush RAM for all background tabs.</td>
-                        </tr>
-                        <tr>
-                            <td><code>> Dedupe</code></td>
-                            <td>Remove duplicate URLs across your current window.</td>
-                        </tr>
-                        <tr>
-                            <td><code>> Pause Media</code></td>
-                            <td>Kill-switch for all audio and video playback.</td>
-                        </tr>
-                        <tr>
-                            <td><code>> Panic Close</code></td>
-                            <td>Instantly close all tabs and wipe the last 1 hour of history.</td>
-                        </tr>
-                        <tr>
-                            <td><code>> Zen Fullscreen</code></td>
-                            <td>Enter a focused mode with no distractions.</td>
-                        </tr>
+                        <tr><td><code>> Tidy</code></td><td>Cluster loose tabs into groups by domain.</td></tr>
+                        <tr><td><code>> Ungroup All</code></td><td>Flatten all group structures in the window.</td></tr>
+                        <tr><td><code>> Dedupe</code></td><td>Close duplicate tabs (prefers active/recent).</td></tr>
+                        <tr><td><code>> Gather Standalone</code></td><td>Pull all non-grouped tabs into a new window.</td></tr>
+                        <tr><td><code>> Consolidate Domain</code></td><td>Pull all tabs of the current domain from other windows.</td></tr>
+                        <tr><td><code>> Extract Group</code></td><td>Move current group into its own window.</td></tr>
                     </tbody>
                 </table>
+
+                <h3>Tab Sets</h3>
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Save Workspace</code></td><td>Save all protected tabs in the window as a Set.</td></tr>
+                        <tr><td><code>> Save Group</code></td><td>Save the active group as a Set.</td></tr>
+                        <tr><td><code>> Stash Group</code></td><td>Save the active group and close its tabs immediately.</td></tr>
+                        <tr><td><code>> Export Sets</code></td><td>Download your saved Sets as a JSON file.</td></tr>
+                        <tr><td><code>> summon [term]</code></td><td>Search and pull an existing Set or Group into your window.</td></tr>
+                        <tr><td><code>> launch [term]</code></td><td>Open a saved Set in a fresh window.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Performance & Focus</h3>
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Hibernate All</code></td><td>Instantly flush RAM for all background tabs.</td></tr>
+                        <tr><td><code>> Hibernate Window</code></td><td>Sleep all background tabs in the local window.</td></tr>
+                        <tr><td><code>> Pause Media</code></td><td>Global kill-switch for all video/audio elements.</td></tr>
+                        <tr><td><code>> Mute Background</code></td><td>Silence all tabs except the active one.</td></tr>
+                        <tr><td><code>> Zen Fullscreen</code></td><td>Enter distraction-free mode.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Deep System Links</h3>
+                <p>Tabs++ maps dozens of internal Chrome paths to easy keywords:</p>
+                <div class="glass" style="padding: 15px; border-radius: 8px; font-size: 14px; columns: 2;">
+                    <code>> flags</code> (Experiments)<br>
+                    <code>> gpu</code> (Hardware Accel)<br>
+                    <code>> performance</code> (Memory Saver)<br>
+                    <code>> privacy</code> (Security Hub)<br>
+                    <code>> passwords</code> (Manager)<br>
+                    <code>> permissions</code> (Mic/Cam)<br>
+                    <code>> ad privacy</code> (Ads)<br>
+                    <code>> appearance</code> (Themes)<br>
+                    <code>> extensions</code> (Plugins)
+                </div>
             </section>
 
             <section id="bangs" class="feature-block">
                 <h2>Search Bangs (!)</h2>
                 <p>Skip the middleman. Search external sites directly from the palette using <code>!</code> bangs.</p>
-                <table class="command-table">
-                    <thead>
-                        <tr>
-                            <th>Bang</th>
-                            <th>Destination</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td><code>!yt</code></td>
-                            <td>YouTube</td>
-                        </tr>
-                        <tr>
-                            <td><code>!gh</code></td>
-                            <td>GitHub</td>
-                        </tr>
-                        <tr>
-                            <td><code>!gpt</code></td>
-                            <td>ChatGPT</td>
-                        </tr>
-                        <tr>
-                            <td><code>!w</code></td>
-                            <td>Wikipedia</td>
-                        </tr>
-                        <tr>
-                            <td><code>!amz</code></td>
-                            <td>Amazon</td>
-                        </tr>
-                    </tbody>
-                </table>
+                <div class="glass" style="padding: 20px; border-radius: 12px; columns: 2; font-size: 15px;">
+                    <strong>General</strong><br>
+                    <code>!g</code> (Google)<br>
+                    <code>!ddg</code> (DuckDuckGo)<br>
+                    <code>!w</code> (Wikipedia)<br>
+                    <code>!maps</code> (Google Maps)<br>
+                    <code>!img</code> (Google Images)<br>
+                    <code>!a</code> (Amazon)<br>
+                    <code>!r</code> (Reddit)<br>
+                    <code>!x</code> (Twitter/X)<br>
+                    <br>
+                    <strong>Development</strong><br>
+                    <code>!gh</code> (GitHub)<br>
+                    <code>!so</code> (StackOverflow)<br>
+                    <code>!mdn</code> (Mozilla Devs)<br>
+                    <code>!npm</code> (npm Registry)<br>
+                    <br>
+                    <strong>Design & AI</strong><br>
+                    <code>!fig</code> (Figma)<br>
+                    <code>!can</code> (Canva)<br>
+                    <code>!pin</code> (Pinterest)<br>
+                    <code>!gpt</code> (ChatGPT)<br>
+                    <code>!px</code> (Perplexity)
+                </div>
+            </section>
+
+            <section id="popup" class="feature-block">
+                <h2>Popup Menu</h2>
+                <p>The extension popup, accessible via the toolbar icon, is your quick-access control center for workspace settings.</p>
+                <ul>
+                    <li><strong>Protection Toggles:</strong> Instantly enable or disable the "Survival Engine" for Pinned Tabs or Groups.</li>
+                    <li><strong>About & Support:</strong> The new <em>About</em> tab provides direct access to version data, the official website, and GitHub issue tracking.</li>
+                </ul>
+            </section>
+
+            <section id="video-baselines" class="feature-block">
+                <h2>Smart URL Updates</h2>
+                <p>The <strong>Update Pinned URL</strong> command is context-aware. If used on video platforms like YouTube, Vimeo, or Twitch, it automatically injects the current timestamp (e.g., <code>?t=120s</code>) into the baseline.</p>
+                <p>When the tab is restored (after closure or crash), it will revive exactly at the moment you last "saved" it.</p>
+            </section>
+
+            <section id="focus-guard" class="feature-block">
+                <h2>Focus Guard</h2>
+                <p>Focus Guard prevents new tabs from accidentally "inheriting" the protected state of their parent. If you open a link from a Grouped or Pinned tab, Tabs++ ensures the result is a standalone tab, keeping your core workspace clean.</p>
+                <p>If you close an active tab, Focus Guard optionally redirects focus to a clean New Tab Page instead of jumping to the nearest protected content.</p>
             </section>
 
             <section id="peek" class="feature-block">
@@ -240,6 +306,9 @@
             <section id="zen" class="feature-block">
                 <h2>Zen Dashboard</h2>
                 <p>Tabs++ replaces the cluttered standard New Tab Page with a minimalist dashboard. It features a clock, date, and a lightning-fast version of the global search palette.</p>
+                <div class="info-box glass" style="padding: 20px; border-radius: 12px; margin-top: 20px;">
+                    <strong>Persistence Fix:</strong> The dashboard search input now automatically clears after use or navigation, ensuring a clean slate every time you open a new tab.
+                </div>
             </section>
 
             <section id="faq" class="feature-block">
@@ -253,6 +322,17 @@
                         <div class="faq-q" style="font-weight: 600; color: #fff; margin-bottom: 8px;">Is my history synced?</div>
                         <div class="faq-a">No. Tabs++ prioritizes privacy. All data is stored locally on your machine and never synced to external servers.</div>
                     </div>
+                </div>
+            </section>
+
+            <section id="architecture" class="feature-block">
+                <h2>Technical Architecture</h2>
+                <div class="glass" style="padding: 25px; border-radius: 12px; font-family: monospace; font-size: 13px; line-height: 1.6;">
+                    <strong>Manifest:</strong> v3 (Service Worker)<br>
+                    <strong>Logic Flow:</strong> Event-driven triggers for <code>chrome.tabs.onCreated</code>, <code>onUpdated</code>, and <code>onRemoved</code>.<br>
+                    <strong>Atomic Persistence:</strong> State managed via <code>memoryBaselines</code> Map synced to <code>chrome.storage.local</code>.<br>
+                    <strong>Restoration Buffer:</strong> <code>evictionGraveyard</code> prevents race conditions during multi-tab revivals.<br>
+                    <strong>Security:</strong> All search suggestion logic uses HTTPS (Google Suggest API). No personal data leaves the machine.
                 </div>
             </section>
 

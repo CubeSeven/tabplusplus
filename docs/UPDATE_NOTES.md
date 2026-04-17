@@ -16,6 +16,20 @@ Restored tabs return to their exact original position and group within your wind
 Performance Optimization
 To preserve system resources, restored tabs are automatically hibernated. They consume zero RAM or CPU until you click on them, ensuring that a large workspace does not slow down your computer.
 
+Latest Update: v1.5.8 (The "Workspace Integrity" Update)
+
+This update hardens the workspace persistence engine and fixes critical UX papercuts in the search system.
+
+### Persistence Hardening
+- **Group Inheritance Protection**: Resolved a bug where new tabs opened from protected (pinned or grouped) tabs would incorrectly inherit the group or pinned state. New tabs now open as standalone items by default, preventing unexpected workspace clutter.
+- **NTP Search Persistence**: Fixed a bug where the search query on the New Tab Page would persist after a search was executed or when navigating away. The search field now resets correctly to provide a clean slate for' every interaction.
+
+### UI & Metadata
+- **About Tab**: Introduced a dedicated "About" section in the extension popup, providing quick access to version info and developer links.
+- **Social Links**: Added direct links to the official website and GitHub repository for faster support and community engagement.
+
+---
+
 Latest Update: v1.5.6 (UI & UX Stabilization)
 
 This update focuses on UI robustness and fixes visual regressions.

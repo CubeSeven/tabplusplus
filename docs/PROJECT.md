@@ -6,8 +6,11 @@ Chrome extension for workspace persistence. Transform standard tabs into a "Brow
 ### Primary Mechanics
 - **Tab Protection**: All pinned tabs and tabs inside native Chrome Groups are "protected".
 - **Instant Restore**: If a protected tab closes, background script recreates it immediately at its baseline URL.
-- **Resource Sleep**: Restored tabs are created in a "discarded" (hibernated) state. They use zero RAM/CPU until you click them.
+- **Standalone Inheritance**: New tabs opened from protected tabs open as standalone instances (suppressed inherited state).
+- **Resource Sleep**: Restored tabs use **Deterministic Hibernation** (created and instantly discarded to use zero RAM).
 - **Eviction Graveyard**: Advanced race-condition buffer that prevents tab loss if Chrome ungroups tabs milliseconds before closure.
+- **Vault Auto-Heal**: Passive engine that detects and corrects native Chrome session restore group drops.
+- **Auto-Archive**: Alarms-driven cleanup of unprotected loose tabs after 12 hours of inactivity.
 
 ## Navigation & Control
 ### Command Palette (`Ctrl+Shift+K`)
@@ -19,9 +22,11 @@ Global spotlight-style search for:
 
 ### Action Engine (`>`)
 Type `>` in the palette to trigger native browser commands:
-- **Tidy**: Magic Organize (auto-group by domain), Dedupe Window, Ungroup All.
-- **Performance**: Hibernate All (flush background RAM), Pause All Media (global audio/video kill-switch).
-- **Control**: Stash Workspace (save profile and close window), Zen Fullscreen, Panic Close (wipe last hour history).
+- **Tidy Engine**: Magic Organize (auto-group by domain), Dedupe Window, Ungroup All, Gather Standalone.
+- **Performance**: Hibernate All (flush background RAM), Pause All Media (global audio/video kill-switch), Mute Background.
+- **Dynamic Commands**: `summon [term]` (pull Set/Group), `launch [term]` (open Set in new window), `delete set [term]`.
+- **Smart Control**: **Smart URL Update** (Video timestamping for YouTube/Vimeo), Zen Fullscreen, Panic Close.
+- **System Links**: 30+ keywords for internal Chrome settings (`flags`, `gpu`, `privacy`, etc.).
 
 ## Transient Peek
 - **Peek Window**: Shift+Click any link to open it in a transient popup window. Allows exploration without workspace bloat.
