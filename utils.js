@@ -8,11 +8,13 @@ export function getCanonicalUrl(url) {
     }
 }
 
-export function safeDiscard(tabId) {
+export function safeDiscard(tabId, onDiscarded = null) {
     const listener = (tId, changeInfo) => {
         if (tId === tabId && changeInfo.status === 'complete') {
             chrome.tabs.onUpdated.removeListener(listener);
-            chrome.tabs.discard(tabId).catch(() => {});
+            chrome.tabs.discard(tabId).then(() => {
+                if (onDiscarded) onDiscarded();
+            }).catch(() => {});
         }
     };
     chrome.tabs.onUpdated.addListener(listener);

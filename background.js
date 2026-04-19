@@ -210,13 +210,17 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             }
 
             // Last active tab in group closed, all remaining are hibernated
-            // → trigger collapse instead of restoring (user is "done" with this group)
+            // → restore the tab as a hibernated member of the group, then collapse.
+            // We must NOT skip restoration here — that would permanently remove the
+            // tab from the group, which is the bug we're fixing.
             if (data.groupId !== NONE_GROUP && globalSettings.autoCollapseGroups && chrome.tabGroups) {
                 try {
                     const remaining = await chrome.tabs.query({ groupId: data.groupId });
                     if (remaining.length > 0 && remaining.every(t => t.discarded)) {
-                        applyAutoCollapse(data.groupId, removeInfo.windowId);
-                        return;
+                        // Fall through to the RESTORE block below, then after
+                        // the tab is recreated & discarded, collapse the group.
+                        // We signal this with a flag so the restore block can collapse afterwards.
+                        data._collapseAfterRestore = true;
                     }
                 } catch (e) {}
             }
@@ -255,7 +259,14 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                 // safeDiscard waits for status:complete before discarding so the
                 // URL is committed to Chrome's session store. Immediate discard
                 // on an unloaded tab causes about:blank.
-                safeDiscard(newTab.id);
+                // If flagged, collapse the group immediately after the tab is discarded
+                // so applyAutoCollapse's "all discarded" guard passes correctly.
+                const collapseAfter = data._collapseAfterRestore && data.groupId !== NONE_GROUP
+                    ? () => applyAutoCollapse(data.groupId, removeInfo.windowId)
+                    : null;
+                safeDiscard(newTab.id, collapseAfter);
+
+
             } catch (e) { /* Tab restore failed silently */ }
         }, 100);
     }
