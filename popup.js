@@ -188,6 +188,7 @@ function saveSettings() {
     if (el) settings[feature.id] = el.checked;
   });
   chrome.storage.local.set({ settings });
+  chrome.runtime.sendMessage({ action: 'update-settings', settings }).catch(() => {});
 }
 
 // Init

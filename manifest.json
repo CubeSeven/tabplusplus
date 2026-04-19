@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tabs++",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "Ensures pinned tabs are persistent and reset to their initial URL when closed.",
   "chrome_url_overrides": {
     "newtab": "ntp.html"
@@ -22,7 +22,8 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {

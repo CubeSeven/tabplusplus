@@ -85,6 +85,7 @@ function debounce(func, wait) {
 }
 
 async function handleSearch() {
+    if (!chrome.runtime?.id) return;
     const query = input.value.trim();
     chrome.runtime.sendMessage({ action: 'search-items', query }, response => {
         if (chrome.runtime.lastError) return;
@@ -245,8 +246,8 @@ function handleKeydown(e) {
 
     if (domOrderedResults.length === 0 && e.key !== 'ArrowRight') return;
 
-    if (e.key === 'ArrowRight' && input.selectionStart === input.value.length && !input.value.startsWith('>')) {
-        input.value = '>' + input.value;
+    if (e.key === 'ArrowRight' && input.value === '') {
+        input.value = '>';
         handleSearch();
         e.preventDefault();
         return;

@@ -10,6 +10,7 @@ let isPaletteEnabled = false;
 let isProtectedTab = false;
 let pendingCommand = null;
 let domOrderedResults = [];
+let blurOverlay = null;
 
 // Initialize protection status check
 if (chrome.runtime?.id) {
@@ -431,7 +432,75 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ success: true });
         return true;
     }
+    if (request.action === 'apply-parent-blur') {
+        toggleParentBlur(true);
+        sendResponse({ success: true });
+        return true;
+    }
+    if (request.action === 'remove-parent-blur') {
+        toggleParentBlur(false);
+        sendResponse({ success: true });
+        return true;
+    }
+    if (request.action === 'copy-to-clipboard') {
+        navigator.clipboard.writeText(request.text).then(() => {
+            sendResponse({ success: true });
+        }).catch(() => {
+            // Fallback for pages that block clipboard API
+            try {
+                const el = document.createElement('textarea');
+                el.value = request.text;
+                el.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                sendResponse({ success: true });
+            } catch (e) { sendResponse({ success: false }); }
+        });
+        return true;
+    }
+    if (request.action === 'pause-media') {
+        document.querySelectorAll('video, audio').forEach(el => {
+            try { el.pause(); } catch (e) {}
+        });
+        sendResponse({ success: true });
+        return true;
+    }
 });
+
+function toggleParentBlur(active) {
+    if (active) {
+        if (!blurOverlay) {
+            blurOverlay = document.createElement('div');
+            blurOverlay.id = 'tabs-plus-plus-blur-overlay';
+            blurOverlay.style.cssText = `
+                position: fixed;
+                top: 0; left: 0; width: 100vw; height: 100vh;
+                z-index: 2147483645;
+                background: rgba(0,0,0,0.05);
+                backdrop-filter: blur(10px) saturate(140%);
+                -webkit-backdrop-filter: blur(10px) saturate(140%);
+                opacity: 0;
+                transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+                pointer-events: none;
+            `;
+            document.documentElement.appendChild(blurOverlay);
+        }
+        blurOverlay.style.display = 'block';
+        blurOverlay.offsetHeight; // force reflow
+        blurOverlay.style.opacity = '1';
+    } else {
+        if (blurOverlay) {
+            blurOverlay.style.opacity = '0';
+            setTimeout(() => {
+                if (blurOverlay && blurOverlay.style.opacity === '0') {
+                    blurOverlay.style.display = 'none';
+                }
+            }, 500);
+        }
+    }
+}
 
 async function handleSearch() {
     const query = input.value.trim();
@@ -660,8 +729,8 @@ function handleKeydown(e) {
 
     if (domOrderedResults.length === 0 && e.key !== 'ArrowRight') return;
 
-    if (e.key === 'ArrowRight' && input.selectionStart === input.value.length && !input.value.startsWith('>')) {
-        input.value = '>' + input.value;
+    if (e.key === 'ArrowRight' && input.value === '') {
+        input.value = '>';
         handleSearch();
         e.preventDefault();
         return;
@@ -780,20 +849,27 @@ function injectPeekUI() {
         .control-btn {
             width: 44px;
             height: 44px;
-            background: rgba(28, 28, 30, 0.6);
-            backdrop-filter: blur(20px) saturate(180%);
-            -webkit-backdrop-filter: blur(20px) saturate(180%);
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(28, 28, 30, 0.5);
+            backdrop-filter: blur(24px) saturate(180%);
+            -webkit-backdrop-filter: blur(24px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             color: #ffffff;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
-            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
             padding: 0;
             outline: none;
+        }
+
+        .control-btn:hover {
+            background: rgba(45, 45, 48, 0.7);
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+            border-color: rgba(255, 255, 255, 0.2);
         }
 
         @media (prefers-color-scheme: light) {
@@ -861,8 +937,24 @@ function injectPeekUI() {
 
     // Global ESC listener for the Peek window
     window.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            window.close();
-        }
+        if (e.key === 'Escape') window.close();
     });
 }
+
+// Cleanup: When user returns to a parent tab after a Peek, ensure blur is removed
+// even if the remove-parent-blur message was missed (e.g. network/reload race).
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && blurOverlay && blurOverlay.style.opacity === '1') {
+        // Verify we still have a Peek open; if not, remove the blur
+        if (chrome.runtime?.id) {
+            chrome.runtime.sendMessage({ action: 'check-peek-status' }, (response) => {
+                if (chrome.runtime.lastError || !response?.isPeek) {
+                    toggleParentBlur(false);
+                }
+            });
+        } else {
+            // Extension context lost — force remove blur immediately
+            toggleParentBlur(false);
+        }
+    }
+});
