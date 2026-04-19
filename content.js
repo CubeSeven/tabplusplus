@@ -11,6 +11,16 @@ let isProtectedTab = false;
 let pendingCommand = null;
 let domOrderedResults = [];
 
+// Initialize protection status check
+if (chrome.runtime?.id) {
+    chrome.runtime.sendMessage({ action: 'check-tab-status' }, (response) => {
+        if (chrome.runtime.lastError) return;
+        if (response && response.isProtected !== undefined) {
+            isProtectedTab = response.isProtected;
+        }
+    });
+}
+
 // Initialize setting and listen for changes
 chrome.storage.local.get({ settings: { enablePalette: false } }, (data) => {
     isPaletteEnabled = data.settings.enablePalette;
@@ -313,12 +323,14 @@ function createPalette() {
 
     // Refocus guard: some sites (e.g. Google) steal focus back after we open.
     // If the input loses focus while the palette is visible, grab it back.
-    input.addEventListener('focusout', () => {
+    input.addEventListener('focusout', (e) => {
         if (isVisible) {
-            // Small delay so legitimate blur-then-activate (Enter key) still works.
-            setTimeout(() => {
-                if (isVisible) input.focus();
-            }, 50);
+            // Snatch back if focus went to the host page or "null" (omnibox)
+            if (!e.relatedTarget || !palette.contains(e.relatedTarget)) {
+                setTimeout(() => {
+                    if (isVisible && input) input.focus();
+                }, 10);
+            }
         }
     });
 
@@ -328,9 +340,19 @@ function createPalette() {
         e.preventDefault();
     });
 
-    palette.addEventListener('click', (e) => {
-        if (e.target === palette) hidePalette();
+    palette.addEventListener('mousedown', (e) => {
+        if (e.target === palette) {
+            hidePalette();
+            e.preventDefault();
+        }
     });
+
+    palette.addEventListener('touchstart', (e) => {
+        if (e.target === palette) {
+            hidePalette();
+            e.preventDefault();
+        }
+    }, { passive: false });
 
     // Prevent key events inside the palette from triggering host page shortcuts
     // (e.g. typing "w" on DuckDuckGo, "/" on YouTube/GitHub)
@@ -367,10 +389,11 @@ function showPalette() {
     renderResults([]);
 
     // Multi-stage aggressive focus: some sites (Google, Twitter, Reddit) fight
-    // hard to reclaim focus. We hit it at 0ms, 80ms, and 200ms to win.
+    // hard to reclaim focus. We hit it at 0ms, 80ms, 200ms, and 500ms to win.
     input.focus();
     setTimeout(() => { if (isVisible) input.focus(); }, 80);
     setTimeout(() => { if (isVisible) input.focus(); }, 200);
+    setTimeout(() => { if (isVisible) input.focus(); }, 500);
     
     handleSearch(); // Fetch initial tabs list
 }
@@ -601,6 +624,13 @@ function updateSelection(index) {
 function handleKeydown(e) {
     if (!isVisible) return;
 
+    // Tab trap: Focus MUST stay in the palette input
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        if (input) input.focus();
+        return;
+    }
+
     if (e.key === 'Escape') {
         if (pendingCommand) {
             pendingCommand = null;
@@ -737,76 +767,102 @@ function injectPeekUI() {
 
     const style = document.createElement('style');
     style.textContent = `
-        .promote-btn {
+        .peek-controls {
             position: fixed;
-            bottom: 24px;
+            top: 24px;
             right: 24px;
-            background: rgba(28, 28, 30, 0.7);
-            backdrop-filter: blur(16px) saturate(180%);
-            -webkit-backdrop-filter: blur(16px) saturate(180%);
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 2147483647;
+        }
+
+        .control-btn {
+            width: 44px;
+            height: 44px;
+            background: rgba(28, 28, 30, 0.6);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.12);
             color: #ffffff;
-            padding: 12px 20px;
-            border-radius: 50px;
-            font-family: system-ui, -apple-system, sans-serif;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
+            border-radius: 50%;
             display: flex;
             align-items: center;
-            gap: 8px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-            z-index: 2147483647;
-            text-decoration: none;
-            letter-spacing: 0.3px;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            padding: 0;
+            outline: none;
         }
 
         @media (prefers-color-scheme: light) {
-            .promote-btn {
-                background: rgba(255, 255, 255, 0.75);
+            .control-btn {
+                background: rgba(255, 255, 255, 0.7);
                 color: #000000;
-                border-color: rgba(0, 0, 0, 0.1);
+                border-color: rgba(0, 0, 0, 0.08);
                 box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
             }
         }
 
-        .promote-btn:hover {
-            transform: translateY(-3px) scale(1.02);
-            background: rgba(28, 28, 30, 0.9);
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-            border-color: rgba(255, 255, 255, 0.3);
+        .control-btn:hover {
+            transform: scale(1.1);
+            background: rgba(28, 28, 30, 0.85);
+            border-color: rgba(255, 255, 255, 0.25);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
         }
         
         @media (prefers-color-scheme: light) {
-             .promote-btn:hover {
-                 background: rgba(255, 255, 255, 0.95);
-                 box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
-                 border-color: rgba(0, 0, 0, 0.2);
+             .control-btn:hover {
+                 background: rgba(255, 255, 255, 0.9);
+                 border-color: rgba(0, 0, 0, 0.15);
              }
         }
 
-        .promote-btn:active {
-            transform: translateY(1px) scale(0.98);
+        .control-btn:active {
+            transform: scale(0.95);
         }
 
         .icon {
-            font-size: 16px;
+            font-size: 20px;
             line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
+
+        .close-btn .icon { font-size: 18px; }
     `;
 
-    const btn = document.createElement('button');
-    btn.className = 'promote-btn';
-    btn.innerHTML = `<span class="icon">↗</span> Promote to Workspace`;
-    
-    btn.addEventListener('click', () => {
-        btn.style.opacity = '0';
-        btn.style.pointerEvents = 'none';
+    const container = document.createElement('div');
+    container.className = 'peek-controls';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'control-btn close-btn';
+    closeBtn.title = 'Close Peek (Esc)';
+    closeBtn.innerHTML = `<span class="icon">✕</span>`;
+    closeBtn.onclick = () => window.close();
+
+    const promoteBtn = document.createElement('button');
+    promoteBtn.className = 'control-btn promote-btn';
+    promoteBtn.title = 'Promote to Workspace';
+    promoteBtn.innerHTML = `<span class="icon">↗</span>`;
+    promoteBtn.onclick = () => {
+        host.remove();
         chrome.runtime.sendMessage({ action: 'promote-peek' });
-    });
+    };
+
+    container.appendChild(closeBtn);
+    container.appendChild(promoteBtn);
 
     shadow.appendChild(style);
-    shadow.appendChild(btn);
+    shadow.appendChild(container);
     document.documentElement.appendChild(host);
+
+    // Global ESC listener for the Peek window
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            window.close();
+        }
+    });
 }

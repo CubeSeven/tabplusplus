@@ -11,6 +11,7 @@ let domOrderedResults = [];
 let selectedIndex = -1;
 let pendingCommand = null;
 let focusInterval = null;
+let isNavigating = false;
 
 function initDashboard() {
     updateClock();
@@ -23,14 +24,43 @@ function initDashboard() {
     // Aggressively attempt to focus the input to fight Chrome's omnibox
     let attempts = 0;
     focusInterval = setInterval(() => {
+        if (isNavigating || document.visibilityState === 'hidden') return;
         if (input) input.focus();
         attempts++;
-        if (attempts > 15) clearInterval(focusInterval); // Try for ~750ms
+        if (attempts > 40) clearInterval(focusInterval); // Try for ~2s to ensure we win
     }, 50);
 
-    // Also focus if they click anywhere on the page
-    document.addEventListener('click', (e) => {
-        if (e.target !== input) input.focus();
+    // Snatch focus back if lost to the omnibox (detected by null relatedTarget)
+    input.addEventListener('focusout', (e) => {
+        if (isNavigating || document.visibilityState === 'hidden') return;
+        
+        // If relatedTarget is null, focus likely went to the browser's own UI (URL bar)
+        // or something outside our control. If it's another element, let it be.
+        if (!e.relatedTarget) {
+            setTimeout(() => {
+                if (!isNavigating && input && document.visibilityState === 'visible') {
+                    input.focus();
+                }
+            }, 10);
+        }
+    });
+
+    // Also focus whenever user returns to this tab
+    window.addEventListener('focus', () => {
+        if (!isNavigating && input) input.focus();
+    });
+
+    // Also focus if they click or tap anywhere on the page
+    ['mousedown', 'touchstart'].forEach(type => {
+        document.addEventListener(type, (e) => {
+            if (isNavigating) return;
+            if (input && e.target !== input) {
+                // Check if user is clicking a result or other interactive element
+                if (!e.target.closest('.result-item') && !e.target.closest('a') && !e.target.closest('button')) {
+                    input.focus();
+                }
+            }
+        });
     });
 
     input.addEventListener('input', debounce(handleSearch, 150));
@@ -197,12 +227,17 @@ function handleKeydown(e) {
     if (pendingCommand) {
         if (e.key === 'Enter') {
             const name = input.value.trim();
+            isNavigating = true;
+            if (focusInterval) clearInterval(focusInterval);
             chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: pendingCommand, args: name });
             pendingCommand = null;
             input.value = "";
             input.placeholder = "Search tabs, history, bookmarks... or try !yt, !gh";
             if (isFallback) window.close();
-            else handleSearch();
+            else {
+                isNavigating = false;
+                handleSearch();
+            }
             e.preventDefault();
         }
         return;
@@ -244,8 +279,12 @@ function activateResult(result) {
             };
             input.placeholder = `${promptMap[result.id]} (or Esc to cancel)`;
             resultsContainer.innerHTML = '';
+            input.focus();
             return;
         }
+
+        isNavigating = true;
+        if (focusInterval) clearInterval(focusInterval);
 
         if (result.id.startsWith('summon_set_palette|') || result.id.startsWith('launch_set_palette|') || result.id.startsWith('delete_set_palette|')) {
             const parts = result.id.split('|');
@@ -253,6 +292,7 @@ function activateResult(result) {
             if (isFallback) window.close();
             else {
                 input.value = '';
+                isNavigating = false;
                 handleSearch();
             }
             return;
@@ -262,22 +302,28 @@ function activateResult(result) {
         if (isFallback) window.close();
         else {
             input.value = '';
+            isNavigating = false;
             handleSearch();
         }
     } else if (result.type === 'tab') {
+        isNavigating = true;
+        if (focusInterval) clearInterval(focusInterval);
         chrome.runtime.sendMessage({ action: 'switch-to-tab', tabId: result.id, windowId: result.windowId }, () => {
             if (isFallback) window.close();
             else {
                 input.value = '';
+                isNavigating = false;
                 handleSearch();
             }
         });
     } else {
+        isNavigating = true;
         if (focusInterval) clearInterval(focusInterval);
         chrome.runtime.sendMessage({ action: 'open-url', url: result.url });
         if (isFallback) window.close();
         else {
             input.value = '';
+            isNavigating = false;
             handleSearch();
         }
     }

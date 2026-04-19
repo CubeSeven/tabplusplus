@@ -55,6 +55,15 @@ const FEATURES = [
     badge: 'New',
     category: 'Logic',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>`
+  },
+  {
+    id: 'autoCollapseGroups',
+    title: 'Auto-Collapse',
+    description: 'Collapse groups when inactive to save space.',
+    default: false,
+    badge: 'New',
+    category: 'Logic',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h16"/><path d="M4 10h16"/><path d="M12 6v12"/><path d="M12 6l-3 3"/><path d="M12 6l3 3"/><path d="M12 18l-3-3"/><path d="M12 18l3-3"/></svg>`
   }
 ];
 

@@ -2,7 +2,7 @@
 // --- GLOBAL STATE & CONFIGURATION ---
 // ==========================================================================
 let memoryBaselines = new Map(); // tabId -> { url, index, windowId, pinned, groupId }
-let globalSettings = { protectPinned: true, protectGrouped: true, enablePalette: true, enableAutoGroup: false, focusNTPOnClose: false };
+let globalSettings = { protectPinned: true, protectGrouped: true, enablePalette: true, enableAutoGroup: false, focusNTPOnClose: false, autoCollapseGroups: false };
 let lastActiveTabId = null;
 let isInitialized = false;
 let sessionVault = [];
@@ -15,6 +15,7 @@ let recreationRegistry = new Map(); // windowId|title -> Promise<groupId>
 let groupClosureTracker = new Map(); // groupId -> { closedIds: Set, baselineCount: number }
 let windowBatchTracker = new Map(); // windowId -> { count: number, timestamp: number }
 let closingWindowIds = new Set(); // windowIds already bulk-saved to vault on shutdown
+let ntpTabCache = new Map(); // windowId -> ntpId (instant focus-guard landing)
 
 const NTP_EXTENSION_URL = chrome.runtime.getURL('ntp.html');
 
@@ -79,8 +80,8 @@ function syncBaselinesToStorage(force = false) {
 
 // Deterministic hibernation: waits for tab to finish loading before discarding
 function safeDiscard(tabId) {
-    const listener = (tid, changeInfo) => {
-        if (tid === tabId && changeInfo.status === 'complete') {
+    const listener = (tId, changeInfo) => {
+        if (tId === tabId && changeInfo.status === 'complete') {
             chrome.tabs.onUpdated.removeListener(listener);
             chrome.tabs.discard(tabId).catch(() => {});
         }
@@ -158,7 +159,8 @@ async function restoreVault(vaultData) {
                     const gid = await chrome.tabs.group({ tabIds: [newTab.id] });
                     await chrome.tabGroups.update(gid, {
                         title: data.groupTitle || '',
-                        color: data.groupColor || 'grey'
+                        color: data.groupColor || 'grey',
+                        collapsed: globalSettings.autoCollapseGroups && !data.active
                     });
                     groupMap[groupKey] = gid;
                 } else {
@@ -260,7 +262,10 @@ function processTab(tab) {
     const url = tab.url || tab.pendingUrl;
 
     // Never protect our own NTP page — it's a transient focus-landing page, not content
-    if (url && url.startsWith(NTP_EXTENSION_URL)) return false;
+    if (url && url.startsWith(NTP_EXTENSION_URL)) {
+        ntpTabCache.set(tab.windowId, tab.id);
+        return false;
+    }
 
     let isProtected = false;
     if (globalSettings.protectPinned && tab.pinned) isProtected = true;
@@ -447,6 +452,27 @@ if (chrome.tabGroups) {
     });
 }
 
+// React to tab property changes (Hibernation/Discarding)
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (globalSettings.autoCollapseGroups && changeInfo.discarded && tab.groupId !== -1) {
+        applyAutoCollapse(tab.groupId, tab.windowId);
+    }
+});
+
+function applyAutoCollapse(groupId, windowId) {
+    if (!globalSettings.autoCollapseGroups || !chrome.tabGroups) return;
+    
+    chrome.tabs.query({ groupId }, (tabs) => {
+        if (tabs.length === 0) return;
+        const allHibernated = tabs.every(t => t.discarded);
+        const hasActive = tabs.some(t => t.active);
+        
+        if (allHibernated && !hasActive) {
+            chrome.tabGroups.update(groupId, { collapsed: true }).catch(() => {});
+        }
+    });
+}
+
 // Group inheritance is permitted natively. 
 
 async function applyAutoGrouping(tab, retryCount = 0) {
@@ -538,8 +564,29 @@ chrome.tabs.onCreated.addListener(async (tab) => {
     } catch (e) {}
 });
 
-chrome.tabs.onActivated.addListener((activeInfo) => {
+chrome.tabs.onActivated.addListener(async (activeInfo) => {
     lastActiveTabId = activeInfo.tabId;
+    await ensureLoaded();
+    if (!globalSettings.autoCollapseGroups) return;
+
+    try {
+        const activeTab = await chrome.tabs.get(activeInfo.tabId);
+        
+        // Expand current group instantly
+        if (activeTab.groupId !== -1 && chrome.tabGroups) {
+            chrome.tabGroups.update(activeTab.groupId, { collapsed: false }).catch(() => {});
+        }
+
+        // Clean up other groups in this window if they are fully hibernated
+        if (chrome.tabGroups) {
+            const groups = await chrome.tabGroups.query({ windowId: activeInfo.windowId });
+            for (const group of groups) {
+                if (group.id !== activeTab.groupId && !group.collapsed) {
+                    applyAutoCollapse(group.id, activeInfo.windowId);
+                }
+            }
+        }
+    } catch (e) {}
 });
 
 chrome.tabs.onAttached.addListener((tabId, attachInfo) => {
@@ -584,31 +631,35 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 
     // Focus Guard: If active tab is closed, redirect focus to NTP — reuse existing if present
     if (globalSettings.focusNTPOnClose && tabId === lastActiveTabId && !removeInfo.isWindowClosing) {
-        (async () => {
-            try {
-                const ntpUrl = NTP_EXTENSION_URL;
-                const windowTabs = await chrome.tabs.query({ windowId: removeInfo.windowId });
-                const existingNtp = windowTabs.find(t => t.url && t.url.startsWith(ntpUrl));
-
-                if (existingNtp) {
-                    // Already exists — just focus it
-                    chrome.tabs.update(existingNtp.id, { active: true }).catch(() => {});
-                } else {
-                    // Create standalone at end of strip (high index prevents group inheritance)
-                    const created = await chrome.tabs.create({
-                        url: ntpUrl,
-                        active: true,
-                        windowId: removeInfo.windowId,
-                        index: 9999
-                    });
-                    // Force standalone status
-                    if (created.groupId !== undefined && created.groupId !== -1 && 
-                        chrome.tabGroups && created.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) {
-                        chrome.tabs.ungroup([created.id]).catch(() => {});
-                    }
+        // Instant Redirection: Use cached NTP ID if available to outrun Chrome's neighbor focus
+        const cachedNtpId = ntpTabCache.get(removeInfo.windowId);
+        if (cachedNtpId) {
+            chrome.tabs.update(cachedNtpId, { active: true }).catch(() => {
+                // Stale cache? Clear and fallback
+                ntpTabCache.delete(removeInfo.windowId);
+            });
+        } else {
+            // Creation is still async, but we start it immediately without await
+            chrome.tabs.create({
+                url: NTP_EXTENSION_URL,
+                active: true,
+                windowId: removeInfo.windowId,
+                index: 9999
+            }).then(created => {
+                if (created.groupId !== -1 && chrome.tabGroups) {
+                    chrome.tabs.ungroup(created.id).catch(() => {});
                 }
-            } catch (e) {}
-        })();
+                ntpTabCache.set(removeInfo.windowId, created.id);
+            });
+        }
+    }
+
+    // Cache Cleanup: If the closed tab was an NTP, remove from cache
+    for (const [winId, ntpId] of ntpTabCache.entries()) {
+        if (ntpId === tabId) {
+            ntpTabCache.delete(winId);
+            break;
+        }
     }
 
     await ensureLoaded();
@@ -1515,6 +1566,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
+    if (request.action === 'check-tab-status') {
+        const tab = sender.tab;
+        if (tab) {
+            let isProt = false;
+            if (globalSettings.protectPinned && tab.pinned) isProt = true;
+            if (globalSettings.protectGrouped && tab.groupId !== (chrome.tabGroups ? chrome.tabGroups.TAB_GROUP_ID_NONE : -1)) isProt = true;
+            sendResponse({ isProtected: isProt });
+        } else {
+            sendResponse({ isProtected: false });
+        }
+        return true;
+    }
+
     if (request.action === 'check-peek-status') {
         const isPeek = sender.tab && sender.tab.windowId && peekWindows.has(sender.tab.windowId);
         sendResponse({ isPeek: !!isPeek });
@@ -1552,17 +1616,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === "open-peek") {
-        chrome.windows.getCurrent((currentWin) => {
-             const w = currentWin.width || 1200;
-             const h = currentWin.height || 800;
+        const refWinId = sender.tab ? sender.tab.windowId : chrome.windows.WINDOW_ID_CURRENT;
+        chrome.windows.get(refWinId, (currentWin) => {
+             const w = (currentWin && currentWin.width) || 1200;
+             const h = (currentWin && currentWin.height) || 800;
              const width = Math.round(w * 0.85);
              const height = Math.round(h * 0.9);
-             const left = (currentWin.left || 0) + Math.round((w - width) / 2);
-             const top = (currentWin.top || 0) + Math.round((h - height) / 2);
+             const left = ((currentWin && currentWin.left) || 0) + Math.round((w - width) / 2);
+             const top = ((currentWin && currentWin.top) || 0) + Math.round((h - height) / 2);
              
              chrome.windows.create({
                  url: request.url,
                  type: 'popup',
+                 state: 'normal',
                  width: width,
                  height: height,
                  left: left,
