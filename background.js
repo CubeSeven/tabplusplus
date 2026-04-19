@@ -151,12 +151,16 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
         evictionGraveyard.delete(tabId);
     }
 
-    // Group closure detection
+    // Group closure detection — count baselines EXCLUDING the closing tab itself,
+    // so that closing the ONLY tab in a group (baselineCount=0 after exclusion)
+    // does NOT look like a "full group close" and instead falls through to restore.
     if (data && data.url && data.groupId !== NONE_GROUP) {
         let tracker = groupClosureTracker.get(data.groupId);
         if (!tracker) {
             let baselineCount = 0;
-            for (const b of memoryBaselines.values()) { if (b.groupId === data.groupId) baselineCount++; }
+            for (const [bid, b] of memoryBaselines.entries()) {
+                if (b.groupId === data.groupId && bid !== tabId) baselineCount++;
+            }
             tracker = { closedIds: new Set(), baselineCount };
             groupClosureTracker.set(data.groupId, tracker);
             setTimeout(() => groupClosureTracker.delete(data.groupId), 250);

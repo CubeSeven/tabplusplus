@@ -130,6 +130,10 @@ export function processTab(tab) {
                     if (chrome.runtime.lastError || !currentTab) return;
                     const stored = memoryBaselines.get(tab.id);
                     if (!stored) return;
+                    // Re-check _restoredAt: async group assignment may still be
+                    // in flight even though processTab already flagged the tab.
+                    const ageNow = stored._restoredAt ? (Date.now() - stored._restoredAt) : Infinity;
+                    if (ageNow < 2000) return; // still within grace period — back off
                     if (!currentTab.pinned && currentTab.groupId === NONE_GROUP) {
                         memoryBaselines.delete(tab.id);
                         syncBaselinesToStorage();

@@ -61,6 +61,7 @@ export function handlePromotePeek(request, sender, sendResponse) {
 
         if (targetWinId) {
             chrome.tabs.move(sender.tab.id, { windowId: targetWinId, index: -1 }, (movedTab) => {
+                if (chrome.runtime.lastError || !movedTab) return;
                 chrome.tabs.update(movedTab.id, { active: true });
                 chrome.windows.update(targetWinId, { focused: true });
             });
