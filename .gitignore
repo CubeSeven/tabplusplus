@@ -1,0 +1,12 @@
+# Build artifacts
+*.zip
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+
+# Old version snapshots
+tabs-plus-*/

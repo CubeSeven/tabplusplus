@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation | Tabs++</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="docs_styles.css">
+    <style>
+        body { display: block; overflow-y: auto; }
+        .docs-page { display: flex; min-height: 100vh; }
+        .docs-sidebar-fixed {
+            width: 310px;
+            height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+            background: rgba(15, 15, 18, 0.7);
+            backdrop-filter: blur(30px) saturate(180%);
+            border-right: 1px solid var(--surface-border);
+            padding: 40px 20px;
+            overflow-y: auto;
+            z-index: 1001;
+            box-shadow: 20px 0 50px rgba(0,0,0,0.3);
+        }
+        .docs-main {
+            margin-left: 310px;
+            flex: 1;
+            padding: 80px 60px;
+            max-width: 960px;
+            transition: background-color 0.4s ease, color 0.4s ease;
+        }
+        .sidebar-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 40px;
+        }
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 20px;
+            font-weight: 700;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+        .sidebar-logo span span { color: var(--text-secondary); font-weight: 400; }
+
+        #theme-toggle {
+            background: var(--glass-surface);
+            border: 1px solid var(--surface-border);
+            color: var(--text-primary);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #theme-toggle:hover {
+            background: var(--surface-hover);
+            border-color: var(--accent-color);
+        }
+
+        .sidebar-nav { display: flex; flex-direction: column; gap: 4px; }
+        .sidebar-link {
+            padding: 9px 16px;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .sidebar-link:hover { background: var(--surface-hover); color: var(--text-primary); }
+        .sidebar-link.active { background: var(--accent-color); color: var(--bg-page); font-weight: 600; }
+        .sidebar-group { margin-top: 28px; margin-bottom: 6px; font-size: 10px; text-transform: uppercase; color: var(--text-secondary); opacity: 0.4; letter-spacing: 1.5px; padding-left: 16px; }
+
+        .feature-block { margin-bottom: 100px; scroll-margin-top: 100px; }
+        .feature-block h2 { font-size: 36px; margin-bottom: 24px; color: var(--text-primary); }
+        .feature-block h3 { font-size: 22px; margin: 40px 0 16px; color: var(--text-primary); }
+        .feature-block p { font-size: 17px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.7; }
+        .feature-block ul, .feature-block ol { font-size: 16px; color: var(--text-secondary); margin: 16px 0 16px 24px; line-height: 1.8; }
+        .feature-block li { margin-bottom: 8px; }
+        .feature-block pre {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--surface-border);
+            padding: 24px;
+            border-radius: 16px;
+            color: var(--text-primary);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            margin: 24px 0;
+            overflow-x: auto;
+            box-shadow: inset 0 1px 1px rgba(255,255,255,0.02);
+        }
+        .feature-block code {
+            background: rgba(255, 255, 255, 0.08);
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-weight: 500;
+            font-size: 14px;
+            color: var(--text-primary);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .feature-block strong { color: var(--text-primary); }
+
+        .command-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 15px; }
+        .command-table th { text-align: left; padding: 12px; border-bottom: 2px solid var(--surface-border); color: var(--text-primary); font-weight: 600; }
+        .command-table td { padding: 12px; border-bottom: 1px solid var(--surface-border); color: var(--text-secondary); }
+        .command-table tr:hover td { color: var(--text-primary); }
+
+        .info-box {
+            padding: 24px;
+            border-radius: 12px;
+            margin: 24px 0;
+            background: var(--glass-surface);
+            border: 1px solid var(--surface-border);
+        }
+        .info-box.warn {
+            background: rgba(255, 69, 58, 0.05);
+            border: 1px solid rgba(255, 69, 58, 0.1);
+        }
+        .info-box.tip {
+            background: rgba(76, 217, 100, 0.05);
+            border: 1px solid rgba(76, 217, 100, 0.1);
+        }
+
+        /* Light theme sidebar fix */
+        .light-theme .docs-sidebar-fixed {
+            background: rgba(248, 248, 252, 0.88);
+            box-shadow: 10px 0 30px rgba(0,0,0,0.06);
+        }
+        .light-theme .feature-block pre {
+            background: rgba(0, 0, 0, 0.04);
+            box-shadow: inset 0 1px 1px rgba(0,0,0,0.04);
+        }
+        .light-theme .feature-block code {
+            background: rgba(0, 0, 0, 0.05);
+            border: 1px solid rgba(0,0,0,0.08);
+        }
+
+        /* Sidebar search */
+        .sidebar-search {
+            margin-bottom: 20px;
+        }
+        .sidebar-search input {
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--surface-border);
+            background: var(--glass-surface);
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s;
+        }
+        .sidebar-search input:focus {
+            border-color: var(--accent-color);
+            background: var(--surface-hover);
+        }
+        .sidebar-search input::placeholder {
+            color: var(--text-secondary);
+            opacity: 0.4;
+        }
+        .sidebar-link.hidden,
+        .sidebar-group.hidden {
+            display: none !important;
+        }
+
+        /* Search result highlighting */
+        mark.search-hl {
+            background: #ff3b30;
+            color: #fff;
+            border-radius: 3px;
+            padding: 0 2px;
+            font-weight: 600;
+        }
+        .light-theme mark.search-hl {
+            background: #ff3b30;
+            color: #fff;
+        }
+
+        @media (max-width: 768px) {
+            .docs-sidebar-fixed { display: none; }
+            .docs-main { margin-left: 0; padding: 40px 20px; }
+        }
+    </style>
+</head>
+<body class="dark-theme">
+    <div class="docs-page">
+        <aside class="docs-sidebar-fixed">
+            <div class="sidebar-header">
+                <a href="index.html" class="sidebar-logo">
+                    <img src="../assets/icon32.png" alt="">
+                    <span>Tabs<span>++</span></span>
+                </a>
+                <div id="theme-toggle" title="Toggle Dark/Light Mode"></div>
+            </div>
+
+            <div class="sidebar-search">
+                <input type="text" id="sidebar-search-input" placeholder="Search docs..." autocomplete="off" spellcheck="false">
+            </div>
+
+            <nav class="sidebar-nav">
+                <a href="#intro" class="sidebar-link active">Introduction</a>
+                <a href="#getting-started" class="sidebar-link">Getting Started</a>
+
+                <div class="sidebar-group">Persistence</div>
+                <a href="#persistence" class="sidebar-link">Protection Engine</a>
+                <a href="#session-vault" class="sidebar-link">Session Vault</a>
+
+                <div class="sidebar-group">Organization</div>
+                <a href="#auto-grouping" class="sidebar-link">Auto-Grouping</a>
+                <a href="#auto-collapse" class="sidebar-link">Auto-Collapse</a>
+                <a href="#org-commands" class="sidebar-link">Organization Commands</a>
+
+                <div class="sidebar-group">Command Palette</div>
+                <a href="#palette" class="sidebar-link">Command Palette</a>
+                <a href="#actions" class="sidebar-link">Action Engine (>)</a>
+                <a href="#bangs" class="sidebar-link">Search Bangs (!)</a>
+                <a href="#tab-sets-actions" class="sidebar-link">Tab Sets & Workspaces</a>
+                <a href="#smart-palette" class="sidebar-link">Smart Palette Tools</a>
+
+                <div class="sidebar-group">Media</div>
+                <a href="#volume-control" class="sidebar-link">Volume Control</a>
+                <a href="#media-extractor" class="sidebar-link">Media Extractor</a>
+                <a href="#pip-player" class="sidebar-link">PiP Player</a>
+
+                <div class="sidebar-group">Focus</div>
+                <a href="#pomodoro" class="sidebar-link">Pomodoro Timer</a>
+                <a href="#focus-view" class="sidebar-link">Focus View (Reader Mode)</a>
+                <a href="#zen-fullscreen" class="sidebar-link">Zen Fullscreen</a>
+                <a href="#split-view" class="sidebar-link">Split View</a>
+
+                <div class="sidebar-group">Power Tools</div>
+                <a href="#eyedropper" class="sidebar-link">Color Eyedropper</a>
+                <a href="#screenshot" class="sidebar-link">Full-Page Screenshot</a>
+                <a href="#smart-converter" class="sidebar-link">Smart Converter</a>
+                <a href="#utility-commands" class="sidebar-link">Utility Commands</a>
+
+                <div class="sidebar-group">System</div>
+                <a href="#system-links" class="sidebar-link">Chrome Deep Links</a>
+
+                <div class="sidebar-group">Performance</div>
+                <a href="#hibernation" class="sidebar-link">Tab Hibernation</a>
+                <a href="#auto-archive" class="sidebar-link">Auto-Archive</a>
+
+                <div class="sidebar-group">More</div>
+                <a href="#peek" class="sidebar-link">Transient Peek</a>
+                <a href="#ntp" class="sidebar-link">New Tab Page</a>
+                <a href="#popup" class="sidebar-link">Popup & Settings</a>
+                <a href="#focus-guard" class="sidebar-link">Focus Guard</a>
+
+                <div class="sidebar-group">Reference</div>
+                <a href="#shortcuts" class="sidebar-link">Shortcuts</a>
+                <a href="#advanced-logic" class="sidebar-link">Advanced Logic</a>
+                <a href="#privacy-data" class="sidebar-link">Privacy & Data</a>
+                <a href="#architecture" class="sidebar-link">Architecture</a>
+            </nav>
+        </aside>
+
+        <!-- ======================================================================== -->
+        <!-- MAIN CONTENT                                                             -->
+        <!-- ======================================================================== -->
+        <main class="docs-main">
+
+            <!-- INTRO -->
+            <section id="intro" class="feature-block">
+                <h2>Introduction</h2>
+                <p>Tabs++ is a high-performance productivity layer for Google Chrome — treating your browser as a <strong>persistent workspace</strong>. It ensures that your pinned tabs, grouped tabs, and session state survive accidental closures, browser crashes, and resource exhaustion.</p>
+                <p>With <strong>90+ features</strong> spanning tab protection, workspace management, media tools, focus timers, system controls, and a global Command Palette, Tabs++ turns your browser into a <strong>Browser OS</strong>.</p>
+
+                <div class="info-box tip">
+                    <strong>Design Philosophy:</strong> Zero-GUI. The Command Palette (<code>Ctrl+Shift+K</code>) is the heart of Tabs++. Tools should be invisible until you need them, leaving your screen real estate for your actual work.
+                </div>
+            </section>
+
+            <!-- GETTING STARTED -->
+            <section id="getting-started" class="feature-block">
+                <h2>Getting Started</h2>
+
+                <h3>Installation</h3>
+                <p style="margin-bottom:12px;"><strong>Recommended:</strong> Install directly from the Chrome Web Store:</p>
+                <p><a href="https://chromewebstore.google.com/detail/tabs++/abpjpbfdhhcegnliblkdmbachljnaacm" target="_blank" style="display:inline-block;padding:12px 24px;background:var(--accent-color);color:var(--bg-page);border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;">Add to Chrome</a></p>
+
+                <p style="margin-top:24px;"><strong>Developer install (from source):</strong></p>
+                <ol>
+                    <li>Clone the <a href="https://github.com/CubeSeven/tabplusplus" style="color:var(--accent-color)">GitHub repository</a> or download the source.</li>
+                    <li>Open Chrome and navigate to <code>chrome://extensions/</code>.</li>
+                    <li>Enable <strong>Developer mode</strong> in the top right corner.</li>
+                    <li>Click <strong>Load unpacked</strong> and select the extension folder.</li>
+                </ol>
+
+                <h3>Your First Steps</h3>
+                <ol>
+                    <li>Press <code>Ctrl+Shift+K</code> (Mac: <code>Cmd+Shift+K</code>) to open the Command Palette.</li>
+                    <li>Start typing to search open tabs, history, and bookmarks.</li>
+                    <li>Type <code>></code> to enter <strong>Action Mode</strong> — the prefix for all commands.</li>
+                    <li>Type <code>!</code> to trigger <strong>Search Bangs</strong> for external sites.</li>
+                    <li>Open the extension popup (toolbar icon) to configure which features are enabled.</li>
+                </ol>
+
+                <div class="info-box tip">
+                    <strong>Tip:</strong> Every single feature in Tabs++ is optional. Open the popup and use the <strong>Settings</strong> tab to enable/disable any feature. Disabling a feature also removes its commands from the palette.
+                </div>
+            </section>
+
+            <!-- PROTECTION ENGINE -->
+            <section id="persistence" class="feature-block">
+                <h2>Protection Engine</h2>
+                <p>The core of Tabs++ is the real-time protection engine. It silently monitors your tabs in the background and ensures protected tabs survive any accident.</p>
+
+                <h3>What Gets Protected</h3>
+                <ul>
+                    <li><strong>Pinned Tabs</strong> — If you close a pinned tab, Tabs++ instantly recreates it at its baseline URL.</li>
+                    <li><strong>Grouped Tabs</strong> — Any tab inside a Chrome Tab Group is considered "protected." If closed, it is restored back into its exact group and original position.</li>
+                </ul>
+
+                <h3>How Protection Works</h3>
+                <ul>
+                    <li><strong>Memory Baseline System:</strong> Tabs++ tracks the "ground truth" of your workspace in a high-speed background Map. This stores the URL, index, window ID, group ID, group title, and group color for every protected tab.</li>
+                    <li><strong>Deterministic Hibernation:</strong> Restored tabs are created and instantly "discarded." They appear in your tab strip but use <strong>zero CPU and zero RAM</strong> until you click them.</li>
+                    <li><strong>URL-First Reconciliation:</strong> After a browser restart, Chrome assigns brand-new Tab IDs. Tabs++ re-binds stored baselines to new Tab IDs by matching canonical URLs — so protection is fully preserved across restarts.</li>
+                    <li><strong>Startup Hibernate:</strong> On browser launch, all background tabs are automatically discarded to save RAM.</li>
+                </ul>
+
+                <div class="info-box">
+                    <strong>Atomic Restoration:</strong> Position integrity is maintained even during complex batch-move operations. The engine uses an <em>Eviction Graveyard</em> to track tabs in the process of being restored, preventing ghost tabs and infinite restoration loops.
+                </div>
+
+                <h3>Inheritance Protection</h3>
+                <p>New tabs opened from protected (pinned/grouped) tabs are automatically ungrouped when they navigate to a different domain. This prevents your organized groups from being polluted by temporary navigation tabs.</p>
+            </section>
+
+            <!-- SESSION VAULT -->
+            <section id="session-vault" class="feature-block">
+                <h2>Session Vault</h2>
+                <p>While the protection engine handles real-time accidents, the <strong>Session Vault</strong> handles system-level failures and deliberate cleanups.</p>
+                <ul>
+                    <li>Tabs++ takes periodic snapshots of your workspace state to <code>chrome.storage.local</code>.</li>
+                    <li>If Chrome fails to restore your sessions on startup, you can summon the Vault to revive everything.</li>
+                    <li>When closing an entire window, all its protected tabs are bulk-saved to the vault.</li>
+                    <li>When closing multiple tabs at once (batch close), they are archived to the vault instead of being individually restored.</li>
+                    <li>When an entire group is deliberately closed, its tabs go to the vault.</li>
+                </ul>
+                <pre>> Restore Vault</pre>
+                <p>You can also restore or clear the vault from the extension popup <strong>Settings</strong> tab.</p>
+            </section>
+
+            <!-- AUTO-GROUPING -->
+            <section id="auto-grouping" class="feature-block">
+                <h2>Auto-Grouping</h2>
+                <p>Tabs++ includes a background intelligence engine that automatically organizes high-frequency domains into themed groups as you browse. Enable it via the <strong>Smart Groups</strong> toggle in the popup.</p>
+
+                <h3>Thematic Rules</h3>
+                <div class="info-box">
+                    <table class="command-table">
+                        <tr><th>Category</th><th>Color</th><th>Example Domains</th></tr>
+                        <tr><td><strong>AI</strong></td><td>Green</td><td>chatgpt.com, claude.ai, gemini.google.com, perplexity.ai, deepseek.com, grok.com, and all <code>.ai</code> domains</td></tr>
+                        <tr><td><strong>Dev</strong></td><td>Blue</td><td>github.com, gitlab.com, stackoverflow.com, aws.amazon.com, vercel.com, netlify.com, npmjs.com, cursor.sh, leetcode.com</td></tr>
+                        <tr><td><strong>Design</strong></td><td>Purple</td><td>figma.com, canva.com, dribbble.com, adobe.com, unsplash.com, fonts.google.com, spline.design</td></tr>
+                        <tr><td><strong>Media</strong></td><td>Red</td><td>youtube.com, netflix.com, spotify.com, twitch.tv, vimeo.com, steampowered.com</td></tr>
+                        <tr><td><strong>News</strong></td><td>Yellow</td><td>nytimes.com, bbc.com, theverge.com, techcrunch.com, wsj.com, medium.com, wikipedia.org</td></tr>
+                        <tr><td><strong>Social</strong></td><td>Cyan</td><td>x.com, twitter.com, facebook.com, reddit.com, instagram.com, linkedin.com, discord.com, threads.net, bsky.app</td></tr>
+                    </table>
+                </div>
+
+                <p>When enabled, any new tab matching a rule is automatically added to an existing group or a new group is created. The group name matches the category (e.g., "Dev", "AI").</p>
+            </section>
+
+            <!-- AUTO-COLLAPSE -->
+            <section id="auto-collapse" class="feature-block">
+                <h2>Auto-Collapse</h2>
+                <p>When enabled, Tabs++ automatically collapses tab groups once all their tabs have been discarded (hibernated). This maximizes horizontal space in the tab strip while keeping your logical groups one click away.</p>
+                <p>Collapse triggers after the last active tab in a group is discarded. Groups that still have a loaded (non-discarded) tab remain expanded.</p>
+                <p>Enable via the <strong>Auto-Collapse</strong> toggle in the popup.</p>
+            </section>
+
+            <!-- ORGANIZATION COMMANDS -->
+            <section id="org-commands" class="feature-block">
+                <h2>Organization Commands</h2>
+                <p>All commands are accessible via the Action Engine (<code>></code> prefix) in the Command Palette.</p>
+
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Magic Organize</code></td><td>Auto-sort all tabs in the window into domain-based groups.</td></tr>
+                        <tr><td><code>> Dedupe</code></td><td>Close all duplicate tabs in the current window.</td></tr>
+                        <tr><td><code>> Gather Standalone</code></td><td>Pull all ungrouped tabs into a single "Standalone" group.</td></tr>
+                        <tr><td><code>> Consolidate Domain</code></td><td>Group all tabs from the same hostname together.</td></tr>
+                        <tr><td><code>> Merge Duplicate Groups</code></td><td>Consolidate groups that share the same name across windows.</td></tr>
+                        <tr><td><code>> Extract Group</code></td><td>Move the current tab group into its own window.</td></tr>
+                        <tr><td><code>> Group All Tabs</code></td><td>Put all unprotected tabs into one "Grouped Tabs" container.</td></tr>
+                        <tr><td><code>> Ungroup All</code></td><td>Flatten all grouped tabs in the current window.</td></tr>
+                        <tr><td><code>> Close Other Tabs</code></td><td>Close everything except the active tab.</td></tr>
+                        <tr><td><code>> Clear Unprotected</code></td><td>Remove all unpinned and ungrouped tabs.</td></tr>
+                        <tr><td><code>> Toggle Pin</code></td><td>Pin or unpin the current tab.</td></tr>
+                        <tr><td><code>> Toggle Group</code></td><td>Group or ungroup the current tab.</td></tr>
+                        <tr><td><code>> Toggle Mute</code></td><td>Mute or unmute the current tab.</td></tr>
+                        <tr><td><code>> Duplicate Tab</code></td><td>Clone the current tab.</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- COMMAND PALETTE -->
+            <section id="palette" class="feature-block">
+                <h2>Command Palette</h2>
+                <p>The Command Palette is the central hub of Tabs++. Access your entire browser state via <code>Ctrl + Shift + K</code> (Win/Linux) or <code>Cmd + Shift + K</code> (Mac).</p>
+
+                <h3>What It Searches</h3>
+                <ul>
+                    <li><strong>Open Tabs</strong> — All tabs across all windows, with fuzzy matching on title and URL.</li>
+                    <li><strong>Bookmarks</strong> — Your entire bookmark collection.</li>
+                    <li><strong>Browser History</strong> — Recently visited pages.</li>
+                    <li><strong>Recently Closed</strong> — Tabs and sessions you recently closed.</li>
+                    <li><strong>Actions</strong> — All Tabs++ commands and tools.</li>
+                    <li><strong>Google Suggestions</strong> — Live search suggestions from Google.</li>
+                    <li><strong>Saved Tab Sets</strong> — Your saved workspaces appear in search results.</li>
+                </ul>
+
+                <h3>Navigation</h3>
+                <ul>
+                    <li><strong>Arrow Up/Down</strong> — Navigate between results.</li>
+                    <li><strong>Enter</strong> — Activate the selected result (switch tab, open URL, execute action).</li>
+                    <li><strong>Escape</strong> — Close the palette or cancel a pending command prompt.</li>
+                    <li><strong>Shift+Click</strong> on a result in media mode — Toggle selection.</li>
+                </ul>
+
+                <div class="info-box tip">
+                    <strong>Tip:</strong> If you type a query and press Enter without selecting a result, Tabs++ will search Google for your query or navigate directly if it looks like a URL.
+                </div>
+            </section>
+
+            <!-- ACTION ENGINE -->
+            <section id="actions" class="feature-block">
+                <h2>Action Engine (>)</h2>
+                <p>Type <code>></code> in the palette to enter <strong>Action Mode</strong>. This gives you access to <strong>50+ system commands</strong>. Type part of a command name to filter — fuzzy matching is supported.</p>
+
+                <h3>Performance Commands</h3>
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Hibernate All</code></td><td>Discard all background tabs across all windows to free RAM. Also bound to <code>Ctrl+Shift+H</code>.</td></tr>
+                        <tr><td><code>> Hibernate Window</code></td><td>Sleep all background tabs in the current window.</td></tr>
+                        <tr><td><code>> Hibernate Pinned</code></td><td>Force sleep on all pinned tabs.</td></tr>
+                        <tr><td><code>> Hibernate Current</code></td><td>Put the active tab to sleep immediately.</td></tr>
+                        <tr><td><code>> Mute Background</code></td><td>Silence all audible tabs except the current one.</td></tr>
+                        <tr><td><code>> Pause Media</code></td><td>Stop all playing video and audio elements globally.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Focus Commands</h3>
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Focus View</code></td><td>Enter Reader Mode — clean, minimal reading interface.</td></tr>
+                        <tr><td><code>> Zen Fullscreen</code></td><td>Enter fullscreen with all browser UI hidden.</td></tr>
+                        <tr><td><code>> Split View</code></td><td>Tile current and previous tabs side by side.</td></tr>
+                        <tr><td><code>> Start 25m Pomodoro</code></td><td>Begin a 25-minute focus session.</td></tr>
+                        <tr><td><code>> Start 50m Pomodoro</code></td><td>Begin a 50-minute deep work session.</td></tr>
+                        <tr><td><code>> Start 5m Break</code></td><td>Begin a 5-minute short break.</td></tr>
+                        <tr><td><code>> Start 15m Break</code></td><td>Begin a 15-minute long break.</td></tr>
+                        <tr><td><code>> Stop Timer</code></td><td>Cancel the active Pomodoro session.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Safety & Control</h3>
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Snapshot Session</code></td><td>Force a manual backup of your current session to the Vault.</td></tr>
+                        <tr><td><code>> Panic Close</code></td><td>Close all tabs opened in the last hour and wipe history.</td></tr>
+                        <tr><td><code>> Hard Reload</code></td><td>Bypass cache and force-refresh the page.</td></tr>
+                        <tr><td><code>> Update Pinned URL</code></td><td>Lock the current pinned tab to its current URL (includes video timestamps on YouTube/Vimeo).</td></tr>
+                        <tr><td><code>> Set Custom Baseline URL</code></td><td>Manually set a persistent URL for a protected tab.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Dynamic Commands</h3>
+                <p>Some commands accept inline arguments directly in the palette:</p>
+                <table class="command-table">
+                    <thead><tr><th>Syntax</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> vol 80</code></td><td>Set current tab volume to 80%.</td></tr>
+                        <tr><td><code>> summon [name]</code></td><td>Merge a saved set or group into the current window.</td></tr>
+                        <tr><td><code>> replace [name]</code></td><td>Swap the current workspace with a saved set.</td></tr>
+                        <tr><td><code>> launch [name]</code></td><td>Open a saved set in a new window.</td></tr>
+                        <tr><td><code>> delete set [name]</code></td><td>Delete a saved tab set.</td></tr>
+                        <tr><td><code>> clean time 2h</code></td><td>Set auto-archive threshold to 2 hours.</td></tr>
+                        <tr><td><code>> hibernate time 30m</code></td><td>Set auto-hibernate threshold to 30 minutes.</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- BANGS -->
+            <section id="bangs" class="feature-block">
+                <h2>Search Bangs (!)</h2>
+                <p>Skip the middleman. Type a <code>!</code> prefix followed by the bang code to search external sites directly from the palette.</p>
+
+                <div class="info-box">
+                    <table class="command-table">
+                        <tr><th>Bang</th><th>Site</th><th>Bang</th><th>Site</th></tr>
+                        <tr><td><code>!g</code></td><td>Google</td><td><code>!ddg</code></td><td>DuckDuckGo</td></tr>
+                        <tr><td><code>!yt</code></td><td>YouTube</td><td><code>!w</code></td><td>Wikipedia</td></tr>
+                        <tr><td><code>!gh</code></td><td>GitHub</td><td><code>!so</code></td><td>Stack Overflow</td></tr>
+                        <tr><td><code>!r</code></td><td>Reddit</td><td><code>!x / !tw</code></td><td>X (Twitter)</td></tr>
+                        <tr><td><code>!maps</code></td><td>Google Maps</td><td><code>!img</code></td><td>Google Images</td></tr>
+                        <tr><td><code>!mdn</code></td><td>MDN Web Docs</td><td><code>!npm</code></td><td>npm Registry</td></tr>
+                        <tr><td><code>!a</code></td><td>Amazon</td><td><code>!sp</code></td><td>Spotify</td></tr>
+                        <tr><td><code>!gpt</code></td><td>ChatGPT</td><td><code>!px</code></td><td>Perplexity</td></tr>
+                        <tr><td><code>!fig</code></td><td>Figma Community</td><td><code>!can</code></td><td>Canva</td></tr>
+                        <tr><td><code>!pin</code></td><td>Pinterest</td><td></td><td></td></tr>
+                    </table>
+                </div>
+                <p>Usage: <code>!yt lofi beats</code> searches YouTube for "lofi beats". <code>!gh tabsplusplus</code> searches GitHub.</p>
+            </section>
+
+            <!-- TAB SETS -->
+            <section id="tab-sets-actions" class="feature-block">
+                <h2>Tab Sets &amp; Workspaces</h2>
+                <p>Tab Sets let you save, launch, and swap entire workspaces — collections of protected tabs (pinned and grouped) with their group titles, colors, and positions preserved.</p>
+
+                <h3>Save Commands</h3>
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Save Workspace</code></td><td>Save all protected (pinned + grouped) tabs in the current window.</td></tr>
+                        <tr><td><code>> Save All Tabs</code></td><td>Save every tab in the window, including unprotected ones.</td></tr>
+                        <tr><td><code>> Save Group</code></td><td>Save only the tabs in the current group.</td></tr>
+                        <tr><td><code>> Stash Group</code></td><td>Save the current group and close all its tabs.</td></tr>
+                        <tr><td><code>> Export Sets</code></td><td>Download all saved sets as a JSON backup file.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Load Commands</h3>
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Launch [name]</code></td><td>Open a saved set in a brand-new window. Uses a <strong>Window Launch Lock</strong> to prevent auto-grouping interference.</td></tr>
+                        <tr><td><code>> Summon [name]</code></td><td>Merge a saved set into the current window. Uses smart deduplication — won't create duplicate tabs.</td></tr>
+                        <tr><td><code>> Replace [name]</code></td><td>Swap the entire current workspace with a saved set. Old tabs are safely removed after the new ones load.</td></tr>
+                        <tr><td><code>> Delete Set [name]</code></td><td>Remove a saved set.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Workspace Types</h3>
+                <ul>
+                    <li><strong>Workspace Set:</strong> Saves only protected tabs (pinned and grouped).</li>
+                    <li><strong>Complete Set:</strong> Saves all tabs in the window, including unprotected ones.</li>
+                    <li><strong>Group Set:</strong> Saves only the tabs within a specific group.</li>
+                </ul>
+
+                <p>Tab Sets are also manageable from the <strong>Sets</strong> tab in the extension popup, with Summon, Replace, and Delete buttons for each set. Import/Export is also available there.</p>
+            </section>
+
+            <!-- SMART PALETTE -->
+            <section id="smart-palette" class="feature-block">
+                <h2>Smart Palette Tools</h2>
+                <p>The palette automatically detects math, units, colors, and text transformations. No prefix needed — just type and see the result. Press <strong>Enter</strong> to copy to clipboard.</p>
+
+                <h3>Math Calculator</h3>
+                <p>Type expressions like <code>25 * 4</code>, <code>1024 / 8</code>, or <code>3.14 + 2</code>. Supports <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>.</p>
+
+                <h3>Unit Converter</h3>
+                <ul>
+                    <li><strong>px ↔ rem:</strong> Type <code>32px</code> to see rem value, or <code>2rem</code> to see px value. Based on configurable root font size (default 16px).</li>
+                    <li><strong>Physical Units:</strong> Type <code>10in</code>, <code>25cm</code>, <code>6ft</code>, <code>100mm</code>, or <code>2m</code> to see conversions to all other units.</li>
+                </ul>
+
+                <h3>Color Converter</h3>
+                <p>Type any hex code like <code>#ff0000</code> or <code>#333</code> to instantly see the <strong>RGB</strong> and <strong>HSL</strong> values. Press Enter to copy.</p>
+
+                <h3>Case Converter</h3>
+                <table class="command-table">
+                    <thead><tr><th>Syntax</th><th>Result</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>slug My Page Title</code></td><td><code>my-page-title</code></td></tr>
+                        <tr><td><code>camel my component name</code></td><td><code>myComponentName</code></td></tr>
+                        <tr><td><code>snake My Variable</code></td><td><code>my_variable</code></td></tr>
+                        <tr><td><code>title hello world</code></td><td><code>Hello World</code></td></tr>
+                        <tr><td><code>upper quiet</code></td><td><code>QUIET</code></td></tr>
+                        <tr><td><code>lower SHOUTING</code></td><td><code>shouting</code></td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Encoding Tools</h3>
+                <table class="command-table">
+                    <thead><tr><th>Syntax</th><th>Result</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>base64 hello</code></td><td>Encodes to Base64 (or decodes if input looks like Base64).</td></tr>
+                        <tr><td><code>url hello world</code></td><td>URL-encodes (or decodes if input contains <code>%</code>).</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Lorem Ipsum Generator</h3>
+                <table class="command-table">
+                    <thead><tr><th>Syntax</th><th>Result</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>lorem 10</code></td><td>Generates 10 words of Lorem Ipsum.</td></tr>
+                        <tr><td><code>lorem p</code></td><td>Generates a full paragraph (~40 words).</td></tr>
+                        <tr><td><code>lorem 5</code></td><td>Generates 5 words.</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- VOLUME CONTROL -->
+            <section id="volume-control" class="feature-block">
+                <h2>Tab Volume Control</h2>
+                <p>Set the perfect audio levels for music, videos, or any tab with audio — without hunting for the browser's native mixer.</p>
+
+                <h3>Commands</h3>
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Vol Up</code></td><td>Increase volume by +10%.</td></tr>
+                        <tr><td><code>> Vol Down</code></td><td>Decrease volume by -10%.</td></tr>
+                        <tr><td><code>> Vol Max</code></td><td>Set volume to 100%.</td></tr>
+                        <tr><td><code>> vol 75</code></td><td>Set volume to exactly 75% (dynamic command).</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Feedback</h3>
+                <p>When the palette is closed, a slide-in on-page toast confirms your volume level. When the palette is open, the volume is shown directly in the input bar.</p>
+                <p>Enable via the <strong>Tab Volume Control</strong> toggle in the popup.</p>
+            </section>
+
+            <!-- MEDIA EXTRACTOR -->
+            <section id="media-extractor" class="feature-block">
+                <h2>Media Extractor</h2>
+                <p>A high-performance engine to scan, filter, and batch download images and videos from any page.</p>
+
+                <h3>How To Use</h3>
+                <ol>
+                    <li>Open the Command Palette (<code>Ctrl+Shift+K</code>).</li>
+                    <li>Type <code>> Extract Media</code> and press Enter.</li>
+                    <li>The palette switches to <strong>Media Mode</strong> — a masonry grid of all detected images and videos.</li>
+                    <li>Click to select/deselect items. Use <strong>Enter</strong> to download all selected.</li>
+                </ol>
+
+                <h3>Smart Filtering</h3>
+                <p>Type a query in the palette to filter results in real time using a hybrid natural-language parser:</p>
+                <table class="command-table">
+                    <thead><tr><th>Filter</th><th>Example</th><th>Effect</th></tr></thead>
+                    <tbody>
+                        <tr><td>Format</td><td><code>png</code>, <code>jpg</code>, <code>webp</code>, <code>gif</code></td><td>Show only images of that type.</td></tr>
+                        <tr><td>Width</td><td><code>w > 1000</code>, <code>width >= 800</code></td><td>Filter by image width in pixels.</td></tr>
+                        <tr><td>Height</td><td><code>h < 500</code>, <code>height = 600</code></td><td>Filter by image height in pixels.</td></tr>
+                        <tr><td>Default dim</td><td><code>> 800</code></td><td>Defaults to width comparison.</td></tr>
+                        <tr><td>Orientation</td><td><code>landscape</code>, <code>portrait</code>, <code>square</code></td><td>Filter by aspect ratio.</td></tr>
+                        <tr><td>Keywords</td><td><code>logo</code>, <code>banner</code></td><td>Match filename or alt text.</td></tr>
+                        <tr><td>Combined</td><td><code>>1000 png landscape</code></td><td>All filters together.</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="info-box tip">
+                    <strong>Staggered Downloads:</strong> Tabs++ staggers downloads 150ms apart to prevent Chrome from silently dropping rapid-fire concurrent download requests. Handles 100+ assets reliably.
+                </div>
+                <p>Enable via the <strong>Extract Media Assets</strong> toggle in the popup.</p>
+            </section>
+
+            <!-- PIP PLAYER -->
+            <section id="pip-player" class="feature-block">
+                <h2>Picture-in-Picture Player</h2>
+                <p>Pop out any video (YouTube, Twitch, Vimeo, Netflix, etc.) into a floating window that stays on top of all other windows.</p>
+                <pre>> PiP</pre>
+                <p>Or use the <strong>PiP Player</strong> card in the popup Tools tab. Enable via the <strong>autoPiP</strong> toggle.</p>
+            </section>
+
+            <!-- POMODORO -->
+            <section id="pomodoro" class="feature-block">
+                <h2>Pomodoro Timer</h2>
+                <p>Stay focused without leaving your browser. A minimalist, glassmorphic timer that syncs across every single tab.</p>
+
+                <h3>Commands</h3>
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Duration</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Start 25m Pomodoro</code></td><td>25-minute work session.</td></tr>
+                        <tr><td><code>> Start 50m Pomodoro</code></td><td>50-minute deep work session.</td></tr>
+                        <tr><td><code>> Start 5m Break</code></td><td>5-minute short break.</td></tr>
+                        <tr><td><code>> Start 15m Break</code></td><td>15-minute long break.</td></tr>
+                        <tr><td><code>> Stop Timer</code></td><td>Cancel the active session.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Custom Duration</h3>
+                <p>Type <code>timer 10</code> (without the <code>></code> prefix) in the palette to start a custom 10-minute timer.</p>
+                <p>Type <code>> pomo 30</code> via the dynamic command system for a 30-minute custom Pomodoro.</p>
+
+                <h3>Features</h3>
+                <ul>
+                    <li><strong>Desktop Notifications:</strong> Get notified when a session ends, even if Chrome is minimized.</li>
+                    <li><strong>Cross-Tab Sync:</strong> The timer pill appears in the bottom-right corner of <em>every</em> open tab. All tabs show the same countdown.</li>
+                    <li><strong>Click to Stop:</strong> Click the timer pill in any tab to cancel.</li>
+                    <li><strong>Auto-Transition:</strong> Work sessions end with a "Time for a break!" notification. Break sessions end with "Ready to start working again!"</li>
+                </ul>
+                <p>Enable via the <strong>Pomodoro Timer</strong> toggle in the popup.</p>
+            </section>
+
+            <!-- FOCUS VIEW -->
+            <section id="focus-view" class="feature-block">
+                <h2>Focus View (Reader Mode)</h2>
+                <p>Strip away ads, sidebars, and distractions with one click. Tabs++ renders a clean, high-contrast, monochromatic reading interface for any article.</p>
+                <pre>> Focus View</pre>
+                <p>Alias: <code>> read</code>, <code>> reader</code>.</p>
+
+                <h3>Features</h3>
+                <ul>
+                    <li><strong>Smart Content Extraction:</strong> Heuristic-based detection finds the main article content and ignores navigation, ads, and sidebars.</li>
+                    <li><strong>Premium Typography:</strong> Serif body text at 21px, sans-serif headers, and optimized line spacing for comfortable reading.</li>
+                    <li><strong>Dark/Light Mode:</strong> Automatically follows your system preference.</li>
+                    <li><strong>Image Support:</strong> All article images are preserved and displayed at full width.</li>
+                    <li><strong>Close Button:</strong> A fixed close button in the top-right corner returns you to the original page.</li>
+                </ul>
+                <p>Enable via the <strong>Focus View</strong> toggle in the popup.</p>
+            </section>
+
+            <!-- ZEN FULLSCREEN -->
+            <section id="zen-fullscreen" class="feature-block">
+                <h2>Zen Fullscreen</h2>
+                <p>Enter true fullscreen mode with all browser UI hidden — tabs, address bar, bookmarks bar, and window chrome.</p>
+                <pre>> Zen Fullscreen</pre>
+                <p>This is equivalent to the browser's native fullscreen (<code>F11</code>) but accessible directly from the palette.</p>
+            </section>
+
+            <!-- SPLIT VIEW -->
+            <section id="split-view" class="feature-block">
+                <h2>Split View</h2>
+                <p>Quickly tile the current tab and the previous tab side by side. The current window resizes to half its width on the left, and a new window opens with the same URL on the right.</p>
+                <pre>> Split View</pre>
+            </section>
+
+            <!-- EYEDROPPER -->
+            <section id="eyedropper" class="feature-block">
+                <h2>Color Eyedropper</h2>
+                <p>Pick any color from anywhere on the screen. Tabs++ captures a screenshot, lets you click any pixel, and returns the <strong>Hex</strong>, <strong>RGB</strong>, and <strong>HSL</strong> values.</p>
+                <pre>> Eyedropper</pre>
+                <p>Alias: <code>> color</code>, <code>> picker</code>, <code>> hex</code>.</p>
+                <p>The palette closes, a screenshot is captured after a 350ms delay, and a crosshair cursor appears over the full-page image. Click to pick. Press <strong>Escape</strong> to cancel.</p>
+                <p>Enable via the <strong>Eyedropper</strong> toggle in the popup.</p>
+            </section>
+
+            <!-- SCREENSHOT -->
+            <section id="screenshot" class="feature-block">
+                <h2>Full-Page Screenshot</h2>
+                <p>Capture the <em>entire</em> scrollable page as a single PNG — including content below the fold and lazy-loaded images.</p>
+                <pre>> Screenshot</pre>
+                <p>The content script drives the capture loop: it scrolls down in viewport-sized increments, asks the service worker to capture each slice via <code>captureVisibleTab</code>, stitches them together on a canvas, and triggers a download.</p>
+                <p>Enable via the <strong>Full-Page Screenshot</strong> toggle in the popup.</p>
+            </section>
+
+            <!-- SMART CONVERTER -->
+            <section id="smart-converter" class="feature-block">
+                <h2>Smart Converter &amp; Math</h2>
+                <p>The Command Palette doubles as a zero-UI calculator, unit converter, and color translator. No prefix needed — Tabs++ auto-detects what you're typing.</p>
+
+                <table class="command-table">
+                    <thead><tr><th>Type</th><th>Example Input</th><th>Example Output</th></tr></thead>
+                    <tbody>
+                        <tr><td>Arithmetic</td><td><code>25 * 4</code></td><td><code>100</code></td></tr>
+                        <tr><td>Addition</td><td><code>128 + 64</code></td><td><code>192</code></td></tr>
+                        <tr><td>Division</td><td><code>1024 / 8</code></td><td><code>128</code></td></tr>
+                        <tr><td>px to rem</td><td><code>32px</code></td><td><code>2rem</code> (at 16px base)</td></tr>
+                        <tr><td>rem to px</td><td><code>2rem</code></td><td><code>32px</code> (at 16px base)</td></tr>
+                        <tr><td>Inches to cm</td><td><code>10in</code></td><td><code>25.4cm</code>, <code>0.254m</code>, <code>254mm</code>, <code>0.8333ft</code></td></tr>
+                        <tr><td>cm to inches</td><td><code>30cm</code></td><td><code>0.3m</code>, <code>300mm</code>, <code>11.811in</code>, <code>0.9843ft</code></td></tr>
+                        <tr><td>Feet to m</td><td><code>6ft</code></td><td><code>1.8288m</code>, <code>182.88cm</code>, etc.</td></tr>
+                        <tr><td>Hex to RGB</td><td><code>#ff0000</code></td><td><code>rgb(255, 0, 0)</code></td></tr>
+                        <tr><td>Hex to HSL</td><td><code>#ff0000</code></td><td><code>hsl(0, 100%, 50%)</code></td></tr>
+                    </tbody>
+                </table>
+                <p>Each result appears as an action in the palette — press <strong>Enter</strong> to copy it to your clipboard.</p>
+                <p>Enable via the <strong>Smart Converter</strong> toggle in the popup.</p>
+            </section>
+
+            <!-- UTILITY COMMANDS -->
+            <section id="utility-commands" class="feature-block">
+                <h2>Utility Commands</h2>
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Copy Markdown Link</code></td><td>Copy the current page as <code>[Title](URL)</code> to clipboard.</td></tr>
+                        <tr><td><code>> Hard Reload</code></td><td>Force refresh bypassing the browser cache.</td></tr>
+                        <tr><td><code>> Duplicate Tab</code></td><td>Clone the current tab.</td></tr>
+                        <tr><td><code>> Toggle Pin</code></td><td>Pin or unpin the current tab.</td></tr>
+                        <tr><td><code>> Toggle Mute</code></td><td>Mute or unmute the current tab.</td></tr>
+                        <tr><td><code>> Toggle Group</code></td><td>Group or ungroup the current tab.</td></tr>
+                        <tr><td><code>> Export Sets</code></td><td>Download all saved tab sets as a JSON backup.</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- SYSTEM LINKS -->
+            <section id="system-links" class="feature-block">
+                <h2>Chrome Deep Links</h2>
+                <p>Tabs++ maps dozens of internal Chrome settings pages to easy keywords. Type <code>></code> followed by the command to open that settings page in a new tab.</p>
+
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Opens</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> Downloads</code></td><td><code>chrome://downloads/</code></td></tr>
+                        <tr><td><code>> Extensions</code></td><td><code>chrome://extensions/</code></td></tr>
+                        <tr><td><code>> Settings</code></td><td><code>chrome://settings/</code></td></tr>
+                        <tr><td><code>> Gpu</code></td><td><code>chrome://settings/?search=hardware+acceleration</code></td></tr>
+                        <tr><td><code>> Performance</code></td><td><code>chrome://settings/performance</code></td></tr>
+                        <tr><td><code>> Privacy</code></td><td><code>chrome://settings/privacy</code></td></tr>
+                        <tr><td><code>> Clear Data</code></td><td><code>chrome://settings/clearBrowserData</code></td></tr>
+                        <tr><td><code>> Cookies</code></td><td><code>chrome://settings/cookies</code></td></tr>
+                        <tr><td><code>> Ad Privacy</code></td><td><code>chrome://settings/adPrivacy</code></td></tr>
+                        <tr><td><code>> Permissions</code></td><td><code>chrome://settings/content</code></td></tr>
+                        <tr><td><code>> Passwords</code></td><td><code>chrome://password-manager/passwords</code></td></tr>
+                        <tr><td><code>> Autofill</code></td><td><code>chrome://settings/addresses</code></td></tr>
+                        <tr><td><code>> Payments</code></td><td><code>chrome://settings/payments</code></td></tr>
+                        <tr><td><code>> Appearance</code></td><td><code>chrome://settings/appearance</code></td></tr>
+                        <tr><td><code>> Fonts</code></td><td><code>chrome://settings/fonts</code></td></tr>
+                        <tr><td><code>> Search Engine</code></td><td><code>chrome://settings/search</code></td></tr>
+                        <tr><td><code>> Download Settings</code></td><td><code>chrome://settings/downloads</code></td></tr>
+                        <tr><td><code>> Languages</code></td><td><code>chrome://settings/languages</code></td></tr>
+                        <tr><td><code>> Accessibility</code></td><td><code>chrome://settings/accessibility</code></td></tr>
+                        <tr><td><code>> Flags</code></td><td><code>chrome://flags/</code></td></tr>
+                        <tr><td><code>> Reset</code></td><td><code>chrome://settings/reset</code></td></tr>
+                        <tr><td><code>> About</code></td><td><code>chrome://settings/help</code></td></tr>
+                        <tr><td><code>> Sync</code></td><td><code>chrome://settings/syncSetup</code></td></tr>
+                        <tr><td><code>> Startup</code></td><td><code>chrome://settings/onStartup</code></td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- HIBERNATION -->
+            <section id="hibernation" class="feature-block">
+                <h2>Tab Hibernation</h2>
+                <p>Modern browsers consume gigabytes of RAM. Tabs++ solves this by forcing background tabs into a "Discarded" (hibernated) state. Restored tabs use <strong>zero CPU</strong> and <strong>zero RAM</strong> until you click to focus them.</p>
+
+                <h3>Manual Hibernation</h3>
+                <ul>
+                    <li><code>> Hibernate All</code> — Discard all background tabs globally. Also bound to <code>Ctrl+Shift+H</code>.</li>
+                    <li><code>> Hibernate Window</code> — Sleep all background tabs in the current window.</li>
+                    <li><code>> Hibernate Pinned</code> — Force sleep on all pinned tabs.</li>
+                    <li><code>> Hibernate Current</code> — Sleep the active tab immediately.</li>
+                </ul>
+
+                <h3>Smart Auto-Hibernate</h3>
+                <p>When enabled, Tabs++ automatically discards tabs that have been idle for a configurable duration (default: <strong>1 hour</strong>). This runs on a periodic alarm and only affects unprotected, non-active tabs.</p>
+                <p>Configure the threshold: <code>> hibernate time 30m</code> or <code>> hibernate time 2h</code>.</p>
+                <p>Enable via the <strong>Smart Hibernate</strong> toggle in the popup.</p>
+
+                <h3>Startup Hibernate</h3>
+                <p>When Chrome starts, Tabs++ immediately discards all background tabs — so the browser opens light and fast.</p>
+            </section>
+
+            <!-- AUTO-ARCHIVE -->
+            <section id="auto-archive" class="feature-block">
+                <h2>Auto-Archive (Ruthless Clean)</h2>
+                <p>To prevent tab sprawl, Tabs++ monitors unprotected (non-pinned, non-grouped) tabs. By default, any unprotected tab that hasn't been accessed for <strong>12 hours</strong> is automatically closed and archived to the Session Vault.</p>
+                <ul>
+                    <li><strong>Configurable:</strong> Adjust the threshold via <code>> clean time 2h</code> or <code>> clean time 30m</code>.</li>
+                    <li><strong>Protected Tabs Exempt:</strong> Pinned tabs and grouped tabs are <em>never</em> auto-closed.</li>
+                    <li><strong>Vault Integration:</strong> Closed tabs are saved to the vault so they can be restored later.</li>
+                </ul>
+                <p>Enable via the <strong>Ruthless Clean</strong> toggle in the popup.</p>
+            </section>
+
+            <!-- PEEK -->
+            <section id="peek" class="feature-block">
+                <h2>Transient Peek</h2>
+                <p>Explore links without bloating your workspace. <strong>Shift+Click</strong> any link to open it in a centered popup overlay window.</p>
+                <ul>
+                    <li>The Peek window is a borderless popup sized at 85% of your current window.</li>
+                    <li>While peeking, the parent page gets a subtle blur overlay.</li>
+                    <li>If the content is useful, click the <strong>Promote to Workspace</strong> button in the bottom-right corner to move it back into your main window as a regular tab.</li>
+                    <li>If not, simply close the Peek window — the parent page un-blurs automatically.</li>
+                </ul>
+            </section>
+
+            <!-- NEW TAB PAGE -->
+            <section id="ntp" class="feature-block">
+                <h2>New Tab Page</h2>
+                <p>Tabs++ replaces the standard Chrome New Tab Page with a minimalist, premium dashboard.</p>
+
+                <h3>Features</h3>
+                <ul>
+                    <li><strong>Clock &amp; Date:</strong> Large, clean time display with weekday and full date.</li>
+                    <li><strong>Dynamic Backgrounds:</strong> Choose from 4 designs — Mesh Blobs, Complex SVG Blobs, Grid Mask, or Grid Focal Point. Each reacts to your chosen accent color.</li>
+                    <li><strong>Accent Color Picker:</strong> Click the color dot in the bottom-left to change the primary accent hue. The background design adapts dynamically.</li>
+                    <li><strong>Full Palette Integration:</strong> The search input at the center of the NTP is the full Tabs++ Command Palette. Search tabs, history, bookmarks, or trigger actions — directly from the new tab page.</li>
+                    <li><strong>Auto-Focus:</strong> The NTP automatically focuses the search input on load, so you can start typing immediately.</li>
+                </ul>
+            </section>
+
+            <!-- POPUP -->
+            <section id="popup" class="feature-block">
+                <h2>Popup &amp; Settings</h2>
+                <p>The extension popup — accessible via the toolbar icon — is your quick-access control center. It has three tabs:</p>
+
+                <h3>Settings Tab</h3>
+                <p>Toggle the core protection and automation features on/off:</p>
+                <table class="command-table">
+                    <thead><tr><th>Toggle</th><th>What It Controls</th></tr></thead>
+                    <tbody>
+                        <tr><td>Pinned Protection</td><td>Auto-recreates closed pinned tabs.</td></tr>
+                        <tr><td>Group Guard</td><td>Keeps grouped tabs alive and persistent.</td></tr>
+                        <tr><td>Command Palette</td><td>Enables the <code>Ctrl+Shift+K</code> global palette.</td></tr>
+                        <tr><td>Smart Groups</td><td>Auto-sorts tabs by domain category.</td></tr>
+                        <tr><td>Ruthless Clean</td><td>Auto-closes idle tabs after a set duration.</td></tr>
+                        <tr><td>Focus Guard</td><td>Always land on NTP when closing tabs.</td></tr>
+                        <tr><td>Auto-Collapse</td><td>Collapse groups when inactive to save space.</td></tr>
+                        <tr><td>Smart Hibernate</td><td>Auto-sleeps idle tabs after a set duration.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Tools Tab</h3>
+                <p>Enable/disable individual power tools:</p>
+                <table class="command-table">
+                    <thead><tr><th>Tool</th><th>What It Does</th></tr></thead>
+                    <tbody>
+                        <tr><td>PiP Player</td><td>Pop out any video into a floating window.</td></tr>
+                        <tr><td>Eyedropper</td><td>Pick any color from the screen via the palette.</td></tr>
+                        <tr><td>Full-Page Screenshot</td><td>Capture the entire scrollable page as a PNG.</td></tr>
+                        <tr><td>Smart Converter</td><td>Auto-convert units, math, and colors in the palette.</td></tr>
+                        <tr><td>Pomodoro Timer</td><td>Focus/Break timers with desktop notifications.</td></tr>
+                        <tr><td>Focus View</td><td>Strip distractions and read in a clean interface.</td></tr>
+                        <tr><td>Extract Media Assets</td><td>Download images and videos directly from the page.</td></tr>
+                        <tr><td>Tab Volume Control</td><td>Set volume of the current tab via the palette.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Sets Tab</h3>
+                <p>Manage your saved Tab Sets — summon, replace, delete, export, and import.</p>
+
+                <div class="info-box tip">
+                    <strong>Vault Recovery:</strong> If tabs were saved to the Session Vault (from a crash, window close, or auto-archive), a banner appears at the bottom of the popup with <strong>Restore</strong> and <strong>Clear</strong> buttons.
+                </div>
+            </section>
+
+            <!-- FOCUS GUARD -->
+            <section id="focus-guard" class="feature-block">
+                <h2>Focus Guard</h2>
+                <p>Focus Guard prevents new tabs from accidentally "inheriting" the protected state of their parent. If you open a link from a grouped or pinned tab, Tabs++ ensures the result is a standalone tab, keeping your core workspace clean.</p>
+                <p>When <strong>Focus Guard NTP</strong> is enabled: if you close an active tab, Tabs++ redirects focus to a clean New Tab Page instead of jumping to the nearest tab. This prevents accidentally re-focusing a previously hibernated protected tab.</p>
+                <p>Enable via the <strong>Focus Guard</strong> toggle in the popup.</p>
+            </section>
+
+            <!-- SHORTCUTS -->
+            <section id="shortcuts" class="feature-block">
+                <h2>Keyboard Shortcuts</h2>
+                <table class="command-table">
+                    <thead><tr><th>Shortcut</th><th>Platform</th><th>Action</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>Ctrl+Shift+K</code></td><td>Windows / Linux</td><td>Toggle the Command Palette.</td></tr>
+                        <tr><td><code>Cmd+Shift+K</code></td><td>macOS</td><td>Toggle the Command Palette.</td></tr>
+                        <tr><td><code>Ctrl+Shift+H</code></td><td>Windows / Linux</td><td>Hibernate all background tabs globally.</td></tr>
+                        <tr><td><code>Cmd+Shift+H</code></td><td>macOS</td><td>Hibernate all background tabs globally.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>Palette Navigation</h3>
+                <table class="command-table">
+                    <thead><tr><th>Key</th><th>Action</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>></code></td><td>Enter Action Mode (command prefix).</td></tr>
+                        <tr><td><code>!</code></td><td>Enter Bang Mode (external search prefix).</td></tr>
+                        <tr><td><code>Arrow Up/Down</code></td><td>Navigate result list.</td></tr>
+                        <tr><td><code>Enter</code></td><td>Activate selected result or copy smart tool output.</td></tr>
+                        <tr><td><code>Escape</code></td><td>Close palette or cancel pending command.</td></tr>
+                        <tr><td><code>Shift+Click</code></td><td>Open link in Peek window (on any page).</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="info-box tip">
+                    <strong>Customizing Shortcuts:</strong> You can remap both shortcuts at <code>chrome://extensions/shortcuts</code>.
+                </div>
+            </section>
+
+            <!-- ADVANCED LOGIC -->
+            <section id="advanced-logic" class="feature-block">
+                <h2>Advanced Workspace Logic</h2>
+
+                <h3>Eviction Graveyard</h3>
+                <p>When moving dozens of tabs at once, Chrome can trigger race conditions. The <strong>Eviction Graveyard</strong> is a race-condition buffer that tracks tabs in the process of being restored or moved, preventing "ghost" tabs or infinite restoration loops.</p>
+
+                <h3>Group Closure Tracker</h3>
+                <p>When closing tabs individually, Tabs++ must distinguish between "user is closing one tab" and "user is closing the entire group." The <strong>Group Closure Tracker</strong> counts how many tabs from a group are closed within a 250ms window. If all tabs are closed (deliberate full-group close), the tabs go to the vault. If only one is closed, it gets restored.</p>
+
+                <h3>Window Launch Lock</h3>
+                <p>When launching a Tab Set into a new window, Tabs++ uses a <strong>Window Launch Lock</strong> that suppresses the auto-grouping engine for all tabs in that window. This prevents the auto-grouping engine from racing against the set's own grouping logic.</p>
+
+                <h3>Ghost Group Prevention</h3>
+                <p>When closing or replacing a workspace, Tabs++ manually <strong>disassembles</strong> every tab group before closing the tabs. This prevents Chrome's native "Restore Tab Group" feature from saving redundant duplicates to history.</p>
+
+                <h3>Recreation Registry</h3>
+                <p>When restoring a tab into a group, Tabs++ uses a <strong>Recreation Registry</strong> to cache group-creation promises. This prevents duplicate API calls when multiple tabs are being restored into the same group simultaneously.</p>
+
+                <h3>Baseline Reconciliation</h3>
+                <p>After a browser restart, Chrome assigns new Tab IDs but retains the same URLs. Tabs++ performs a <strong>URL-First Reconciliation</strong> pass: for each stored baseline whose old Tab ID no longer exists, it checks whether any living tab shares the same canonical URL. If yes, the baseline is re-bound to the new Tab ID — protection is fully preserved across restarts.</p>
+            </section>
+
+            <!-- PRIVACY -->
+            <section id="privacy-data" class="feature-block">
+                <h2>Privacy &amp; Data Integrity</h2>
+                <p>Tabs++ is built for local-first privacy. Your browsing habits stay on your machine.</p>
+                <ul>
+                    <li><strong>No Syncing:</strong> Your Workspace Sets, Group Baselines, and Vault snapshots are stored locally using <code>chrome.storage.local</code>. They are never uploaded to any cloud service.</li>
+                    <li><strong>No Tracking:</strong> Tabs++ does not include analytics, telemetry, or any third-party data collection.</li>
+                    <li><strong>Search Isolation:</strong> Search suggestions use the public Google Suggest API via HTTPS. No account data or authentication is shared.</li>
+                    <li><strong>History Access:</strong> The palette searches your local Chrome History for convenience, but this data never leaves your browser context.</li>
+                    <li><strong>No External Servers:</strong> Tabs++ communicates with no external servers other than the Google Suggest API (for palette search suggestions).</li>
+                </ul>
+            </section>
+
+            <!-- ARCHITECTURE -->
+            <section id="architecture" class="feature-block">
+                <h2>Technical Architecture</h2>
+                <div class="info-box">
+                    <table class="command-table">
+                        <tr><td><strong>Manifest</strong></td><td>V3 (Service Worker)</td></tr>
+                        <tr><td><strong>Background</strong></td><td>Service worker (<code>background.js</code>) — event-driven, modular imports</td></tr>
+                        <tr><td><strong>Content Script</strong></td><td>Injected into all pages (<code>content.js</code>) — renders Command Palette UI via Shadow DOM</td></tr>
+                        <tr><td><strong>New Tab Page</strong></td><td>Overrides Chrome NTP (<code>ntp.html</code>, <code>ntp.js</code>, <code>ntp.css</code>)</td></tr>
+                        <tr><td><strong>Popup</strong></td><td>Extension toolbar popup (<code>popup.html</code>, <code>popup.js</code>)</td></tr>
+                        <tr><td><strong>State</strong></td><td>Central reactive state module (<code>state.js</code>) — Maps, Sets, and sync helpers</td></tr>
+                        <tr><td><strong>Services</strong></td><td><code>tabService</code>, <code>paletteService</code>, <code>setService</code>, <code>peekService</code>, <code>pomoService</code></td></tr>
+                        <tr><td><strong>Storage</strong></td><td><code>chrome.storage.local</code> — baselines, settings, vault, tab sets, NTP preferences</td></tr>
+                        <tr><td><strong>Sync Strategy</strong></td><td>Debounced writes (2-second buffer) to avoid storage thrashing</td></tr>
+                        <tr><td><strong>Threading</strong></td><td>Event-driven triggers for <code>chrome.tabs.onCreated</code>, <code>onUpdated</code>, <code>onRemoved</code></td></tr>
+                        <tr><td><strong>Permissions</strong></td><td>tabs, storage, tabGroups, history, bookmarks, sessions, alarms, browsingData, scripting, notifications, downloads</td></tr>
+                    </table>
+                </div>
+            </section>
+
+            <footer class="footer" style="margin-top: 100px; padding-top: 40px; border-top: 1px solid var(--glass-border);">
+                <p class="copyright" style="color: var(--text-dim); font-size: 14px;">&copy; 2026 CubeSeven. Tabs++ — Designed for Workspace Masters.</p>
+            </footer>
+        </main>
+    </div>
+
+    <script src="docs_scripts.js"></script>
+    <script src="theme.js"></script>
+    <script>
+        // Sidebar search filter — matches link text AND section content
+        (function() {
+            var input = document.getElementById('sidebar-search-input');
+            if (!input) return;
+            var links = document.querySelectorAll('.sidebar-link');
+            var groups = document.querySelectorAll('.sidebar-group');
+
+            // Pre-cache section text for fast filtering
+            var sectionText = {};
+            links.forEach(function(l) {
+                var href = l.getAttribute('href');
+                if (href) {
+                    var section = document.querySelector(href);
+                    if (section) sectionText[href] = (section.textContent || '').toLowerCase();
+                }
+            });
+
+            // --- Highlight helpers ---
+            function unhighlight() {
+                var marks = document.querySelectorAll('mark.search-hl');
+                marks.forEach(function(m) {
+                    var p = m.parentNode;
+                    p.replaceChild(document.createTextNode(m.textContent), m);
+                    p.normalize();
+                });
+            }
+
+            function highlightAll(query) {
+                var main = document.querySelector('.docs-main');
+                if (!main || !query || query.length < 2) return;
+
+                var walker = document.createTreeWalker(main, NodeFilter.SHOW_TEXT, {
+                    acceptNode: function(node) {
+                        var p = node.parentNode;
+                        if (!p) return NodeFilter.FILTER_REJECT;
+                        var tag = p.tagName;
+                        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'MARK' || tag === 'CODE' || tag === 'PRE' || tag === 'SVG')
+                            return NodeFilter.FILTER_REJECT;
+                        if (!node.textContent.trim()) return NodeFilter.FILTER_SKIP;
+                        return NodeFilter.FILTER_ACCEPT;
+                    }
+                });
+
+                var nodes = [];
+                while (walker.nextNode()) nodes.push(walker.currentNode);
+
+                var safe = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                var regex = new RegExp('(' + safe + ')', 'gi');
+
+                nodes.forEach(function(node) {
+                    var text = node.textContent;
+                    var match;
+                    var parts = [];
+                    var last = 0;
+                    regex.lastIndex = 0;
+                    while ((match = regex.exec(text)) !== null) {
+                        if (match.index > last) parts.push({ t: 'text', v: text.slice(last, match.index) });
+                        parts.push({ t: 'mark', v: match[0] });
+                        last = regex.lastIndex;
+                    }
+                    if (last < text.length) parts.push({ t: 'text', v: text.slice(last) });
+                    if (parts.length <= 1) return;
+
+                    var frag = document.createDocumentFragment();
+                    parts.forEach(function(p) {
+                        if (p.t === 'mark') {
+                            var m = document.createElement('mark');
+                            m.className = 'search-hl';
+                            m.textContent = p.v;
+                            frag.appendChild(m);
+                        } else {
+                            frag.appendChild(document.createTextNode(p.v));
+                        }
+                    });
+                    node.parentNode.replaceChild(frag, node);
+                });
+            }
+
+            input.addEventListener('input', function() {
+                var q = this.value.toLowerCase().trim();
+
+                // Filter sidebar
+                links.forEach(function(l) {
+                    var href = l.getAttribute('href');
+                    var linkMatch = !q || l.textContent.toLowerCase().indexOf(q) !== -1;
+                    var sectionMatch = q && href && sectionText[href] && sectionText[href].indexOf(q) !== -1;
+                    if (!q || linkMatch || sectionMatch) l.classList.remove('hidden');
+                    else l.classList.add('hidden');
+                });
+                groups.forEach(function(g) {
+                    var visible = false;
+                    var s = g.nextElementSibling;
+                    while (s && !s.classList.contains('sidebar-group')) {
+                        if (s.classList.contains('sidebar-link') && !s.classList.contains('hidden')) { visible = true; break; }
+                        s = s.nextElementSibling;
+                    }
+                    if (visible || !q) g.classList.remove('hidden');
+                    else g.classList.add('hidden');
+                });
+
+                // Highlight content
+                unhighlight();
+                highlightAll(q);
+            });
+        })();
+
+        // Sidebar active state tracking
+        window.addEventListener('scroll', () => {
+            const sections = document.querySelectorAll('.feature-block');
+            const navLinks = document.querySelectorAll('.sidebar-link');
+
+            let current = '';
+            sections.forEach(section => {
+                const sectionTop = section.offsetTop;
+                if (pageYOffset >= sectionTop - 150) {
+                    current = section.getAttribute('id');
+                }
+            });
+
+            navLinks.forEach(link => {
+                link.classList.remove('active');
+                if (link.getAttribute('href').includes(current)) {
+                    link.classList.add('active');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "Tabs++",
+  "version": "2.1.16",
+  "description": "Premium tab management with Workspace Switching, Ghost Prevention, and Smart Grouping.",
+  "chrome_url_overrides": {
+    "newtab": "ntp.html"
+  },
+  "permissions": [
+    "tabs",
+    "storage",
+    "tabGroups",
+    "history",
+    "bookmarks",
+    "favicon",
+    "sessions",
+    "alarms",
+    "browsingData",
+    "scripting",
+    "notifications",
+    "downloads"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
+  "commands": {
+    "toggle-palette": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+K",
+        "mac": "Command+Shift+K"
+      },
+      "description": "Toggle the Tabs++ Command Palette"
+    },
+    "hibernate-background": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+H",
+        "mac": "Command+Shift+H"
+      },
+      "description": "Hibernate all background tabs"
+    }
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "19": "assets/icon19.png",
+      "32": "assets/icon32.png",
+      "38": "assets/icon38.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icon16.png",
+    "32": "assets/icon32.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  }
+}

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tabs++ | Persistent Workspace for Chrome</title>
+    <meta name="description" content="Minimalist, high-performance Chrome extension for workspace persistence. Tab protection, Action Engine, and zero-RAM hibernation.">
+    
+    <!-- SEO & Favicon -->
+    <link rel="icon" type="image/png" href="../assets/icon32.png">
+    
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="docs_styles.css">
+</head>
+<body class="dark-theme">
+
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="logo">
+                <img src="../assets/icon32.png" alt="Tabs++ Logo">
+                <span class="brand">Tabs<span>++</span></span>
+            </div>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#palette">Palette</a>
+                <a href="docs.html">Docs</a>
+                <a href="#faq">FAQ</a>
+                <div id="theme-toggle" title="Toggle Dark/Light Mode"></div>
+                <a href="https://github.com/CubeSeven/tabplusplus" class="btn-github">GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <div class="hero-content">
+            <h1 class="reveal-text">Workspace that <span>Survives</span>.</h1>
+            <p class="hero-sub">No more lost sessions. Tabs++ makes Pinned Tabs and Groups persistent, silent, and resource-zero.</p>
+            <div class="hero-cta">
+                <a href="docs.html" class="btn-primary">Get Started</a>
+                <code class="shortcut-pill">Ctrl + Shift + K</code>
+            </div>
+        </div>
+        
+        <div class="hero-visual">
+            <div class="palette-preview glass">
+                <div class="palette-header">
+                    <span class="prompt">></span>
+                    <input type="text" placeholder="Tidy workspace..." disabled>
+                </div>
+                <div class="palette-results">
+                    <div class="res-item active">
+                        <span class="icon">🪄</span>
+                        <div class="res-info">
+                            <span class="res-title">Magic Organize</span>
+                            <span class="res-desc">Cluster loose tabs by domain</span>
+                        </div>
+                    </div>
+                    <div class="res-item">
+                        <span class="icon">💤</span>
+                        <div class="res-info">
+                            <span class="res-title">Hibernate All</span>
+                            <span class="res-desc">Flush background RAM immediately</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <section id="features" class="section">
+        <div class="container">
+            <div class="center-text">
+                <h2 class="section-title">Core Mechanics</h2>
+                <p class="section-subtitle">Engineered for persistence, built for speed.</p>
+            </div>
+            <div class="feature-grid">
+                <div class="feature-card glass">
+                    <div class="f-icon">🛡️</div>
+                    <h3>Tab Protection</h3>
+                    <p>Pinned tabs and Groups are "locked". Now with <strong>Ghost Prevention</strong> to keep your browser history clean and duplicate-free.</p>
+                </div>
+                <div class="feature-card glass">
+                    <div class="f-icon">⇄</div>
+                    <h3>Workspace Swap</h3>
+                    <p>Instantly switch between saved Sets in the same window. No clutter, no new windows, just pure context switching.</p>
+                </div>
+                <div class="feature-card glass">
+                    <div class="f-icon">🧊</div>
+                    <h3>Zero RAM Sleep</h3>
+                    <p>Restored tabs hibernate after 1 second. Zero CPU/RAM usage until you click them.</p>
+                </div>
+                <div class="feature-card glass">
+                    <div class="f-icon">⌨️</div>
+                    <h3>Action Engine</h3>
+                    <p>Type <code>></code> in the palette to trigger native commands like Tidy, Dedupe, or Panic Close.</p>
+                </div>
+                <div class="feature-card glass">
+                    <div class="f-icon">🚀</div>
+                    <h3>Search Bangs</h3>
+                    <p>Fast-track searches with <code>!yt</code>, <code>!gh</code>, or <code>!gpt</code> directly from the global palette.</p>
+                </div>
+                <div class="feature-card glass">
+                    <div class="f-icon">🕊️</div>
+                    <h3>Transient Peek</h3>
+                    <p>Shift+Click links to explore content in a popup without polluting your workspace.</p>
+                </div>
+                <div class="feature-card glass">
+                    <div class="f-icon">🔐</div>
+                    <h3>Session Vault</h3>
+                    <p>Hard-disk backup of your workspace state. Automatic snapshots ensure zero data loss.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="palette" class="section alt-bg">
+        <div class="container">
+            <div class="palette-demo">
+                <div class="demo-info">
+                    <h2>Global Spotlight</h2>
+                    <p>Keyboard-first navigation for your entire browser. Search tabs, history, and bookmarks in one place.</p>
+                    <ul class="demo-list">
+                        <li><strong>!bangs</strong> for external search</li>
+                        <li><strong>> action</strong> for browser control</li>
+                        <li><strong>Deep-links</strong> to internal settings</li>
+                    </ul>
+                </div>
+                <div class="demo-interactive-wrap">
+                   <div class="demo-interactive glass" id="interactive-palette">
+                        <div class="demo-inner">
+                            <div class="demo-bar">
+                                <span class="demo-cursor">></span>
+                                <div class="typing-container">
+                                    <span class="typing-text"></span>
+                                </div>
+                            </div>
+                            <div class="demo-items" id="demo-results">
+                                <!-- JS Populated -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+    <section id="faq" class="section alt-bg">
+        <div class="container">
+            <div class="center-text">
+                <h2 class="section-title">Frequently Asked</h2>
+            </div>
+            <div class="faq-list">
+                <div class="faq-item glass">
+                    <div class="faq-q">How do I change the shortcut?</div>
+                    <div class="faq-a">Navigate to <code>chrome://extensions/shortcuts</code> in Chrome. Locate **Tabs++** and enter your preferred keys.</div>
+                </div>
+                <div class="faq-item glass">
+                    <div class="faq-q">Can I turn off Group protection?</div>
+                    <div class="faq-a">Yes. Open the extension popup menu (click the icon) to toggle individual protections.</div>
+                </div>
+                <div class="faq-item glass">
+                    <div class="faq-q">Will it work with vertical tab sidebars?</div>
+                    <div class="faq-a">Yes. Tabs++ works silently in the background and respects native groups used by vertical sidebars like Sidekick or SigmaOS-style themes.</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-logo">
+                    <img src="../assets/icon32.png" alt="">
+                    <span>Tabs<span>++</span></span>
+                </div>
+                <div class="footer-links">
+                    <a href="https://github.com/CubeSeven/tabplusplus">GitHub</a>
+                    <a href="https://github.com/CubeSeven/tabplusplus/issues">Support</a>
+                    <a href="#">Privacy</a>
+                </div>
+            </div>
+            <p class="copyright">&copy; 2026 CubeSeven. Crafted for Focus.</p>
+        </div>
+    </footer>
+
+    <script src="docs_scripts.js"></script>
+    <script src="theme.js"></script>
+</body>
+</html>
