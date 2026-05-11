@@ -1,29 +1,33 @@
-import { memoryBaselines, globalSettings, sessionVault, tabSets, groupCache, setInitialized, setSessionVault, setLastSession, setTabSets, isInitialized, ntpTabCache, evictionGraveyard, peekWindows, autoGroupRegistry, discardedTabs } from '../state.js';
+import { memoryBaselines, globalSettings, sessionVault, vaultCanonicalUrls, tabSets, groupCache, setInitialized, setSessionVault, setTabSets, isInitialized, ntpTabCache, evictionGraveyard, peekWindows, autoGroupRegistry, discardedTabs } from '../state.js';
 import { getCanonicalUrl, safeDiscard } from '../utils.js';
 import { NONE_GROUP, GROUPING_RULES, NTP_URL } from '../constants.js';
 
-// Helper to safely hibernate tabs while preserving baseline logic
+const domainRuleMap = new Map();
+for (const rule of GROUPING_RULES) {
+    for (const d of rule.domains) {
+        domainRuleMap.set(d, rule);
+    }
+}
+const aiRule = GROUPING_RULES.find(r => r.title === 'AI');
+
+function findRuleByHost(host) {
+    let rule = domainRuleMap.get(host);
+    if (rule) return rule;
+    const parts = host.split('.');
+    for (let i = 1; i < parts.length - 1; i++) {
+        rule = domainRuleMap.get(parts.slice(i).join('.'));
+        if (rule) return rule;
+    }
+    return null;
+}
+
 export async function safeHibernate(tab) {
     if (tab.discarded) return;
     const baseline = memoryBaselines.get(tab.id);
     if (baseline && baseline.url && (tab.pinned || baseline.groupId !== NONE_GROUP)) {
         const currentUrl = tab.pendingUrl || tab.url;
         if (currentUrl !== baseline.url) {
-            chrome.tabs.update(tab.id, { url: baseline.url });
-            
-            const listener = (tId, changeInfo) => {
-                if (tId === tab.id && changeInfo.status === 'complete') {
-                    chrome.tabs.onUpdated.removeListener(listener);
-                    safeDiscard(tab.id);
-                }
-            };
-            chrome.tabs.onUpdated.addListener(listener);
-            
-            setTimeout(() => {
-                chrome.tabs.onUpdated.removeListener(listener);
-                safeDiscard(tab.id); // Fallback discard if navigation hangs
-            }, 10000);
-            return;
+            await chrome.tabs.update(tab.id, { url: baseline.url });
         }
     }
     safeDiscard(tab.id);
@@ -71,14 +75,18 @@ let syncTimeout = null;
 export function syncBaselinesToStorage(force = false) {
     if (force) {
         if (syncTimeout) clearTimeout(syncTimeout);
-        chrome.storage.local.set({ baselines: Object.fromEntries(memoryBaselines) });
-        saveSnapshot();
+        chrome.storage.local.set({
+            baselines: Object.fromEntries(memoryBaselines),
+            lastSession: Array.from(memoryBaselines.values())
+        });
         return;
     }
     if (syncTimeout) clearTimeout(syncTimeout);
     syncTimeout = setTimeout(() => {
-        chrome.storage.local.set({ baselines: Object.fromEntries(memoryBaselines) });
-        saveSnapshot();
+        chrome.storage.local.set({
+            baselines: Object.fromEntries(memoryBaselines),
+            lastSession: Array.from(memoryBaselines.values())
+        });
     }, 2000);
 }
 
@@ -86,14 +94,26 @@ export function saveSnapshot() {
     chrome.storage.local.set({ lastSession: Array.from(memoryBaselines.values()) });
 }
 
+chrome.runtime.onSuspend.addListener(() => {
+    if (syncTimeout) {
+        clearTimeout(syncTimeout);
+        syncTimeout = null;
+        chrome.storage.local.set({
+            baselines: Object.fromEntries(memoryBaselines),
+            lastSession: Array.from(memoryBaselines.values())
+        });
+    }
+});
+
 let loadPromise = null;
 export async function ensureLoaded() {
     if (isInitialized) return;
     if (!loadPromise) {
-        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'lastSession', 'tabSets']).then((data) => {
+        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'tabSets']).then((data) => {
             if (data.settings) Object.assign(globalSettings, data.settings);
             setSessionVault(data.vault || []);
-            setLastSession(data.lastSession || []);
+            vaultCanonicalUrls.clear();
+            for (const t of sessionVault) { vaultCanonicalUrls.add(getCanonicalUrl(t.url)); }
             setTabSets(data.tabSets || {});
             const stored = data.baselines || {};
             memoryBaselines.clear();
@@ -111,6 +131,8 @@ export async function initializeState(isFreshStartup = false) {
     if (isFreshStartup) {
         const cutoff = Date.now() - (24 * 60 * 60 * 1000);
         setSessionVault(sessionVault.filter(v => v.savedAt && v.savedAt > cutoff));
+        vaultCanonicalUrls.clear();
+        for (const t of sessionVault) { vaultCanonicalUrls.add(getCanonicalUrl(t.url)); }
     }
 
     const tabs = await chrome.tabs.query({});
@@ -225,13 +247,6 @@ export function processTab(tab) {
     let changed = false;
     const data = memoryBaselines.get(tab.id);
 
-    // Only message non-discarded, non-chrome tabs if the protection state changes
-    if (url && !url.startsWith('chrome') && !tab.discarded) {
-        if (!data || data._lastMessagedProtection !== isProtected) {
-            chrome.tabs.sendMessage(tab.id, { action: 'update-tab-status', isProtected }).catch(() => {});
-        }
-    }
-
     if (isProtected) {
         const title = (tab.groupId !== NONE_GROUP && groupCache.has(tab.groupId)) ? groupCache.get(tab.groupId).title : '';
         const color = (tab.groupId !== NONE_GROUP && groupCache.has(tab.groupId)) ? groupCache.get(tab.groupId).color : 'grey';
@@ -283,8 +298,8 @@ export async function applyAutoGrouping(tab, retryCount = 0) {
     let matchedRule = null;
     try {
         const host = new URL(tab.url).hostname;
-        matchedRule = GROUPING_RULES.find(rule => rule.domains.some(d => host === d || host.endsWith('.' + d)));
-        if (!matchedRule && host.endsWith('.ai')) matchedRule = GROUPING_RULES.find(r => r.title === 'AI');
+        matchedRule = findRuleByHost(host);
+        if (!matchedRule && host.endsWith('.ai')) matchedRule = aiRule;
     } catch (e) { return; }
 
     if (!matchedRule) return;

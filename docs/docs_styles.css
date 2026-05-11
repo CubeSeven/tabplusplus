@@ -339,6 +339,7 @@ body {
 .footer { padding: 80px 0 40px; border-top: 1px solid var(--surface-border); }
 .footer-content { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
 .footer-logo { display:flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+.footer-logo img { width: 24px; height: auto; }
 .footer-links { display: flex; gap: 40px; }
 .footer-links a { color: var(--text-secondary); text-decoration: none; font-size: 14px; transition: color 0.3s; }
 .footer-links a:hover { color: var(--accent-color); }

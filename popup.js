@@ -73,6 +73,15 @@ const FEATURES = [
     badge: null,
     category: 'Logic',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h20"/><path d="M12 2v20"/><path d="m20 16-4-4 4-4"/><path d="m4 8 4 4-4 4"/><path d="m16 4-4 4-4-4"/><path d="m8 20 4-4 4 4"/></svg>`
+  },
+  {
+    id: 'autoPeekCrossDomain',
+    title: 'Cross-Domain Peek',
+    description: 'Auto-open any cross-domain link in a peek window.',
+    default: false,
+    badge: null,
+    category: 'Guard',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>`
   }
 ];
 
@@ -267,6 +276,12 @@ function renderTools(settings, filter = '') {
   if (!container) return;
   container.innerHTML = '';
 
+  const paletteOff = settings.enablePalette === false;
+
+  if (paletteOff) {
+    container.innerHTML = '<div class="palette-disabled-message">Enable Command Palette to use tools</div>';
+  }
+
   const filtered = TOOLS.filter(t => 
     t.title.toLowerCase().includes(filter.toLowerCase()) || 
     t.description.toLowerCase().includes(filter.toLowerCase())
@@ -275,9 +290,11 @@ function renderTools(settings, filter = '') {
   filtered.forEach((tool) => {
     const isEnabled = tool.settingId ? (settings[tool.settingId] ?? true) : false;
 
-    // Card
     const card = document.createElement('div');
-    card.className = 'feature-card' + (tool.settingId && isEnabled ? ' is-on' : '');
+    let cardClass = 'feature-card';
+    if (tool.settingId && isEnabled) cardClass += ' is-on';
+    if (paletteOff) cardClass += ' palette-disabled';
+    card.className = cardClass;
     
     // Header Row (Icon + Badge/Toggle)
     const cardHeader = document.createElement('div');
@@ -309,6 +326,7 @@ function renderTools(settings, filter = '') {
       checkbox.type = 'checkbox';
       checkbox.id = `toggle-${tool.settingId}`;
       checkbox.checked = isEnabled;
+      if (paletteOff) checkbox.disabled = true;
 
       const track = document.createElement('div');
       track.className = 'toggle-track';
@@ -320,18 +338,20 @@ function renderTools(settings, filter = '') {
       toggleWrap.appendChild(track);
       rightGroup.appendChild(toggleWrap);
 
-      checkbox.addEventListener('change', (e) => {
-        e.stopPropagation();
-        const newState = checkbox.checked;
-        if (newState) {
-          card.classList.add('is-on');
-          toggleWrap.classList.add('is-on');
-        } else {
-          card.classList.remove('is-on');
-          toggleWrap.classList.remove('is-on');
-        }
-        saveSettings();
-      });
+      if (!paletteOff) {
+        checkbox.addEventListener('change', (e) => {
+          e.stopPropagation();
+          const newState = checkbox.checked;
+          if (newState) {
+            card.classList.add('is-on');
+            toggleWrap.classList.add('is-on');
+          } else {
+            card.classList.remove('is-on');
+            toggleWrap.classList.remove('is-on');
+          }
+          saveSettings();
+        });
+      }
     }
 
     cardHeader.appendChild(iconBox);
@@ -352,6 +372,8 @@ function renderTools(settings, filter = '') {
 
     // Click interaction
     card.addEventListener('click', (e) => {
+      if (paletteOff) return;
+
       // Let the toggle's own change event handle direct toggle clicks
       if (e.target.type === 'checkbox' || (e.target.closest && e.target.closest('.toggle-wrap'))) return;
 

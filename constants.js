@@ -21,7 +21,8 @@ export const DEFAULT_SETTINGS = {
     enableAutoHibernate: false,
     enableMediaExtractor: true,
     enableVolumeControl: true,
-    timeFormat: '24h'
+    timeFormat: '24h',
+    autoPeekCrossDomain: false
 };
 
 export const GROUPING_RULES = [

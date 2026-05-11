@@ -21,50 +21,51 @@ export function getBaseDomain(hostname) {
     return parts.slice(-2).join('.');
 }
 
+// -- Shared safeDiscard: one global listener handles all pending discards --
+const pendingDiscards = new Map();
+
+function attemptDiscard(tabId, onDiscarded) {
+    chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) return;
+        if (tab.active) return;
+        const currentUrl = tab.url || tab.pendingUrl;
+        if (!currentUrl || currentUrl === '' || currentUrl.startsWith('chrome://')) return;
+        chrome.tabs.discard(tabId).then(() => {
+            if (onDiscarded) onDiscarded();
+        }).catch(() => {});
+    });
+}
+
+chrome.tabs.onUpdated.addListener((tId, changeInfo) => {
+    if (changeInfo.status === 'complete' && pendingDiscards.has(tId)) {
+        const entry = pendingDiscards.get(tId);
+        pendingDiscards.delete(tId);
+        clearTimeout(entry.timeout);
+        attemptDiscard(tId, entry.onDiscarded);
+    }
+});
+
 export function safeDiscard(tabId, onDiscarded = null) {
-    let hasAttempted = false;
-    
-    const attemptDiscard = () => {
-        if (hasAttempted) return;
-        
-        chrome.tabs.get(tabId, (tab) => {
-            if (chrome.runtime.lastError || !tab) return;
-            
-            // 1. Never discard the tab if the user is currently looking at it
-            if (tab.active) return;
-            
-            // 2. Only discard if it actually has a URL (avoids about:blank corruption)
-            const currentUrl = tab.url || tab.pendingUrl;
-            if (!currentUrl || currentUrl === '' || currentUrl.startsWith('chrome://')) return;
-            
-            hasAttempted = true;
+    chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) return;
+        if (tab.active) return;
+
+        const currentUrl = tab.url || tab.pendingUrl;
+        if (!currentUrl || currentUrl === '' || currentUrl.startsWith('chrome://')) return;
+
+        if (tab.status === 'complete') {
             chrome.tabs.discard(tabId).then(() => {
                 if (onDiscarded) onDiscarded();
             }).catch(() => {});
-        });
-    };
-
-    const listener = (tId, changeInfo) => {
-        if (tId === tabId && changeInfo.status === 'complete') {
-            chrome.tabs.onUpdated.removeListener(listener);
-            attemptDiscard();
-        }
-    };
-
-    // Pre-check if it's already completely loaded
-    chrome.tabs.get(tabId, (tab) => {
-        if (chrome.runtime.lastError || !tab) return;
-        
-        if (tab.status === 'complete') {
-            attemptDiscard();
         } else {
-            // Wait patiently for it to finish loading, however long Chrome takes
-            chrome.tabs.onUpdated.addListener(listener);
-            
-            // Cleanup listener after a very long time just in case it never completes
-            setTimeout(() => {
-                chrome.tabs.onUpdated.removeListener(listener);
-            }, 5 * 60 * 1000); // 5 minutes
+            if (pendingDiscards.has(tabId)) {
+                clearTimeout(pendingDiscards.get(tabId).timeout);
+            }
+            const timeout = setTimeout(() => {
+                pendingDiscards.delete(tabId);
+                attemptDiscard(tabId, onDiscarded);
+            }, 30000);
+            pendingDiscards.set(tabId, { timeout, onDiscarded });
         }
     });
 }

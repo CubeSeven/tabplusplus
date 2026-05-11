@@ -1,8 +1,8 @@
-import { globalSettings, updateSettings, tabSets, memoryBaselines, groupCache, sessionVault } from '../state.js';
+import { globalSettings, updateSettings, tabSets, memoryBaselines, sessionVault } from '../state.js';
 import { startPomoTimer, stopPomoTimer } from './pomoService.js';
-import { BANGS, NONE_GROUP, NTP_URL } from '../constants.js';
-import { getCanonicalUrl, safeDiscard } from '../utils.js';
-import { syncBaselinesToStorage, syncSetsToStorage, syncVaultToStorage, ensureLoaded, restoreVault, saveSnapshot, safeHibernate, updateCleanupAlarms } from './tabService.js';
+import { BANGS, NONE_GROUP } from '../constants.js';
+import { getCanonicalUrl } from '../utils.js';
+import { syncBaselinesToStorage, saveSnapshot, ensureLoaded, safeHibernate, updateCleanupAlarms } from './tabService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './setService.js';
 
 
@@ -99,7 +99,7 @@ function rgbToHsl(r, g, b) {
     return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
 }
 
-export const EXTENSION_ACTIONS = [
+const EXTENSION_ACTIONS = [
     { type: 'action', id: 'magic_organize', category: 'Organization', title: 'Magic Organize Workspace', aliases: ['group', 'sort', 'tidy'] },
     { type: 'action', id: 'ungroup_all', category: 'Organization', title: 'Ungroup All Tabs', aliases: ['flatten', 'remove groups'] },
     { type: 'action', id: 'dedupe_window', category: 'Organization', title: 'Close Duplicate Tabs', aliases: ['dedupe', 'duplicates', 'clean'] },
@@ -178,7 +178,7 @@ export const EXTENSION_ACTIONS = [
     { type: 'action', id: 'set_hibernate_time', category: 'Settings', title: 'Set Hibernate Time', aliases: ['sleep time', 'hibernate time', 'suspend timeout'] }
 ];
 
-export function resolveBang(query) {
+function resolveBang(query) {
     const match = query.match(/^(!\S+)\s*(.*)/);
     if (!match) return null;
     const [, bang, rest] = match;
@@ -196,7 +196,7 @@ export async function handleSearchItems(request, sender, sendResponse) {
     if (!globalSettings.enablePalette) { sendResponse({ results: [] }); return; }
 
     const currentGen = ++searchGeneration;
-    const query = (request.query || "").trim();
+    const query = (typeof request.query === 'string' ? request.query : "").trim();
     const lowerQuery = query.toLowerCase();
     
     if (query.startsWith('>')) {
@@ -543,7 +543,7 @@ export async function executeAction(commandId, args, senderTab = null) {
                     if (ms >= 60 * 1000) {
                         if (base === 'set_clean_time') updateSettings({ archiveThresholdRaw: raw });
                         else updateSettings({ hibernateThresholdRaw: raw });
-                        chrome.storage.local.set({ settings: globalSettings });
+                        chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
                         updateCleanupAlarms();
                     }
                 }
@@ -570,7 +570,7 @@ export async function executeAction(commandId, args, senderTab = null) {
             case 'toggle_time_format': {
                 const next = globalSettings.timeFormat === '24h' ? '12h' : '24h';
                 updateSettings({ timeFormat: next });
-                chrome.storage.local.set({ settings: globalSettings });
+                chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
                 break;
             }
             case 'magic_organize': {
@@ -655,7 +655,7 @@ export async function executeAction(commandId, args, senderTab = null) {
                         } else {
                             updateSettings({ hibernateThresholdRaw: raw });
                         }
-                        chrome.storage.local.set({ settings: globalSettings });
+                        chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
                         updateCleanupAlarms(); // apply new alarm frequencies immediately
                     }
                 }

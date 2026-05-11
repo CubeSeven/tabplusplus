@@ -1,4 +1,4 @@
-import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds } from './state.js';
+import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds } from './state.js';
 import { NONE_GROUP, NTP_URL } from './constants.js';
 import { getCanonicalUrl, safeDiscard, getBaseDomain } from './utils.js';
 import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, saveSnapshot, restoreVault, safeHibernate, updateCleanupAlarms } from './services/tabService.js';
@@ -33,7 +33,8 @@ chrome.windows.onRemoved.addListener((windowId) => {
     cleanupPeekWindow(windowId);
     windowBatchTracker.delete(windowId);
     closingWindowIds.delete(windowId);
-    launchingWindowIds.delete(windowId); // defensive cleanup in case the launch lock was not released
+    launchingWindowIds.delete(windowId);
+    ntpTabCache.delete(windowId);
     chrome.windows.getAll({ windowTypes: ['normal'] }).then(remaining => {
         if (remaining.length === 0) { syncBaselinesToStorage(true); saveSnapshot(); }
     }).catch(() => {});
@@ -249,6 +250,9 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
         if (ntpId === tabId) { ntpTabCache.delete(winId); break; }
     }
 
+    discardedTabs.delete(tabId);
+    recentlyAwakened.delete(tabId);
+
     await ensureLoaded();
 
     let data = memoryBaselines.get(tabId);
@@ -281,9 +285,11 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             closingWindowIds.add(removeInfo.windowId);
             const windowBaselines = Array.from(memoryBaselines.entries()).filter(([id, d]) => d.windowId === removeInfo.windowId && d.url);
             for (const [bid, d] of windowBaselines) {
-                if (!sessionVault.some(t => getCanonicalUrl(t.url) === getCanonicalUrl(d.url))) {
+                const canonicalUrl = getCanonicalUrl(d.url);
+                if (!vaultCanonicalUrls.has(canonicalUrl)) {
                     d.savedAt = Date.now();
                     sessionVault.push(d);
+                    vaultCanonicalUrls.add(canonicalUrl);
                 }
                 memoryBaselines.delete(bid);
             }
@@ -301,9 +307,11 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             // Batch close → vault, no restore
             const bt = windowBatchTracker.get(removeInfo.windowId);
             if (bt && bt.count > 1) {
-                if (!sessionVault.some(t => getCanonicalUrl(t.url) === getCanonicalUrl(data.url))) {
+                const canonicalUrl = getCanonicalUrl(data.url);
+                if (!vaultCanonicalUrls.has(canonicalUrl)) {
                     data.savedAt = Date.now();
                     sessionVault.push(data);
+                    vaultCanonicalUrls.add(canonicalUrl);
                     syncVaultToStorage();
                 }
                 return;
@@ -313,9 +321,11 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             if (data.groupId !== NONE_GROUP) {
                 const tracker = groupClosureTracker.get(data.groupId);
                 if (tracker && tracker.baselineCount > 1 && tracker.closedIds.size >= tracker.baselineCount) {
-                    if (!sessionVault.some(t => getCanonicalUrl(t.url) === getCanonicalUrl(data.url))) {
+                    const canonicalUrl = getCanonicalUrl(data.url);
+                    if (!vaultCanonicalUrls.has(canonicalUrl)) {
                         data.savedAt = Date.now();
                         sessionVault.push(data);
+                        vaultCanonicalUrls.add(canonicalUrl);
                         syncVaultToStorage();
                     }
                     return;
@@ -448,8 +458,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
             
         case 'update-settings':
-            updateSettings(request.settings);
-            chrome.storage.local.set({ settings: globalSettings });
+            if (request.settings && typeof request.settings === 'object') {
+                updateSettings(request.settings);
+                chrome.storage.local.set({ settings: globalSettings });
+            }
             sendResponse({ success: true });
             return true;
 
@@ -467,7 +479,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (request.url === 'virtual:restore-vault') {
                 ensureLoaded().then(async () => {
                     const success = await restoreVault(sessionVault);
-                    if (success) { setSessionVault([]); syncVaultToStorage(); }
+                    if (success) { setSessionVault([]); vaultCanonicalUrls.clear(); syncVaultToStorage(); }
                     sendResponse({ success });
                 });
                 return true;
@@ -482,7 +494,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             const q = request.query || '';
             const isUrl = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\\/\w \.-]*)*\/?$/.test(q.toLowerCase()) || q.startsWith('localhost');
             let url = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
-            if (isUrl) url = q.startsWith('http') ? q : 'https://' + q;
+            if (isUrl) url = q.startsWith('http://') || q.startsWith('https://') ? q : 'https://' + q;
             chrome.tabs.create({ url, active: true }, (tab) => {
                 if (tab) chrome.windows.update(tab.windowId, { focused: true });
             });
@@ -533,7 +545,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             ensureLoaded().then(async () => {
                 if (!sessionVault?.length) { sendResponse({ success: false }); return; }
                 const success = await restoreVault(sessionVault);
-                if (success) { setSessionVault([]); syncVaultToStorage(); }
+                if (success) { setSessionVault([]); vaultCanonicalUrls.clear(); syncVaultToStorage(); }
                 sendResponse({ success });
             });
             return true;
@@ -541,23 +553,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case 'clear-vault':
             ensureLoaded().then(() => {
                 setSessionVault([]);
+                vaultCanonicalUrls.clear();
                 syncVaultToStorage();
                 sendResponse({ success: true });
             });
             return true;
 
-        case 'check-tab-status': {
-            const tab = sender.tab;
-            if (tab) {
-                const isProt = (globalSettings.protectPinned && tab.pinned) ||
-                    (globalSettings.protectGrouped && tab.groupId !== NONE_GROUP);
-                sendResponse({ isProtected: isProt });
-            } else { sendResponse({ isProtected: false }); }
-            return true;
-        }
-
         case 'start-pomo-timer': {
-            startPomoTimer(request.minutes, request.type);
+            const minutes = Number(request.minutes);
+            if (Number.isFinite(minutes) && minutes > 0) {
+                startPomoTimer(minutes, request.type);
+            }
             sendResponse({ success: true });
             return true;
         }
@@ -725,8 +731,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
             for (const tab of toClose) {
                 if (tab.url && !tab.url.startsWith('chrome')) {
                     const canonical = getCanonicalUrl(tab.url);
-                    if (!sessionVault.some(t => getCanonicalUrl(t.url) === canonical)) {
+                    if (!vaultCanonicalUrls.has(canonical)) {
                         sessionVault.push({ url: tab.url, title: tab.title, savedAt: Date.now(), pinned: false, groupId: NONE_GROUP });
+                        vaultCanonicalUrls.add(canonical);
                     }
                 }
             }

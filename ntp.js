@@ -3,19 +3,30 @@ const isFallback = urlParams.get('action') === 'palette';
 
 // Chrome heavily restricts stealing focus from the omnibox on the NTP.
 // A known hack is to replace the URL, which bypasses the initial "newtab" state focus restrictions.
-if (!window.location.search.includes('focused=true') && !isFallback) {
+if (urlParams.get('focused') !== 'true' && !isFallback) {
     window.location.replace('ntp.html?focused=true');
 }
 
 let timeFormat = '24h';
 
-chrome.storage.local.get({ settings: { enablePalette: false } }, (data) => {
+let enablePalette = true;
+
+chrome.storage.local.get({ settings: { enablePalette: true } }, (data) => {
     if (data.settings.timeFormat) timeFormat = data.settings.timeFormat;
+    enablePalette = data.settings.enablePalette !== false;
     initDashboard();
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'local' && changes.settings) {
+        const oldVal = changes.settings.oldValue?.enablePalette;
+        const newVal = changes.settings.newValue?.enablePalette;
+        if (newVal !== undefined && newVal !== oldVal) {
+            enablePalette = newVal;
+            const container = document.getElementById('palette-container');
+            if (container) container.style.display = enablePalette ? '' : 'none';
+        }
+
         const newTimeFormat = changes.settings.newValue?.timeFormat;
         if (newTimeFormat && newTimeFormat !== timeFormat) {
             timeFormat = newTimeFormat;
@@ -32,6 +43,7 @@ let pendingCommand = null;
 let focusInterval = null;
 let isNavigating = false;
 let lastSearchedQuery = '';
+let cachedResultItems = [];
 
 let cachedQueryRegex = null;
 let cachedQueryForRegex = '';
@@ -49,8 +61,15 @@ function initDashboard() {
     updateClock();
     setInterval(updateClock, 1000);
 
+    const paletteContainer = document.getElementById('palette-container');
+    if (!enablePalette && paletteContainer) {
+        paletteContainer.style.display = 'none';
+        initBgPicker();
+        return;
+    }
+
     input = document.getElementById('search-input');
-    input.value = ''; // Ensure clean slate on load
+    input.value = '';
     resultsContainer = document.getElementById('results-container');
 
     resultsContainer.addEventListener('click', (e) => {
@@ -71,6 +90,14 @@ function initDashboard() {
         }
     });
 
+    resultsContainer.addEventListener('error', (e) => {
+        const img = e.target;
+        if (img && img.matches && img.matches('img[data-type]')) {
+            const type = img.getAttribute('data-type') || 'default';
+            img.outerHTML = TYPE_FALLBACK[type] || TYPE_FALLBACK.default;
+        }
+    }, true);
+
     // Aggressively attempt to focus the input to fight Chrome's omnibox
     let attempts = 0;
     const focusTarget = () => {
@@ -81,6 +108,7 @@ function initDashboard() {
     };
 
     focusTarget();
+    if (focusInterval) clearInterval(focusInterval);
     focusInterval = setInterval(() => {
         focusTarget();
         attempts++;
@@ -395,22 +423,15 @@ function renderResults(results, query) {
     });
 
     resultsContainer.innerHTML = html;
-
-    resultsContainer.querySelectorAll('img[data-type]').forEach(img => {
-        img.addEventListener('error', function() {
-            const type = this.getAttribute('data-type') || 'default';
-            this.outerHTML = TYPE_FALLBACK[type] || TYPE_FALLBACK.default;
-        });
-    });
+    cachedResultItems = Array.from(resultsContainer.querySelectorAll('.result-item'));
 }
 
 function updateSelection(index) {
-    const items = resultsContainer.querySelectorAll('.result-item');
-    if (selectedIndex >= 0 && selectedIndex < items.length) items[selectedIndex].classList.remove('selected');
+    if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) cachedResultItems[selectedIndex].classList.remove('selected');
     selectedIndex = index;
-    if (selectedIndex >= 0 && selectedIndex < items.length) {
-        items[selectedIndex].classList.add('selected');
-        items[selectedIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) {
+        cachedResultItems[selectedIndex].classList.add('selected');
+        cachedResultItems[selectedIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 }
 

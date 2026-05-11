@@ -1,4 +1,6 @@
 (function() {
+if (window.__tabsppInjected) return;
+window.__tabsppInjected = true;
 let palette = null;
 
 let shadow = null;
@@ -9,10 +11,11 @@ let selectedIndex = -1;
 let currentResults = [];
 let lastSearchedQuery = "";
 let isPaletteEnabled = false;
-let isProtectedTab = false;
 let pendingCommand = null;
 let domOrderedResults = [];
 let blurOverlay = null;
+let focusTimeouts = [];
+let cachedResultItems = [];
 
 let cachedQueryRegex = null;
 let cachedQueryForRegex = '';
@@ -32,16 +35,6 @@ let extractedMedia = [];
 let selectedMediaIds = new Set();
 let domOrderedMedia = [];
 
-// Initialize protection status check
-if (chrome.runtime?.id) {
-    chrome.runtime.sendMessage({ action: 'check-tab-status' }, (response) => {
-        if (chrome.runtime.lastError) return;
-        if (response && response.isProtected !== undefined) {
-            isProtectedTab = response.isProtected;
-        }
-    });
-}
-
 // Pomodoro Timer State
 let pomoHost = null;
 let pomoInterval = null;
@@ -58,7 +51,7 @@ syncPomoState();
 
 
 // Initialize settings and listen for changes
-let settings = { enablePalette: false, autoPiP: true, enableEyedropper: true };
+let settings = { enablePalette: false, autoPiP: true, enableEyedropper: true, autoPeekCrossDomain: false };
 chrome.storage.local.get({ settings: settings }, (data) => {
     if (data.settings) {
         settings = { ...settings, ...data.settings };
@@ -653,6 +646,14 @@ function createPalette() {
         }
     });
 
+    resultsContainer.addEventListener('error', (e) => {
+        const img = e.target;
+        if (img && img.matches && img.matches('img[data-type]')) {
+            const type = img.getAttribute('data-type') || 'default';
+            img.outerHTML = TYPE_FALLBACK[type] || TYPE_FALLBACK.default;
+        }
+    }, true);
+
     container.appendChild(inputWrapper);
     container.appendChild(resultsContainer);
 
@@ -745,9 +746,9 @@ function showPalette() {
     // Multi-stage aggressive focus: some sites (Google, Twitter, Reddit) fight
     // hard to reclaim focus. We hit it at 0ms, 80ms, 200ms, and 500ms to win.
     input.focus();
-    setTimeout(() => { if (isVisible) input.focus(); }, 80);
-    setTimeout(() => { if (isVisible) input.focus(); }, 200);
-    setTimeout(() => { if (isVisible) input.focus(); }, 500);
+    focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 80));
+    focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 200));
+    focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 500));
     
     handleSearch(); // Fetch initial tabs list
 }
@@ -755,6 +756,8 @@ function showPalette() {
 function hidePalette() {
     if (!isVisible || !palette) return;
     isVisible = false;
+    for (const t of focusTimeouts) clearTimeout(t);
+    focusTimeouts = [];
     shadow.querySelector('.container').classList.remove('visible');
     setTimeout(() => {
         if (!isVisible) {
@@ -838,11 +841,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 input.selectionStart = input.selectionEnd = input.value.length;
             }, 10);
         }
-        sendResponse({ success: true });
-        return true;
-    }
-    if (request.action === 'update-tab-status') {
-        isProtectedTab = request.isProtected;
         sendResponse({ success: true });
         return true;
     }
@@ -1269,13 +1267,7 @@ function renderResults(results) {
     });
 
     resultsContainer.innerHTML = html;
-
-    resultsContainer.querySelectorAll('img[data-type]').forEach(img => {
-        img.addEventListener('error', function() {
-            const type = this.getAttribute('data-type') || 'default';
-            this.outerHTML = TYPE_FALLBACK[type] || TYPE_FALLBACK.default;
-        });
-    });
+    cachedResultItems = Array.from(resultsContainer.querySelectorAll('.result-item'));
 }
 
 function escapeHTML(str) {
@@ -1303,14 +1295,13 @@ function updateSelection(index) {
             items[selectedIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
     } else {
-        const items = resultsContainer.querySelectorAll('.result-item');
-        if (selectedIndex >= 0 && selectedIndex < items.length) {
-            items[selectedIndex].classList.remove('selected');
+        if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) {
+            cachedResultItems[selectedIndex].classList.remove('selected');
         }
         selectedIndex = index;
-        if (selectedIndex >= 0 && selectedIndex < items.length) {
-            items[selectedIndex].classList.add('selected');
-            items[selectedIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) {
+            cachedResultItems[selectedIndex].classList.add('selected');
+            cachedResultItems[selectedIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
     }
 }
@@ -1825,8 +1816,7 @@ document.addEventListener('click', (e) => {
         isCrossDomain = new URL(link.href).hostname !== window.location.hostname;
     } catch(err) {}
 
-    // Only Shift+Click, OR protected tab + cross domain. 
-    if (e.shiftKey || (isProtectedTab && isCrossDomain)) {
+    if (e.shiftKey || (settings.autoPeekCrossDomain && isCrossDomain)) {
         // Guard against extension reload destroying the background context
         if (!chrome.runtime?.id) return;
         
@@ -2235,7 +2225,15 @@ function startCustomEyedropper(dataUrl) {
             }
 
             // Copy to clipboard
-            navigator.clipboard.writeText(hex).catch(() => {});
+            navigator.clipboard.writeText(hex).catch(() => {
+                const el = document.createElement('textarea');
+                el.value = hex;
+                el.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+            });
 
             // Update UI
             magnifier.style.display = 'none';
@@ -2258,7 +2256,15 @@ function startCustomEyedropper(dataUrl) {
                     s.style.background = color;
                     s.title = `Copy ${color}`;
                     s.addEventListener('click', () => {
-                        navigator.clipboard.writeText(color).catch(() => {});
+                        navigator.clipboard.writeText(color).catch(() => {
+                            const el = document.createElement('textarea');
+                            el.value = color;
+                            el.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+                            document.body.appendChild(el);
+                            el.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(el);
+                        });
                         // Provide visual feedback for the copy action
                         s.style.transform = 'scale(1.4)';
                         setTimeout(() => s.style.transform = '', 150);
@@ -2390,8 +2396,9 @@ async function startScreenshotCapture() {
 
             // Hide progress pill during capture so it doesn't appear in the screenshot
             if (_ssProgressHost) _ssProgressHost.style.display = 'none';
+            await new Promise(r => requestAnimationFrame(r));
             const response = await chrome.runtime.sendMessage({ action: 'capture-viewport' });
-            if (_ssProgressHost) _ssProgressHost.style.display = '';
+            if (_ssProgressHost) _ssProgressHost.style.display = 'flex';
             if (!response?.dataUrl) continue;
 
             // Draw slice onto canvas

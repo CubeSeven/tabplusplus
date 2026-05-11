@@ -5,7 +5,7 @@ export let globalSettings = { ...DEFAULT_SETTINGS };
 export let lastActiveTabId = null;
 export let isInitialized = false;
 export let sessionVault = [];
-export let lastSession = [];
+export let vaultCanonicalUrls = new Set();
 export let tabSets = {};
 export let groupCache = new Map();
 export let peekWindows = new Map();
@@ -29,7 +29,6 @@ export let pendingFocusGuardWindowIds = new Set();
 export function setLastActiveTabId(id) { lastActiveTabId = id; }
 export function setInitialized(val) { isInitialized = val; }
 export function setSessionVault(val) { sessionVault = val; }
-export function setLastSession(val) { lastSession = val; }
 export function setTabSets(val) { tabSets = val; }
 export function setPomoTimer(val) { pomoTimer = val; }
 
