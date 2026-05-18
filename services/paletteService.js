@@ -687,21 +687,21 @@ export async function executeAction(commandId, args, senderTab = null) {
                 break;
             case 'hibernate_all': {
                 const tabs = await chrome.tabs.query({ active: false });
-                tabs.forEach(t => safeHibernate(t));
+                tabs.forEach(t => safeHibernate(t).catch(() => {}));
                 break;
             }
             case 'hibernate_window': {
                 const tabs = await chrome.tabs.query({ windowId: currentWinId, active: false });
-                tabs.forEach(t => safeHibernate(t));
+                tabs.forEach(t => safeHibernate(t).catch(() => {}));
                 break;
             }
             case 'hibernate_pinned': {
                 const tabs = await chrome.tabs.query({ pinned: true });
-                tabs.forEach(t => safeHibernate(t));
+                tabs.forEach(t => safeHibernate(t).catch(() => {}));
                 break;
             }
             case 'hibernate_current':
-                if (tab) safeHibernate(tab);
+                if (tab) safeHibernate(tab).catch(() => {});
                 break;
             case 'pause_media':
                 if (tab) chrome.tabs.sendMessage(tab.id, { action: 'pause-media' }).catch(() => {});

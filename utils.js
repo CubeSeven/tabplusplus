@@ -24,12 +24,17 @@ export function getBaseDomain(hostname) {
 // -- Shared safeDiscard: one global listener handles all pending discards --
 const pendingDiscards = new Map();
 
-function attemptDiscard(tabId, onDiscarded) {
-    chrome.tabs.get(tabId, (tab) => {
+function attemptDiscard(tabId, onDiscarded, targetUrl) {
+    chrome.tabs.get(tabId, async (tab) => {
         if (chrome.runtime.lastError || !tab) return;
         if (tab.active) return;
-        const currentUrl = tab.url || tab.pendingUrl;
+        const currentUrl = tab.pendingUrl || tab.url;
         if (!currentUrl || currentUrl === '' || currentUrl.startsWith('chrome://')) return;
+
+        if (targetUrl && currentUrl !== targetUrl && !currentUrl.startsWith('chrome://')) {
+            await chrome.tabs.update(tabId, { url: targetUrl }).catch(() => {});
+        }
+
         chrome.tabs.discard(tabId).then(() => {
             if (onDiscarded) onDiscarded();
         }).catch(() => {});
@@ -41,31 +46,37 @@ chrome.tabs.onUpdated.addListener((tId, changeInfo) => {
         const entry = pendingDiscards.get(tId);
         pendingDiscards.delete(tId);
         clearTimeout(entry.timeout);
-        attemptDiscard(tId, entry.onDiscarded);
+        attemptDiscard(tId, entry.onDiscarded, entry.targetUrl);
     }
 });
 
-export function safeDiscard(tabId, onDiscarded = null) {
+export function safeDiscard(tabId, onDiscarded = null, targetUrl = null) {
     chrome.tabs.get(tabId, (tab) => {
         if (chrome.runtime.lastError || !tab) return;
         if (tab.active) return;
 
-        const currentUrl = tab.url || tab.pendingUrl;
+        const currentUrl = tab.pendingUrl || tab.url;
         if (!currentUrl || currentUrl === '' || currentUrl.startsWith('chrome://')) return;
 
         if (tab.status === 'complete') {
-            chrome.tabs.discard(tabId).then(() => {
-                if (onDiscarded) onDiscarded();
-            }).catch(() => {});
+            attemptDiscard(tabId, onDiscarded, targetUrl);
         } else {
             if (pendingDiscards.has(tabId)) {
                 clearTimeout(pendingDiscards.get(tabId).timeout);
             }
             const timeout = setTimeout(() => {
                 pendingDiscards.delete(tabId);
-                attemptDiscard(tabId, onDiscarded);
+                attemptDiscard(tabId, onDiscarded, targetUrl);
             }, 30000);
-            pendingDiscards.set(tabId, { timeout, onDiscarded });
+            pendingDiscards.set(tabId, { timeout, onDiscarded, targetUrl });
         }
     });
+}
+
+export function clearPendingDiscard(tabId) {
+    const entry = pendingDiscards.get(tabId);
+    if (entry) {
+        clearTimeout(entry.timeout);
+        pendingDiscards.delete(tabId);
+    }
 }

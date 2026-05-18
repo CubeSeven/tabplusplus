@@ -27,10 +27,10 @@ export async function safeHibernate(tab) {
     if (baseline && baseline.url && (tab.pinned || baseline.groupId !== NONE_GROUP)) {
         const currentUrl = tab.pendingUrl || tab.url;
         if (currentUrl !== baseline.url) {
-            await chrome.tabs.update(tab.id, { url: baseline.url });
+            try { await chrome.tabs.update(tab.id, { url: baseline.url }); } catch (e) {}
         }
     }
-    safeDiscard(tab.id);
+    safeDiscard(tab.id, null, baseline?.url);
 }
 
 // Helper to dynamically update the auto-cleanup alarms based on timeout settings
@@ -157,12 +157,22 @@ export async function initializeState(isFreshStartup = false) {
     // to the new Tab ID so protection is fully preserved across restarts.
     const claimedNewIds = new Set(); // prevent double-binding two old baselines to the same new tab
     const liveTabsByCanonical = new Map();
+    const liveTabsByDomain = new Map(); // hostname -> [tabs]
     for (const tab of tabs) {
         if (!currentActiveIds.has(tab.id)) continue;
         const canonical = getCanonicalUrl(tab.url || tab.pendingUrl);
         if (canonical && !liveTabsByCanonical.has(canonical)) {
             liveTabsByCanonical.set(canonical, tab);
         }
+        try {
+            const host = new URL(tab.url || tab.pendingUrl).hostname;
+            if (host) {
+                if (!liveTabsByDomain.has(host)) liveTabsByDomain.set(host, []);
+                if (!liveTabsByDomain.get(host).some(t => t.id === tab.id)) {
+                    liveTabsByDomain.get(host).push(tab);
+                }
+            }
+        } catch {}
     }
 
     for (const [oldId, data] of memoryBaselines.entries()) {
@@ -170,7 +180,7 @@ export async function initializeState(isFreshStartup = false) {
         if (!data?.url) { memoryBaselines.delete(oldId); changed = true; continue; }
 
         const canonical = getCanonicalUrl(data.url);
-        const matchingTab = liveTabsByCanonical.get(canonical);
+        let matchingTab = liveTabsByCanonical.get(canonical);
 
         if (matchingTab && !claimedNewIds.has(matchingTab.id)) {
             // Re-bind the baseline to the new Tab ID — protection is preserved!
@@ -182,6 +192,39 @@ export async function initializeState(isFreshStartup = false) {
             claimedNewIds.add(matchingTab.id);
             changed = true;
         } else {
+            // Exact canonical match failed. Fallback: match by domain for pinned/grouped
+            // baselines whose URL drifted (e.g., user was watching a video on a pinned
+            // YouTube tab when the browser was closed — on restart Chrome reopens the
+            // video URL, but the baseline is the homepage).
+            let domainMatched = false;
+            try {
+                const baseHost = new URL(data.url).hostname;
+                const sameHostTabs = liveTabsByDomain.get(baseHost);
+                if (sameHostTabs) {
+                    const candidates = sameHostTabs.filter(t => {
+                        if (claimedNewIds.has(t.id)) return false;
+                        if (data.pinned) return t.pinned;
+                        if (data.groupId !== NONE_GROUP && data.groupTitle) {
+                            if (t.groupId === NONE_GROUP) return false;
+                            const g = groupCache.get(t.groupId);
+                            return g && g.title === data.groupTitle;
+                        }
+                        return false;
+                    });
+                    if (candidates.length === 1) {
+                        const matchTab = candidates[0];
+                        memoryBaselines.delete(oldId);
+                        if (!memoryBaselines.has(matchTab.id)) {
+                            memoryBaselines.set(matchTab.id, { ...data, windowId: matchTab.windowId, index: matchTab.index });
+                        }
+                        claimedNewIds.add(matchTab.id);
+                        changed = true;
+                        domainMatched = true;
+                    }
+                }
+            } catch {}
+            if (domainMatched) continue;
+
             // Truly orphaned — tab is gone. Save to vault if not already there.
             // Use groupTitle as a secondary key so two different groups with the same
             // URL (e.g., two YouTube tabs in different groups) are both preserved.
@@ -255,11 +298,19 @@ export function processTab(tab) {
         // Allow URL update only when:
         // 1. No baseline exists yet (first registration)
         // 2. The stored baseline is a chrome:// placeholder (tab was grouped before it navigated)
+        // 3. The tab navigated to the domain root of its baseline (e.g., youtube.com/watch → youtube.com/)
         const storedIsPlaceholder = data && (data.url?.startsWith('chrome://') || data.url?.startsWith('chrome-extension://'));
-        const autoUpdateUrl = !data || storedIsPlaceholder;
+        const isDomainRoot = data && url && !url.startsWith('chrome') && (() => {
+            try {
+                const du = new URL(data.url);
+                const cu = new URL(url);
+                return du.hostname === cu.hostname && (cu.pathname === '/' || cu.pathname === '');
+            } catch { return false; }
+        })();
+        const autoUpdateUrl = !data || storedIsPlaceholder || isDomainRoot;
 
         if (!data || (isUrlDiff && autoUpdateUrl) || data.pinned !== tab.pinned || data.groupId !== tab.groupId || data.index !== tab.index || data.windowId !== tab.windowId || data._lastMessagedProtection !== isProtected) {
-            const finalUrl = autoUpdateUrl ? url : (data ? data.url : url);
+            const finalUrl = autoUpdateUrl ? (isDomainRoot ? url.replace(/#.*$/, '') : url) : (data ? data.url : url);
             memoryBaselines.set(tab.id, { url: finalUrl, index: tab.index, windowId: tab.windowId, pinned: tab.pinned, groupId: tab.groupId, groupTitle: title, groupColor: color, _lastMessagedProtection: isProtected });
             changed = true;
         }
@@ -371,7 +422,7 @@ export async function restoreVault(vaultData) {
                     await chrome.tabGroups.update(gid, { title: data.groupTitle, color: data.groupColor });
                 }
             }
-            safeDiscard(newTab.id);
+            safeDiscard(newTab.id, null, data.url);
         } catch (e) {}
     }
     syncBaselinesToStorage(true);

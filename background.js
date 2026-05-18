@@ -1,6 +1,6 @@
 import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds } from './state.js';
 import { NONE_GROUP, NTP_URL } from './constants.js';
-import { getCanonicalUrl, safeDiscard, getBaseDomain } from './utils.js';
+import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard } from './utils.js';
 import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, saveSnapshot, restoreVault, safeHibernate, updateCleanupAlarms } from './services/tabService.js';
 import { startPomoTimer, stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
 import { handleSearchItems, executeAction } from './services/paletteService.js';
@@ -92,28 +92,45 @@ const pendingInheritanceCheck = new Set();
 
 chrome.tabs.onCreated.addListener(async (tab) => {
     await ensureLoaded();
-    if (tab.groupId !== NONE_GROUP && tab.openerTabId) {
-        if (!globalSettings.enableAutoGroup && !tab.pinned) {
-            await chrome.tabs.ungroup(tab.id).catch(() => {});
-            return;
+    if (!tab.openerTabId) return;
+
+    try {
+        const opener = await chrome.tabs.get(tab.openerTabId);
+        const openerInGroup = opener && opener.groupId !== NONE_GROUP;
+        const openerProtected = openerInGroup || (globalSettings.protectPinned && opener.pinned);
+
+        if (openerProtected) {
+            // Force standalone if it already inherited a group
+            if (tab.groupId !== NONE_GROUP) {
+                await chrome.tabs.ungroup(tab.id).catch(() => {});
+            }
+            // Set guard so onUpdated catches Chrome assigning the group later
+            evictionGraveyard.set(`inheritance_${tab.id}`, true);
+            setTimeout(() => evictionGraveyard.delete(`inheritance_${tab.id}`), 3000);
         }
-        const pendingUrl = tab.pendingUrl || tab.url;
-        if (pendingUrl && !pendingUrl.startsWith('chrome')) {
-            try {
-                const opener = await chrome.tabs.get(tab.openerTabId);
-                if (opener && opener.url && !opener.url.startsWith('chrome')) {
-                    const newHost = getBaseDomain(new URL(pendingUrl).hostname);
-                    const openerHost = getBaseDomain(new URL(opener.url).hostname);
-                    
-                    if (newHost !== openerHost) {
-                        await chrome.tabs.ungroup(tab.id).catch(() => {});
-                    }
+
+        if (tab.groupId !== NONE_GROUP) {
+            // Cross-domain check for non-protected openers or when auto-grouping is on
+            const pendingUrl = tab.pendingUrl || tab.url;
+            if (pendingUrl && !pendingUrl.startsWith('chrome')) {
+                if (!openerProtected) {
+                    try {
+                        if (opener && opener.url && !opener.url.startsWith('chrome')) {
+                            const newHost = getBaseDomain(new URL(pendingUrl).hostname);
+                            const openerHost = getBaseDomain(new URL(opener.url).hostname);
+                            if (newHost !== openerHost) {
+                                await chrome.tabs.ungroup(tab.id).catch(() => {});
+                                evictionGraveyard.set(`inheritance_${tab.id}`, true);
+                                setTimeout(() => evictionGraveyard.delete(`inheritance_${tab.id}`), 3000);
+                            }
+                        }
+                    } catch (e) {}
                 }
-            } catch (e) {}
-        } else if (!pendingUrl) {
-            pendingInheritanceCheck.add(tab.id);
+            } else if (!pendingUrl) {
+                pendingInheritanceCheck.add(tab.id);
+            }
         }
-    }
+    } catch (e) {}
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
@@ -125,6 +142,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             if (!globalSettings.enableAutoGroup && !tab.pinned) {
                 await chrome.tabs.ungroup(tabId).catch(() => {});
                 tab.groupId = NONE_GROUP;
+                evictionGraveyard.set(`inheritance_${tabId}`, true);
+                setTimeout(() => evictionGraveyard.delete(`inheritance_${tabId}`), 3000);
             } else {
                 try {
                     const opener = await chrome.tabs.get(tab.openerTabId);
@@ -134,6 +153,8 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
                         if (newHost !== openerHost) {
                             await chrome.tabs.ungroup(tabId).catch(() => {});
                             tab.groupId = NONE_GROUP;
+                            evictionGraveyard.set(`inheritance_${tabId}`, true);
+                            setTimeout(() => evictionGraveyard.delete(`inheritance_${tabId}`), 3000);
                         }
                     }
                 } catch (e) {}
@@ -151,6 +172,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         }
     }
 
+    // Inheritance Suppression: catch Chrome natively re-assigning a group after we ungrouped
+    // Must run BEFORE processTab so the tab isn't registered as protected before we ungroup it
+    if (changeInfo.groupId !== undefined && tab.groupId !== NONE_GROUP && evictionGraveyard.has(`inheritance_${tabId}`)) {
+        chrome.tabs.ungroup(tabId).catch(() => {});
+        tab.groupId = NONE_GROUP;
+    }
     if (changeInfo.status === 'complete' || changeInfo.pinned !== undefined || changeInfo.groupId !== undefined || changeInfo.discarded !== undefined) {
         if (processTab(tab)) syncBaselinesToStorage();
     }
@@ -252,6 +279,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 
     discardedTabs.delete(tabId);
     recentlyAwakened.delete(tabId);
+    clearPendingDiscard(tabId);
 
     await ensureLoaded();
 
@@ -261,6 +289,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
         clearTimeout(evictionGraveyard.get(tabId).timeout);
         evictionGraveyard.delete(tabId);
     }
+    evictionGraveyard.delete(`inheritance_${tabId}`);
 
     // Group closure detection — count baselines EXCLUDING the closing tab itself,
     // so that closing the ONLY tab in a group (baselineCount=0 after exclusion)
@@ -406,7 +435,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                 const collapseAfter = data._collapseAfterRestore && data.groupId !== NONE_GROUP
                     ? () => applyAutoCollapse(data.groupId, removeInfo.windowId)
                     : null;
-                safeDiscard(newTab.id, collapseAfter);
+                safeDiscard(newTab.id, collapseAfter, data.url);
 
 
             } catch (e) { /* Tab restore failed silently */ }
