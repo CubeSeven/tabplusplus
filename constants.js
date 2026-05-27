@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS = {
     enableMediaExtractor: true,
     enableVolumeControl: true,
     timeFormat: '24h',
+    showClock: true,
     autoPeekCrossDomain: false
 };
 

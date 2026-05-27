@@ -213,6 +213,8 @@ body {
     letter-spacing: 0;
 }
 
+.clock.hidden { display: none; }
+
 @media (prefers-color-scheme: light) {
     .clock { text-shadow: 0 4px 30px rgba(255,255,255,0.7); }
 }

@@ -158,6 +158,7 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'set_payments', category: 'Data', title: 'Payment Methods', aliases: ['cc', 'credit card', 'wallet', 'checkout'] },
     { type: 'action', id: 'set_appearance', category: 'Appearance', title: 'Appearance & Themes', aliases: ['theme', 'dark mode', 'colors', 'look'] },
     { type: 'action', id: 'toggle_time_format', category: 'Appearance', title: 'Toggle Time Format (12h/24h)', aliases: ['clock', '12h', '24h', 'time format'] },
+    { type: 'action', id: 'toggle_show_clock', category: 'Appearance', title: 'Toggle Clock Visibility', aliases: ['clock', 'time', 'hide clock', 'show clock'] },
     { type: 'action', id: 'set_fonts', category: 'Appearance', title: 'Fonts & Page Zoom', aliases: ['text', 'size', 'typography', 'accessibility'] },
     { type: 'action', id: 'set_search', category: 'System', title: 'Search Engine Settings', aliases: ['google', 'ddg', 'default search', 'engine'] },
     { type: 'action', id: 'set_downloads', category: 'System', title: 'Download Settings', aliases: ['downloads', 'save path', 'files'] },
@@ -570,6 +571,11 @@ export async function executeAction(commandId, args, senderTab = null) {
             case 'toggle_time_format': {
                 const next = globalSettings.timeFormat === '24h' ? '12h' : '24h';
                 updateSettings({ timeFormat: next });
+                chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
+                break;
+            }
+            case 'toggle_show_clock': {
+                globalSettings.showClock = !globalSettings.showClock;
                 chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
                 break;
             }

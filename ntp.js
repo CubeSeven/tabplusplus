@@ -8,12 +8,14 @@ if (urlParams.get('focused') !== 'true' && !isFallback) {
 }
 
 let timeFormat = '24h';
+let showClock = true;
 
 let enablePalette = true;
 
-chrome.storage.local.get({ settings: { enablePalette: true } }, (data) => {
+chrome.storage.local.get({ settings: { enablePalette: true, showClock: true } }, (data) => {
     if (data.settings.timeFormat) timeFormat = data.settings.timeFormat;
     enablePalette = data.settings.enablePalette !== false;
+    showClock = data.settings.showClock !== false;
     initDashboard();
 });
 
@@ -31,6 +33,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
         if (newTimeFormat && newTimeFormat !== timeFormat) {
             timeFormat = newTimeFormat;
             updateClock();
+        }
+
+        const newShowClock = changes.settings.newValue?.showClock;
+        if (newShowClock !== undefined && newShowClock !== showClock) {
+            showClock = newShowClock;
+            const clock = document.getElementById('clock');
+            if (clock) clock.classList.toggle('hidden', !showClock);
         }
     }
 });
@@ -59,6 +68,9 @@ function getQueryRegex(query) {
 
 function initDashboard() {
     updateClock();
+    if (!showClock) {
+        document.getElementById('clock')?.classList.add('hidden');
+    }
     setInterval(updateClock, 1000);
 
     const paletteContainer = document.getElementById('palette-container');
