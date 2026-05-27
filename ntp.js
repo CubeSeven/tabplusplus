@@ -40,6 +40,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
             showClock = newShowClock;
             const clock = document.getElementById('clock');
             if (clock) clock.classList.toggle('hidden', !showClock);
+            const date = document.getElementById('date');
+            if (date) date.classList.toggle('hidden', !showClock);
         }
     }
 });
@@ -70,6 +72,7 @@ function initDashboard() {
     updateClock();
     if (!showClock) {
         document.getElementById('clock')?.classList.add('hidden');
+        document.getElementById('date')?.classList.add('hidden');
     }
     setInterval(updateClock, 1000);
 
