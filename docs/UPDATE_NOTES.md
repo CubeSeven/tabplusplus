@@ -1,3 +1,15 @@
+Latest Update: v2.2.0 (The "Flexibility" Update)
+
+This update gives you more control over how Tabs++ works.
+
+- **Search Engine Picker**: Type <code>> search engine</code> in the palette to choose from Google, DuckDuckGo, Bing, Brave, or Perplexity. All search queries, suggestions, and raw Enter searches use your chosen engine.
+- **Default NTP Toggle**: A new toggle in the popup Tools tab lets you redirect new tabs to your search engine homepage instead of the Tabs++ dashboard. Zero visual flash.
+- **Smart Peek Blocklist**: Auto-peek now skips navigational sites (search engines, social media, video, shopping). Use <code>> peek block site</code> / <code>> peek unblock site</code> to customize per-site.
+- **NTP Singleton**: Tabs++ now prevents duplicate NTP tabs from accumulating — only one NTP per window.
+- **Settings Protection**: Fixed a bug where some settings could be lost after saving.
+
+---
+
 Latest Update: v2.0.5 (The "Reliability" Update)
 This update introduces a deterministic locking mechanism for tab sets, resolving race conditions in group creation.
 

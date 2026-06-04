@@ -877,6 +877,14 @@
                     <li>If the content is useful, click the <strong>Promote to Workspace</strong> button in the bottom-right corner to move it back into your main window as a regular tab.</li>
                     <li>If not, simply close the Peek window — the parent page un-blurs automatically.</li>
                 </ul>
+
+                <h3>Smart Auto-Peek</h3>
+                <p>Enable <strong>Cross-Domain Peek</strong> in the popup Settings tab to automatically open cross-domain links in peek windows. Auto-peek is smart — it skips navigational sites (search engines, social media, video, shopping) where peeking doesn't make sense. Reference sites like Wikipedia, MDN, and Stack Overflow still auto-peek normally.</p>
+                <ul>
+                    <li>Type <code>> peek block site</code> to disable auto-peek on the current site.</li>
+                    <li>Type <code>> peek unblock site</code> to re-enable auto-peek on the current site.</li>
+                    <li><strong>Shift+Click</strong> always peeks regardless of auto-peek or blocklist.</li>
+                </ul>
             </section>
 
             <!-- NEW TAB PAGE -->
@@ -892,6 +900,12 @@
                     <li><strong>Full Palette Integration:</strong> The search input at the center of the NTP is the full Tabs++ Command Palette. Search tabs, history, bookmarks, or trigger actions — directly from the new tab page.</li>
                     <li><strong>Auto-Focus:</strong> The NTP automatically focuses the search input on load, so you can start typing immediately.</li>
                 </ul>
+
+                <h3>Default NTP Toggle</h3>
+                <p>Enable the <strong>Default NTP</strong> card in the popup Tools tab to redirect new tabs to your chosen search engine homepage instead of the Tabs++ dashboard. The redirect is instant with zero visual flash. All extension features (palette, PiP, peek, etc.) continue to work on normal pages.</p>
+
+                <h3>Search Engine</h3>
+                <p>Type <code>> search engine</code> in the palette to pick from 5 engines: Google, DuckDuckGo, Bing, Brave, and Perplexity. All search queries, suggestions, and raw Enter searches use your chosen engine. The NTP redirect (when enabled) also opens your chosen engine's homepage.</p>
             </section>
 
             <!-- POPUP -->
@@ -912,6 +926,7 @@
                         <tr><td>Focus Guard</td><td>Always land on NTP when closing tabs.</td></tr>
                         <tr><td>Auto-Collapse</td><td>Collapse groups when inactive to save space.</td></tr>
                         <tr><td>Smart Hibernate</td><td>Auto-sleeps idle tabs after a set duration.</td></tr>
+                        <tr><td>Cross-Domain Peek</td><td>Auto-open cross-domain links in peek windows (smart blocklist applied).</td></tr>
                     </tbody>
                 </table>
 
@@ -928,6 +943,7 @@
                         <tr><td>Focus View</td><td>Strip distractions and read in a clean interface.</td></tr>
                         <tr><td>Extract Media Assets</td><td>Download images and videos directly from the page.</td></tr>
                         <tr><td>Tab Volume Control</td><td>Set volume of the current tab via the palette.</td></tr>
+                        <tr><td>Default NTP</td><td>Use browser default instead of the Tab++ new tab page.</td></tr>
                     </tbody>
                 </table>
 
