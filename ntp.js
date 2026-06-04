@@ -1,12 +1,6 @@
 const urlParams = new URLSearchParams(window.location.search);
 const isFallback = urlParams.get('action') === 'palette';
 
-// Chrome heavily restricts stealing focus from the omnibox on the NTP.
-// A known hack is to replace the URL, which bypasses the initial "newtab" state focus restrictions.
-if (urlParams.get('focused') !== 'true' && !isFallback) {
-    window.location.replace('ntp.html?focused=true');
-}
-
 let timeFormat = '24h';
 let showClock = true;
 

@@ -23,7 +23,10 @@ export const DEFAULT_SETTINGS = {
     enableVolumeControl: true,
     timeFormat: '24h',
     showClock: true,
-    autoPeekCrossDomain: false
+    autoPeekCrossDomain: false,
+    searchEngine: 'google',
+    useDefaultNtp: false,
+    peekExcludedDomains: ['google.com', 'bing.com', 'duckduckgo.com', 'search.brave.com', 'perplexity.ai', 'x.com', 'twitter.com', 'reddit.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'youtube.com', 'twitch.tv', 'vimeo.com', 'news.ycombinator.com', 'amazon.com', 'ebay.com']
 };
 
 export const GROUPING_RULES = [
@@ -58,4 +61,12 @@ export const BANGS = {
     '!pin':   { url: 'https://www.pinterest.com/search/pins/?q=',          label: 'Pinterest' },
     '!px':    { url: 'https://www.perplexity.ai/search?q=',               label: 'Perplexity' },
     '!gpt':   { url: 'https://chatgpt.com/?q=',                            label: 'ChatGPT' },
+};
+
+export const SEARCH_ENGINES = {
+    google:     { label: 'Google',     url: 'https://www.google.com/search?q=',              homepage: 'https://www.google.com',             suggest: 'https://suggestqueries.google.com/complete/search?client=chrome&q=' },
+    duckduckgo: { label: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=',                    homepage: 'https://duckduckgo.com',             suggest: 'https://duckduckgo.com/ac/?q=' },
+    bing:       { label: 'Bing',       url: 'https://www.bing.com/search?q=',                homepage: 'https://www.bing.com',               suggest: null },
+    brave:      { label: 'Brave',      url: 'https://search.brave.com/search?q=',            homepage: 'https://search.brave.com',           suggest: null },
+    perplexity: { label: 'Perplexity', url: 'https://www.perplexity.ai/search?q=',           homepage: 'https://www.perplexity.ai',          suggest: null },
 };

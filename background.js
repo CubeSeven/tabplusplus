@@ -1,5 +1,5 @@
 import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds } from './state.js';
-import { NONE_GROUP, NTP_URL } from './constants.js';
+import { NONE_GROUP, NTP_URL, SEARCH_ENGINES } from './constants.js';
 import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard } from './utils.js';
 import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, saveSnapshot, restoreVault, safeHibernate, updateCleanupAlarms } from './services/tabService.js';
 import { startPomoTimer, stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
@@ -78,9 +78,15 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
                 if (cachedNtpId) {
                     await chrome.tabs.update(cachedNtpId, { active: true });
                 } else {
-                    const c = await chrome.tabs.create({ url: NTP_URL, active: true, windowId: tab.windowId, index: 9999 });
-                    ntpTabCache.set(tab.windowId, c.id);
-                    if (c.groupId !== NONE_GROUP) chrome.tabs.ungroup(c.id).catch(() => {});
+                    const existing = await chrome.tabs.query({ url: NTP_URL, windowId: tab.windowId });
+                    if (existing && existing.length > 0) {
+                        ntpTabCache.set(tab.windowId, existing[0].id);
+                        await chrome.tabs.update(existing[0].id, { active: true });
+                    } else {
+                        const c = await chrome.tabs.create({ url: NTP_URL, active: true, windowId: tab.windowId, index: 9999 });
+                        ntpTabCache.set(tab.windowId, c.id);
+                        if (c.groupId !== NONE_GROUP) chrome.tabs.ungroup(c.id).catch(() => {});
+                    }
                 }
             } catch (e) {}
             safeDiscard(tab.id);
@@ -180,6 +186,17 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     }
     if (changeInfo.status === 'complete' || changeInfo.pinned !== undefined || changeInfo.groupId !== undefined || changeInfo.discarded !== undefined) {
         if (processTab(tab)) syncBaselinesToStorage();
+    }
+    if (changeInfo.status === 'complete' && tab.url?.startsWith(NTP_URL) && !tab.url.includes('?action=palette')) {
+        chrome.tabs.query({ windowId: tab.windowId }, (allTabs) => {
+            const ntps = allTabs.filter(t =>
+                t.id !== tabId && (t.url || '').startsWith(NTP_URL) && !(t.url || '').includes('?action=palette')
+            );
+            if (ntps.length > 0) {
+                chrome.tabs.update(ntps[0].id, { active: true }).catch(() => {});
+                chrome.tabs.remove(tabId).catch(() => {});
+            }
+        });
     }
     if (globalSettings.enableAutoGroup && changeInfo.url && !tab.pinned && tab.groupId === NONE_GROUP) {
         // Skip auto-grouping entirely for windows currently being populated by a Set Launch.
@@ -522,7 +539,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case 'open-query': {
             const q = request.query || '';
             const isUrl = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\\/\w \.-]*)*\/?$/.test(q.toLowerCase()) || q.startsWith('localhost');
-            let url = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+            const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
+            let url = engine.url + encodeURIComponent(q);
             if (isUrl) url = q.startsWith('http://') || q.startsWith('https://') ? q : 'https://' + q;
             chrome.tabs.create({ url, active: true }, (tab) => {
                 if (tab) chrome.windows.update(tab.windowId, { focused: true });

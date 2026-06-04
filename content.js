@@ -51,7 +51,7 @@ syncPomoState();
 
 
 // Initialize settings and listen for changes
-let settings = { enablePalette: false, autoPiP: true, enableEyedropper: true, autoPeekCrossDomain: false };
+let settings = { enablePalette: false, autoPiP: true, enableEyedropper: true, autoPeekCrossDomain: false, peekExcludedDomains: [] };
 chrome.storage.local.get({ settings: settings }, (data) => {
     if (data.settings) {
         settings = { ...settings, ...data.settings };
@@ -1804,6 +1804,18 @@ function activateResult(result) {
 }
 
 // Intercept clicks for Transient Peek Windows
+function isPeekBlockedHost() {
+    const list = settings.peekExcludedDomains;
+    if (!list || !list.length) return false;
+    try {
+        const hostname = window.location.hostname;
+        for (const excluded of list) {
+            if (hostname === excluded || hostname.endsWith('.' + excluded)) return true;
+        }
+    } catch (e) {}
+    return false;
+}
+
 document.addEventListener('click', (e) => {
     // Ignore middle clicks or command/ctrl/alt clicks
     if (e.button !== 0 || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1816,7 +1828,7 @@ document.addEventListener('click', (e) => {
         isCrossDomain = new URL(link.href).hostname !== window.location.hostname;
     } catch(err) {}
 
-    if (e.shiftKey || (settings.autoPeekCrossDomain && isCrossDomain)) {
+    if (e.shiftKey || (settings.autoPeekCrossDomain && isCrossDomain && !isPeekBlockedHost())) {
         // Guard against extension reload destroying the background context
         if (!chrome.runtime?.id) return;
         

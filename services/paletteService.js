@@ -1,7 +1,7 @@
 import { globalSettings, updateSettings, tabSets, memoryBaselines, sessionVault } from '../state.js';
 import { startPomoTimer, stopPomoTimer } from './pomoService.js';
-import { BANGS, NONE_GROUP } from '../constants.js';
-import { getCanonicalUrl } from '../utils.js';
+import { BANGS, NONE_GROUP, SEARCH_ENGINES } from '../constants.js';
+import { getBaseDomain } from '../utils.js';
 import { syncBaselinesToStorage, saveSnapshot, ensureLoaded, safeHibernate, updateCleanupAlarms } from './tabService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './setService.js';
 
@@ -56,16 +56,21 @@ function getCachedHistory(query) {
 
 function getSuggestions(query) {
     if (!query || query.length < 2) return Promise.resolve([]);
+    const suggestUrl = getSuggestUrl(query);
+    if (!suggestUrl) return Promise.resolve([]);
     if (pendingFetchController) pendingFetchController.abort();
     pendingFetchController = new AbortController();
     const timer = setTimeout(() => pendingFetchController.abort(), 3000);
-    return fetch(
-        `https://suggestqueries.google.com/complete/search?client=chrome&q=${encodeURIComponent(query)}`,
-        { signal: pendingFetchController.signal }
-    )
-    .then(r => r.json())
-    .then(data => { clearTimeout(timer); return data[1] || []; })
-    .catch(() => []);
+    return fetch(suggestUrl, { signal: pendingFetchController.signal })
+        .then(r => r.json())
+        .then(data => {
+            clearTimeout(timer);
+            if (Array.isArray(data) && data.length && typeof data[0] === 'object') {
+                return data.map(item => item.phrase).filter(Boolean);
+            }
+            return Array.isArray(data) ? data[1] || [] : [];
+        })
+        .catch(() => []);
 }
 
 function withTimeout(promise, ms, fallback) {
@@ -176,8 +181,27 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'pomo_15', category: 'Focus', title: 'Start 15m Break', aliases: ['timer', 'rest', 'long break'], requiredSetting: 'enablePomo' },
     { type: 'action', id: 'pomo_stop', category: 'Focus', title: 'Stop Timer', aliases: ['cancel timer', 'end pomo'], requiredSetting: 'enablePomo' },
     { type: 'action', id: 'set_clean_time', category: 'Settings', title: 'Set Clean Time', aliases: ['auto close time', 'clean time', 'idle timeout'] },
-    { type: 'action', id: 'set_hibernate_time', category: 'Settings', title: 'Set Hibernate Time', aliases: ['sleep time', 'hibernate time', 'suspend timeout'] }
+    { type: 'action', id: 'set_hibernate_time', category: 'Settings', title: 'Set Hibernate Time', aliases: ['sleep time', 'hibernate time', 'suspend timeout'] },
+    { type: 'action', id: 'set_search_engine|google', category: 'Settings', title: 'Search Engine: Google', aliases: ['google search'] },
+    { type: 'action', id: 'set_search_engine|duckduckgo', category: 'Settings', title: 'Search Engine: DuckDuckGo', aliases: ['ddg', 'duckduckgo'] },
+    { type: 'action', id: 'set_search_engine|bing', category: 'Settings', title: 'Search Engine: Bing', aliases: ['bing'] },
+    { type: 'action', id: 'set_search_engine|brave', category: 'Settings', title: 'Search Engine: Brave', aliases: ['brave search'] },
+    { type: 'action', id: 'set_search_engine|perplexity', category: 'Settings', title: 'Search Engine: Perplexity', aliases: ['perplexity'] },
+    { type: 'action', id: 'toggle_default_ntp', category: 'Appearance', title: 'Toggle Default NTP', aliases: ['default new tab', 'use chrome ntp', 'default ntp'] },
+    { type: 'action', id: 'peek_block_site', category: 'Appearance', title: 'Disable Auto-Peek on This Site', aliases: ['peek block', 'block peek', 'exclude from peek'], requiredSetting: 'autoPeekCrossDomain' },
+    { type: 'action', id: 'peek_unblock_site', category: 'Appearance', title: 'Enable Auto-Peek on This Site', aliases: ['peek unblock', 'allow peek', 'include in peek'], requiredSetting: 'autoPeekCrossDomain' }
 ];
+
+function getSearchUrl(query) {
+    const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
+    return engine.url + encodeURIComponent(query);
+}
+
+function getSuggestUrl(query) {
+    const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
+    if (!engine.suggest) return null;
+    return engine.suggest + encodeURIComponent(query);
+}
 
 function resolveBang(query) {
     const match = query.match(/^(!\S+)\s*(.*)/);
@@ -454,9 +478,9 @@ export async function handleSearchItems(request, sender, sendResponse) {
             const bang = resolveBang(query);
             if (bang) results.push(bang);
             else if (/^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/.test(lowerQuery)) results.push({ type: 'navigate', title: `Go to ${query}`, url: lowerQuery.startsWith('http') ? lowerQuery : 'https://' + lowerQuery });
-            else results.push({ type: 'search', title: `Search Google for "${query}"`, url: `https://www.google.com/search?q=${encodeURIComponent(query)}` });
+            else results.push({ type: 'search', title: `Search ${SEARCH_ENGINES[globalSettings.searchEngine]?.label || 'Google'} for "${query}"`, url: getSearchUrl(query) });
         }
-        suggestions.slice(0, 5).forEach(s => results.push({ type: 'search', title: s, url: `https://www.google.com/search?q=${encodeURIComponent(s)}` }));
+        suggestions.slice(0, 5).forEach(s => results.push({ type: 'search', title: s, url: getSearchUrl(s) }));
         
         const formattedTabs = tabs.filter(t => !query || (t.title && t.title.toLowerCase().includes(lowerQuery)) || (t.url && t.url.toLowerCase().includes(lowerQuery))).slice(0, query ? 5 : 15).map(t => ({
             type: 'tab', id: t.id, title: t.title || t.url, url: t.url, windowId: t.windowId, favIconUrl: t.favIconUrl || null, groupId: t.groupId ?? NONE_GROUP
@@ -519,6 +543,14 @@ export async function executeAction(commandId, args, senderTab = null) {
             if (base === 'launch_set_palette') { performLaunchSet(extra).catch(() => {}); return; }
             if (base === 'delete_set_palette') { performDeleteSet(extra).catch(() => {}); return; }
 
+            if (base === 'set_search_engine') {
+                if (SEARCH_ENGINES[extra]) {
+                    updateSettings({ searchEngine: extra });
+                    chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
+                }
+                return;
+            }
+
             if (base === 'pomo_custom') {
                 const mins = parseInt(extra);
                 startPomoTimer(mins, 'work');
@@ -577,6 +609,42 @@ export async function executeAction(commandId, args, senderTab = null) {
             case 'toggle_show_clock': {
                 globalSettings.showClock = !globalSettings.showClock;
                 chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
+                break;
+            }
+            case 'toggle_default_ntp': {
+                updateSettings({ useDefaultNtp: !globalSettings.useDefaultNtp });
+                chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
+                break;
+            }
+            case 'peek_block_site': {
+                if (tab && tab.url) {
+                    try {
+                        const hostname = new URL(tab.url).hostname;
+                        const domain = getBaseDomain(hostname);
+                        const list = globalSettings.peekExcludedDomains || [];
+                        if (!list.includes(domain)) {
+                            updateSettings({ peekExcludedDomains: [...list, domain] });
+                            chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
+                        }
+                    } catch (e) {}
+                }
+                break;
+            }
+            case 'peek_unblock_site': {
+                if (tab && tab.url) {
+                    try {
+                        const hostname = new URL(tab.url).hostname;
+                        const domain = getBaseDomain(hostname);
+                        const list = globalSettings.peekExcludedDomains || [];
+                        const idx = list.indexOf(domain);
+                        if (idx !== -1) {
+                            const next = [...list];
+                            next.splice(idx, 1);
+                            updateSettings({ peekExcludedDomains: next });
+                            chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
+                        }
+                    } catch (e) {}
+                }
                 break;
             }
             case 'magic_organize': {
