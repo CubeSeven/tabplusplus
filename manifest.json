@@ -3,9 +3,6 @@
   "name": "Tabs++",
   "version": "2.2.0",
   "description": "Premium tab management with Workspace Switching, Ghost Prevention, and Smart Grouping.",
-  "chrome_url_overrides": {
-    "newtab": "ntp.html"
-  },
   "permissions": [
     "tabs",
     "storage",

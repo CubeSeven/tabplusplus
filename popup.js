@@ -164,7 +164,7 @@ const TOOLS = [
   },
   {
     id: 'default-ntp',
-    title: 'Default NTP',
+    title: 'Use Chrome\'s New Tab Page',
     description: 'Use browser default instead of the Tab++ new tab page.',
     badge: null,
     category: 'Appearance',

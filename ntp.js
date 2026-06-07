@@ -1,6 +1,10 @@
 const urlParams = new URLSearchParams(window.location.search);
 const isFallback = urlParams.get('action') === 'palette';
 
+if (urlParams.get('focused') !== 'true' && !isFallback) {
+    window.location.replace('ntp.html?focused=true');
+}
+
 let timeFormat = '24h';
 let showClock = true;
 

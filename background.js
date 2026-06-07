@@ -83,8 +83,9 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
                         ntpTabCache.set(tab.windowId, existing[0].id);
                         await chrome.tabs.update(existing[0].id, { active: true });
                     } else {
-                        const c = await chrome.tabs.create({ url: NTP_URL, active: true, windowId: tab.windowId, index: 9999 });
-                        ntpTabCache.set(tab.windowId, c.id);
+                        const ntpUrl = globalSettings.useDefaultNtp ? '' : NTP_URL;
+                        const c = await chrome.tabs.create({ url: ntpUrl, active: true, windowId: tab.windowId, index: 9999 });
+                        if (!globalSettings.useDefaultNtp) ntpTabCache.set(tab.windowId, c.id);
                         if (c.groupId !== NONE_GROUP) chrome.tabs.ungroup(c.id).catch(() => {});
                     }
                 }
@@ -98,7 +99,23 @@ const pendingInheritanceCheck = new Set();
 
 chrome.tabs.onCreated.addListener(async (tab) => {
     await ensureLoaded();
-    if (!tab.openerTabId) return;
+    if (!tab.openerTabId) {
+        if (!globalSettings.useDefaultNtp) {
+            // User wants Tab++ NTP → redirect Chrome's native NTP or dedup
+            try {
+                const existing = await chrome.tabs.query({ url: NTP_URL, windowId: tab.windowId });
+                const reusable = existing.filter(t => !(t.url || '').includes('?action=palette'));
+                if (reusable.length > 0) {
+                    await chrome.tabs.update(reusable[0].id, { active: true });
+                    chrome.tabs.remove(tab.id).catch(() => {});
+                } else {
+                    chrome.tabs.update(tab.id, { url: NTP_URL + '?focused=true' }).catch(() => {});
+                }
+            } catch (e) {}
+        }
+        // useDefaultNtp ON → do nothing, Chrome's native NTP stays
+        return;
+    }
 
     try {
         const opener = await chrome.tabs.get(tab.openerTabId);
@@ -278,9 +295,10 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                         ntpTabCache.set(removeInfo.windowId, existing[0].id);
                         chrome.tabs.update(existing[0].id, { active: true }).catch(() => {});
                     } else {
-                        chrome.tabs.create({ url: NTP_URL, active: true, windowId: removeInfo.windowId, index: 9999 })
+                        const ntpUrl = globalSettings.useDefaultNtp ? '' : NTP_URL;
+                        chrome.tabs.create({ url: ntpUrl, active: true, windowId: removeInfo.windowId, index: 9999 })
                             .then(c => {
-                                ntpTabCache.set(removeInfo.windowId, c.id);
+                                if (!globalSettings.useDefaultNtp) ntpTabCache.set(removeInfo.windowId, c.id);
                                 if (c.groupId !== NONE_GROUP && chrome.tabGroups) chrome.tabs.ungroup(c.id).catch(() => {});
                             });
                     }
