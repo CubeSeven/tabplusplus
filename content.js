@@ -601,8 +601,7 @@ function createPalette() {
         align-items: flex-start;
         justify-content: center;
         padding-top: 15vh;
-        background: rgba(0,0,0,0.22);
-        backdrop-filter: blur(12px);
+        background: transparent;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
     `;
 
