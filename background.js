@@ -102,6 +102,7 @@ const pendingInheritanceCheck = new Set();
 chrome.tabs.onCreated.addListener(async (tab) => {
     await ensureLoaded();
     if (!tab.openerTabId) {
+        if ((tab.url || tab.pendingUrl || '').startsWith(NTP_URL)) return;
         if (!globalSettings.useDefaultNtp) {
             // User wants Tab++ NTP → redirect Chrome's native NTP or dedup
             try {
@@ -111,7 +112,9 @@ chrome.tabs.onCreated.addListener(async (tab) => {
                     await chrome.tabs.update(reusable[0].id, { active: true });
                     chrome.tabs.remove(tab.id).catch(() => {});
                 } else {
-                    chrome.tabs.update(tab.id, { url: NTP_URL + '?focused=true' }).catch(() => {});
+                    const created = await chrome.tabs.create({ url: NTP_URL + '?focused=true', active: true, windowId: tab.windowId, index: tab.index });
+                    ntpTabCache.set(tab.windowId, created.id);
+                    chrome.tabs.remove(tab.id).catch(() => {});
                 }
             } catch (e) {}
         }
