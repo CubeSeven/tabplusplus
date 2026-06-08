@@ -120,7 +120,7 @@ const TOOLS = [
     id: 'full-screenshot',
     title: 'Full-Page Screenshot',
     description: 'Capture the entire scrollable page as a PNG.',
-    badge: 'NEW',
+    badge: null,
     category: 'Tools',
     settingId: 'enableScreenshot',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><path d="M3 9h18M9 21V9"/></svg>`
@@ -129,7 +129,7 @@ const TOOLS = [
     id: 'unit-converter',
     title: 'Smart Converter',
     description: 'Auto-convert units, math, and colors in the Palette.',
-    badge: 'NEW',
+    badge: null,
     category: 'Tools',
     settingId: 'enableUnitConverter',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v18M16 3v18M3 8h18M3 16h18"/></svg>`
@@ -138,7 +138,7 @@ const TOOLS = [
     id: 'pomo-timer',
     title: 'Pomodoro Timer',
     description: 'Focus/Break timers with desktop notifications.',
-    badge: 'NEW',
+    badge: null,
     category: 'Focus',
     settingId: 'enablePomo',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`
@@ -147,7 +147,7 @@ const TOOLS = [
     id: 'focus-view',
     title: 'Focus View',
     description: 'Strip distractions and read in a clean, minimal interface.',
-    badge: 'NEW',
+    badge: null,
     category: 'Tools',
     settingId: 'enableFocusView',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>`
@@ -156,7 +156,7 @@ const TOOLS = [
     id: 'extract-media',
     title: 'Extract Media Assets',
     description: 'Download images and videos directly from the page.',
-    badge: 'NEW',
+    badge: null,
     category: 'Tools',
     settingId: 'enableMediaExtractor',
     actionId: 'extract_media',
@@ -166,7 +166,7 @@ const TOOLS = [
     id: 'volume-control',
     title: 'Tab Volume Control',
     description: 'Set volume of the current tab via the Command Palette.',
-    badge: 'NEW',
+    badge: null,
     category: 'Media',
     settingId: 'enableVolumeControl',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`
