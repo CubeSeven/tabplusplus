@@ -108,25 +108,16 @@ chrome.tabs.onCreated.addListener(async (tab) => {
     if (!tab.openerTabId) {
         const isNativeNtp = (tab.pendingUrl || tab.url || '') === 'chrome://newtab';
         if (isNativeNtp && !globalSettings.useDefaultNtp) {
-            // 50ms delay lets Chrome's session restore (Ctrl+Shift+T) navigate
-            // away first. If the tab is still on chrome://newtab after 50ms,
-            // it's a real new tab — redirect to Tabs++ NTP.
-            const tabId = tab.id;
-            setTimeout(async () => {
-                try {
-                    const current = await chrome.tabs.get(tabId);
-                    const curUrl = current.pendingUrl || current.url || '';
-                    if (curUrl !== 'chrome://newtab') return;
-                    const existing = await chrome.tabs.query({ url: NTP_URL, windowId: current.windowId });
-                    const reusable = existing.filter(t => !(t.url || '').includes('?action=palette'));
-                    if (reusable.length > 0) {
-                        await chrome.tabs.update(reusable[0].id, { active: true });
-                        chrome.tabs.remove(tabId).catch(() => {});
-                    } else {
-                        chrome.tabs.update(tabId, { url: NTP_URL + '?focused=true' }).catch(() => {});
-                    }
-                } catch (e) {}
-            }, 50);
+            try {
+                const existing = await chrome.tabs.query({ url: NTP_URL, windowId: tab.windowId });
+                const reusable = existing.filter(t => !(t.url || '').includes('?action=palette'));
+                if (reusable.length > 0) {
+                    await chrome.tabs.update(reusable[0].id, { active: true });
+                    chrome.tabs.remove(tab.id).catch(() => {});
+                } else {
+                    chrome.tabs.update(tab.id, { url: NTP_URL + '?focused=true' }).catch(() => {});
+                }
+            } catch (e) {}
         }
         return;
     }
