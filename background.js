@@ -74,7 +74,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
             if (!groupClosureTracker.has(tab.groupId)) return;
             // Move focus away so the sibling can be discarded
             try {
-                const cachedNtpId = ntpTabCache.get(tab.windowId);
+                const cachedNtpId = globalSettings.useDefaultNtp ? null : ntpTabCache.get(tab.windowId);
                 if (cachedNtpId) {
                     await chrome.tabs.update(cachedNtpId, { active: true });
                 } else {
@@ -90,6 +90,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
                         if (!globalSettings.useDefaultNtp) ntpTabCache.set(tab.windowId, c.id);
                         if (c.groupId !== NONE_GROUP) chrome.tabs.ungroup(c.id).catch(() => {});
                     }
+                }
                 }
             } catch (e) {}
             safeDiscard(tab.id);
@@ -295,7 +296,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     if (globalSettings.focusNTPOnClose && tabId === lastActiveTabId && !removeInfo.isWindowClosing) {
         pendingFocusGuardWindowIds.add(removeInfo.windowId);
         if (!peekWindows.has(removeInfo.windowId)) {
-            const cachedNtpId = ntpTabCache.get(removeInfo.windowId);
+            const cachedNtpId = globalSettings.useDefaultNtp ? null : ntpTabCache.get(removeInfo.windowId);
             if (cachedNtpId) {
                 chrome.tabs.update(cachedNtpId, { active: true }).catch(() => ntpTabCache.delete(removeInfo.windowId));
             } else {
