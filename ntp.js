@@ -5,6 +5,11 @@ if (urlParams.get('focused') !== 'true' && !isFallback) {
     window.location.replace('ntp.html?focused=true');
 }
 
+function closeFallback() {
+    try { chrome.runtime.sendMessage({ action: 'palette-closing' }); } catch (e) {}
+    window.close();
+}
+
 let timeFormat = '24h';
 let showClock = true;
 
@@ -469,7 +474,7 @@ function handleKeydown(e) {
             pendingCommand = null;
             input.value = "";
             input.placeholder = "Search tabs, history, bookmarks... or try !yt, !gh, !mdn";
-            if (isFallback) window.close();
+            if (isFallback) closeFallback();
             else {
                 isNavigating = false;
                 handleSearch();
@@ -498,7 +503,7 @@ function handleKeydown(e) {
         const currentQuery = input.value.trim();
         if (currentQuery && currentQuery !== lastSearchedQuery) {
             chrome.runtime.sendMessage({ action: 'open-query', query: currentQuery });
-            if (isFallback) window.close();
+            if (isFallback) closeFallback();
             else {
                 input.value = '';
                 handleSearch();
@@ -552,7 +557,7 @@ function activateResult(result) {
         }
 
         chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: result.id });
-        if (isFallback) window.close();
+        if (isFallback) closeFallback();
         else {
             input.value = '';
             isNavigating = false;
@@ -562,7 +567,7 @@ function activateResult(result) {
         isNavigating = true;
         if (focusInterval) clearInterval(focusInterval);
         chrome.runtime.sendMessage({ action: 'switch-to-tab', tabId: result.id, windowId: result.windowId }, () => {
-            if (isFallback) window.close();
+            if (isFallback) closeFallback();
             else {
                 input.value = '';
                 isNavigating = false;
@@ -573,7 +578,7 @@ function activateResult(result) {
         isNavigating = true;
         if (focusInterval) clearInterval(focusInterval);
         chrome.runtime.sendMessage({ action: 'open-url', url: result.url });
-        if (isFallback) window.close();
+        if (isFallback) closeFallback();
         else {
             input.value = '';
             isNavigating = false;

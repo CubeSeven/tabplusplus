@@ -107,6 +107,10 @@ chrome.sessions?.onChanged?.addListener(() => {
     setTimeout(() => { sessionRestoreGate = false; }, 200);
 });
 
+// Track palette fallback tabs that are about to close programmatically.
+// Prevents Focus Guard from spawning a new NTP when the fallback closes.
+const paletteFallbackClosingIds = new Set();
+
 chrome.tabs.onCreated.addListener(async (tab) => {
     await ensureLoaded();
     if (!tab.openerTabId) {
@@ -288,8 +292,11 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 
     // Focus Guard — skip Peek windows AND protected tabs (they will be restored,
     // so creating an NTP would leave an unwanted extra tab open).
-    const isProtectedTab = memoryBaselines.has(tabId);
-    if (globalSettings.focusNTPOnClose && tabId === lastActiveTabId && !removeInfo.isWindowClosing) {
+    // Also skip when a palette fallback tab closes programmatically after executing
+    // an action — the user expects to land on the action result, not another NTP.
+    const isPaletteClosing = paletteFallbackClosingIds.has(tabId);
+    if (isPaletteClosing) paletteFallbackClosingIds.delete(tabId);
+    if (!isPaletteClosing && globalSettings.focusNTPOnClose && tabId === lastActiveTabId && !removeInfo.isWindowClosing) {
         pendingFocusGuardWindowIds.add(removeInfo.windowId);
         if (!peekWindows.has(removeInfo.windowId)) {
             const cachedNtpId = globalSettings.useDefaultNtp ? null : ntpTabCache.get(removeInfo.windowId);
@@ -530,6 +537,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         case 'close-peek':
             if (sender.tab?.windowId) chrome.windows.remove(sender.tab.windowId).catch(() => {});
+            return true;
+
+        case 'palette-closing':
+            if (sender.tab?.id) {
+                paletteFallbackClosingIds.add(sender.tab.id);
+            }
             return true;
             
         case 'update-settings':
