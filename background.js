@@ -91,7 +91,6 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
                         if (c.groupId !== NONE_GROUP) chrome.tabs.ungroup(c.id).catch(() => {});
                     }
                 }
-                }
             } catch (e) {}
             safeDiscard(tab.id);
         });
