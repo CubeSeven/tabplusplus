@@ -83,8 +83,10 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
                         ntpTabCache.set(tab.windowId, existing[0].id);
                         await chrome.tabs.update(existing[0].id, { active: true });
                     } else {
-                        const ntpUrl = globalSettings.useDefaultNtp ? '' : NTP_URL;
-                        const c = await chrome.tabs.create({ url: ntpUrl, active: true, windowId: tab.windowId, index: 9999 });
+                        const createOpts = globalSettings.useDefaultNtp
+                            ? { active: true, windowId: tab.windowId, index: 9999 }
+                            : { url: NTP_URL, active: true, windowId: tab.windowId, index: 9999 };
+                        const c = await chrome.tabs.create(createOpts);
                         if (!globalSettings.useDefaultNtp) ntpTabCache.set(tab.windowId, c.id);
                         if (c.groupId !== NONE_GROUP) chrome.tabs.ungroup(c.id).catch(() => {});
                     }
@@ -295,8 +297,10 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                         ntpTabCache.set(removeInfo.windowId, existing[0].id);
                         chrome.tabs.update(existing[0].id, { active: true }).catch(() => {});
                     } else {
-                        const ntpUrl = globalSettings.useDefaultNtp ? '' : NTP_URL;
-                        chrome.tabs.create({ url: ntpUrl, active: true, windowId: removeInfo.windowId, index: 9999 })
+                        const createOpts = globalSettings.useDefaultNtp
+                            ? { active: true, windowId: removeInfo.windowId, index: 9999 }
+                            : { url: NTP_URL, active: true, windowId: removeInfo.windowId, index: 9999 };
+                        chrome.tabs.create(createOpts)
                             .then(c => {
                                 if (!globalSettings.useDefaultNtp) ntpTabCache.set(removeInfo.windowId, c.id);
                                 if (c.groupId !== NONE_GROUP && chrome.tabGroups) chrome.tabs.ungroup(c.id).catch(() => {});
