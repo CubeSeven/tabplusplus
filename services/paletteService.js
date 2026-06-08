@@ -28,10 +28,14 @@ function recordRecentAction(commandId) {
     ]);
     if (skipSet.has(base)) return;
 
-    const idx = recentActions.findIndex(a => a === base);
+    // Store the full commandId for piped commands so the exact
+    // engine/time/volume selection appears in recents.
+    const id = commandId;
+
+    const idx = recentActions.findIndex(a => a === id);
     if (idx !== -1) recentActions.splice(idx, 1);
 
-    recentActions.unshift(base);
+    recentActions.unshift(id);
     if (recentActions.length > MAX_RECENT) recentActions.length = MAX_RECENT;
 }
 
@@ -299,17 +303,22 @@ export async function handleSearchItems(request, sender, sendResponse) {
             .filter(a => a.title.toLowerCase().includes(actionQuery) || a.category.toLowerCase().includes(actionQuery) || (a.aliases && a.aliases.some(alias => alias.toLowerCase().includes(actionQuery))));
 
         if (!actionQuery && recentActions.length > 0) {
-            const recentSet = new Set(recentActions);
             const recentResults = [];
+            const recentIds = new Set();
 
             for (const actionId of recentActions) {
-                const action = EXTENSION_ACTIONS.find(a => a.id === actionId);
+                let action = EXTENSION_ACTIONS.find(a => a.id === actionId);
+                if (!action && actionId.includes('|')) {
+                    const base = actionId.split('|')[0];
+                    action = EXTENSION_ACTIONS.find(a => a.id === base);
+                }
                 if (action && (!action.requiredSetting || globalSettings[action.requiredSetting])) {
                     recentResults.push({ ...action, _recent: true });
+                    recentIds.add(action.id);
                 }
             }
 
-            const remaining = filtered.filter(a => !recentSet.has(a.id));
+            const remaining = filtered.filter(a => !recentIds.has(a.id));
             filtered = [...recentResults, ...remaining];
         }
 
