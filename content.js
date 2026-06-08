@@ -112,8 +112,10 @@ const PALETTE_STYLES = `
         -webkit-backdrop-filter: blur(48px) saturate(200%) brightness(0.95);
         border-radius: 20px;
         box-shadow:
-            0 32px 72px rgba(0,0,0,0.55),
             0 0 0 1px rgba(255,255,255,0.06),
+            0 4px 16px rgba(0,0,0,0.25),
+            0 32px 72px rgba(0,0,0,0.5),
+            0 64px 128px rgba(0,0,0,0.3),
             inset 0 1px 0 var(--border-top),
             inset 0 -1px 0 rgba(0,0,0,0.2);
         display: flex;
