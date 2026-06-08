@@ -99,33 +99,30 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 });
 
 const pendingInheritanceCheck = new Set();
-const pendingNtpRedirects = new Map(); // tabId -> timeoutId
+
+// Suppress NTP redirect for 200ms after any session change.
+// Prevents Ctrl+Shift+T restores from being redirected to Tabs++ NTP.
+let sessionRestoreGate = false;
+chrome.sessions?.onChanged?.addListener(() => {
+    sessionRestoreGate = true;
+    setTimeout(() => { sessionRestoreGate = false; }, 200);
+});
 
 chrome.tabs.onCreated.addListener(async (tab) => {
     await ensureLoaded();
     if (!tab.openerTabId) {
         const isNativeNtp = (tab.pendingUrl || tab.url || '') === 'chrome://newtab';
-        if (isNativeNtp && !globalSettings.useDefaultNtp) {
-            // Delay to let Chrome's session restore (Ctrl+Shift+T) navigate
-            // away first. If still on chrome://newtab after 150ms, it's a
-            // real new tab — redirect to Tabs++ NTP.
-            const tid = setTimeout(async () => {
-                pendingNtpRedirects.delete(tab.id);
-                try {
-                    const current = await chrome.tabs.get(tab.id);
-                    const curUrl = current.pendingUrl || current.url || '';
-                    if (curUrl !== 'chrome://newtab') return;
-                    const existing = await chrome.tabs.query({ url: NTP_URL, windowId: current.windowId });
-                    const reusable = existing.filter(t => !(t.url || '').includes('?action=palette'));
-                    if (reusable.length > 0) {
-                        await chrome.tabs.update(reusable[0].id, { active: true });
-                        chrome.tabs.remove(tab.id).catch(() => {});
-                    } else {
-                        chrome.tabs.update(tab.id, { url: NTP_URL + '?focused=true' }).catch(() => {});
-                    }
-                } catch (e) {}
-            }, 150);
-            pendingNtpRedirects.set(tab.id, tid);
+        if (isNativeNtp && !globalSettings.useDefaultNtp && !sessionRestoreGate) {
+            try {
+                const existing = await chrome.tabs.query({ url: NTP_URL, windowId: tab.windowId });
+                const reusable = existing.filter(t => !(t.url || '').includes('?action=palette'));
+                if (reusable.length > 0) {
+                    await chrome.tabs.update(reusable[0].id, { active: true });
+                    chrome.tabs.remove(tab.id).catch(() => {});
+                } else {
+                    chrome.tabs.update(tab.id, { url: NTP_URL + '?focused=true' }).catch(() => {});
+                }
+            } catch (e) {}
         }
         return;
     }
@@ -325,13 +322,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     // NTP cache cleanup
     for (const [winId, ntpId] of ntpTabCache.entries()) {
         if (ntpId === tabId) { ntpTabCache.delete(winId); break; }
-    }
-
-    // Cancel any pending NTP redirect for this tab
-    const pendingTimeout = pendingNtpRedirects.get(tabId);
-    if (pendingTimeout) {
-        clearTimeout(pendingTimeout);
-        pendingNtpRedirects.delete(tabId);
     }
 
     discardedTabs.delete(tabId);
