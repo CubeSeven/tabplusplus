@@ -105,23 +105,7 @@ const paletteFallbackClosingIds = new Set();
 
 chrome.tabs.onCreated.addListener(async (tab) => {
     await ensureLoaded();
-    if (!tab.openerTabId) {
-        const isNativeNtp = (tab.pendingUrl || tab.url || '') === 'chrome://newtab';
-        if (isNativeNtp && !globalSettings.useDefaultNtp) {
-            try {
-                const existing = await chrome.tabs.query({ url: NTP_URL, windowId: tab.windowId });
-                const reusable = existing.filter(t => !(t.url || '').includes('?action=palette'));
-                if (reusable.length > 0) {
-                    await chrome.tabs.update(reusable[0].id, { active: true });
-                    chrome.tabs.remove(tab.id).catch(() => {});
-                } else {
-                    await chrome.tabs.create({ url: NTP_URL + '?focused=true', windowId: tab.windowId, active: true });
-                    chrome.tabs.remove(tab.id).catch(() => {});
-                }
-            } catch (e) {}
-        }
-        return;
-    }
+    if (!tab.openerTabId) return;
 
     try {
         const opener = await chrome.tabs.get(tab.openerTabId);
@@ -164,6 +148,24 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     await ensureLoaded();
+
+    // Redirect Chrome's native NTP to Tabs++ NTP when user wants it.
+    // Restored tabs (Ctrl+Shift+T) skip chrome://newtab entirely — they
+    // resolve straight to the restored URL, so they're never caught here.
+    if (changeInfo.url && changeInfo.url.startsWith('chrome://newtab') && !globalSettings.useDefaultNtp) {
+        try {
+            const existing = await chrome.tabs.query({ url: NTP_URL, windowId: tab.windowId });
+            const reusable = existing.filter(t => !(t.url || '').includes('?action=palette'));
+            if (reusable.length > 0) {
+                await chrome.tabs.update(reusable[0].id, { active: true });
+                chrome.tabs.remove(tabId).catch(() => {});
+            } else {
+                await chrome.tabs.create({ url: NTP_URL + '?focused=true', windowId: tab.windowId, active: true });
+                chrome.tabs.remove(tabId).catch(() => {});
+            }
+            return;
+        } catch (e) {}
+    }
     
     if (pendingInheritanceCheck.has(tabId) && changeInfo.url) {
         pendingInheritanceCheck.delete(tabId);
