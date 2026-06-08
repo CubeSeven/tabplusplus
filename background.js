@@ -102,9 +102,11 @@ const pendingInheritanceCheck = new Set();
 chrome.tabs.onCreated.addListener(async (tab) => {
     await ensureLoaded();
     if (!tab.openerTabId) {
-        if ((tab.url || tab.pendingUrl || '').startsWith(NTP_URL)) return;
-        if (!globalSettings.useDefaultNtp) {
-            // User wants Tab++ NTP → redirect Chrome's native NTP or dedup
+        // Only intercept Chrome's native new-tab page (Ctrl+T, + button).
+        // Extension-created tabs (open-url, search, etc.) have explicit URLs
+        // and must pass through untouched.
+        const isNativeNtp = (tab.pendingUrl || tab.url || '') === 'chrome://newtab';
+        if (isNativeNtp && !globalSettings.useDefaultNtp) {
             try {
                 const existing = await chrome.tabs.query({ url: NTP_URL, windowId: tab.windowId });
                 const reusable = existing.filter(t => !(t.url || '').includes('?action=palette'));
@@ -112,13 +114,10 @@ chrome.tabs.onCreated.addListener(async (tab) => {
                     await chrome.tabs.update(reusable[0].id, { active: true });
                     chrome.tabs.remove(tab.id).catch(() => {});
                 } else {
-                    const created = await chrome.tabs.create({ url: NTP_URL + '?focused=true', active: true, windowId: tab.windowId, index: tab.index });
-                    ntpTabCache.set(tab.windowId, created.id);
-                    chrome.tabs.remove(tab.id).catch(() => {});
+                    chrome.tabs.update(tab.id, { url: NTP_URL + '?focused=true' }).catch(() => {});
                 }
             } catch (e) {}
         }
-        // useDefaultNtp ON → do nothing, Chrome's native NTP stays
         return;
     }
 
