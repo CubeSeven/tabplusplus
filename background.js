@@ -115,7 +115,8 @@ chrome.tabs.onCreated.addListener(async (tab) => {
                     await chrome.tabs.update(reusable[0].id, { active: true });
                     chrome.tabs.remove(tab.id).catch(() => {});
                 } else {
-                    chrome.tabs.update(tab.id, { url: NTP_URL + '?focused=true' }).catch(() => {});
+                    await chrome.tabs.create({ url: NTP_URL + '?focused=true', windowId: tab.windowId, active: true });
+                    chrome.tabs.remove(tab.id).catch(() => {});
                 }
             } catch (e) {}
         }
