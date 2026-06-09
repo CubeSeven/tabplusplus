@@ -103,21 +103,24 @@ const PALETTE_STYLES = `
         max-width: 95vw;
         position: relative;
         background:
+            radial-gradient(ellipse at 20% 0%, rgba(130,140,255,0.08) 0%, transparent 50%),
+            radial-gradient(ellipse at 80% 100%, rgba(255,130,140,0.06) 0%, transparent 50%),
+            radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.10) 0%, transparent 60%),
             linear-gradient(180deg,
-                rgba(255,255,255,0.04) 0%,
-                rgba(255,255,255,0.0) 60%
-            ),
+                rgba(255,255,255,0.06) 0%,
+                rgba(255,255,255,0.01) 50%,
+                rgba(0,0,0,0.02) 100%),
             var(--bg-color);
-        backdrop-filter: blur(48px) saturate(200%) brightness(0.95);
-        -webkit-backdrop-filter: blur(48px) saturate(200%) brightness(0.95);
+        backdrop-filter: blur(24px) saturate(180%);
+        -webkit-backdrop-filter: blur(24px) saturate(180%);
         border-radius: 20px;
+        border: 1px solid rgba(255,255,255,0.12);
         box-shadow:
-            0 0 0 1px rgba(255,255,255,0.06),
-            0 4px 16px rgba(0,0,0,0.25),
-            0 32px 72px rgba(0,0,0,0.5),
-            0 64px 128px rgba(0,0,0,0.3),
-            inset 0 1px 0 var(--border-top),
-            inset 0 -1px 0 rgba(0,0,0,0.2);
+            inset 0 0 0 1px rgba(255,255,255,0.12),
+            inset 0 1px 0 rgba(255,255,255,0.25),
+            0 4px 16px rgba(0,0,0,0.15),
+            0 32px 64px rgba(0,0,0,0.35),
+            0 64px 128px rgba(0,0,0,0.25);
         display: flex;
         flex-direction: column;
         overflow: hidden;
