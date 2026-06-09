@@ -103,24 +103,25 @@ const PALETTE_STYLES = `
         max-width: 95vw;
         position: relative;
         background:
-            radial-gradient(ellipse at 20% 0%, rgba(130,140,255,0.08) 0%, transparent 50%),
-            radial-gradient(ellipse at 80% 100%, rgba(255,130,140,0.06) 0%, transparent 50%),
-            radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.10) 0%, transparent 60%),
+            radial-gradient(ellipse 80% 40% at 50% 0%, rgba(255,255,255,0.12) 0%, transparent 60%),
+            radial-gradient(ellipse 60% 50% at 20% 80%, rgba(120,130,255,0.06) 0%, transparent 55%),
+            radial-gradient(ellipse 50% 40% at 80% 70%, rgba(255,140,150,0.04) 0%, transparent 55%),
             linear-gradient(180deg,
                 rgba(255,255,255,0.06) 0%,
-                rgba(255,255,255,0.01) 50%,
+                rgba(255,255,255,0.015) 40%,
                 rgba(0,0,0,0.02) 100%),
             var(--bg-color);
         backdrop-filter: blur(24px) saturate(180%);
         -webkit-backdrop-filter: blur(24px) saturate(180%);
         border-radius: 20px;
-        border: 1px solid rgba(255,255,255,0.12);
+        border: 1px solid rgba(255,255,255,0.1);
         box-shadow:
-            inset 0 0 0 1px rgba(255,255,255,0.12),
-            inset 0 1px 0 rgba(255,255,255,0.25),
-            0 4px 16px rgba(0,0,0,0.15),
-            0 32px 64px rgba(0,0,0,0.35),
-            0 64px 128px rgba(0,0,0,0.25);
+            inset 0 0 0 1px rgba(255,255,255,0.08),
+            inset 0 1px 0 rgba(255,255,255,0.2),
+            0 0 0 1px rgba(0,0,0,0.04),
+            0 4px 16px rgba(0,0,0,0.12),
+            0 32px 64px rgba(0,0,0,0.3),
+            0 64px 128px rgba(0,0,0,0.18);
         display: flex;
         flex-direction: column;
         overflow: hidden;
