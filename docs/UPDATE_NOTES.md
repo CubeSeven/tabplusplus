@@ -1,12 +1,22 @@
-Latest Update: v2.2.0 (The "Flexibility" Update)
+Latest Update: v2.2.1 (The "Flexibility" Update)
 
-This update gives you more control over how Tabs++ works.
+**What's new:**
 
-- **Search Engine Picker**: Type <code>> search engine</code> in the palette to choose from Google, DuckDuckGo, Bing, Brave, or Perplexity. All search queries, suggestions, and raw Enter searches use your chosen engine.
-- **Default NTP Toggle**: A new toggle in the popup Tools tab lets you redirect new tabs to your search engine homepage instead of the Tabs++ dashboard. Zero visual flash.
-- **Smart Peek Blocklist**: Auto-peek now skips navigational sites (search engines, social media, video, shopping). Use <code>> peek block site</code> / <code>> peek unblock site</code> to customize per-site.
-- **NTP Singleton**: Tabs++ now prevents duplicate NTP tabs from accumulating — only one NTP per window.
-- **Settings Protection**: Fixed a bug where some settings could be lost after saving.
+- **Pick your search engine:** Type `> search engine` in the palette to switch between Google, DuckDuckGo, Bing, Brave, or Perplexity. All searches, suggestions, and raw Enter queries follow your choice.
+
+- **Choose your new tab:** A "Use Browser's New Tab Page" toggle in popup Settings. ON = Chrome's real native NTP with your browser's search engine. OFF = Tabs++ NTP. No forced override, no redirects to random pages.
+
+- **Smarter peek:** Auto-peek now skips search engines, social media, video sites, and shopping. Use `> peek block site` / `> peek unblock site` to customize per-site. Shift+Click always peeks.
+
+- **One NTP per window:** No more duplicate new-tab pages piling up.
+
+- **Cleaner palette:** Removed the viewport dimming overlay. Enhanced drop shadow so the palette still pops.
+
+- **Recent commands improved:** Recently used actions now correctly show in the `>` menu, including search engine switches.
+
+- **Settings no longer vanish:** Fixed a bug where toggling one setting could accidentally reset others.
+
+- **Tons of fixes:** NTP redirect reliability, Focus Guard + palette fallback conflicts, Ctrl+Shift+T restore handling, stale cache cleanup, DDG suggest API crash.
 
 ---
 
