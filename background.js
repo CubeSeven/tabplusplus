@@ -35,6 +35,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
     closingWindowIds.delete(windowId);
     launchingWindowIds.delete(windowId);
     ntpTabCache.delete(windowId);
+    pendingFocusGuardWindowIds.delete(windowId);
     chrome.windows.getAll({ windowTypes: ['normal'] }).then(remaining => {
         if (remaining.length === 0) { syncBaselinesToStorage(true); saveSnapshot(); }
     }).catch(() => {});
@@ -313,7 +314,8 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                             .then(c => {
                                 if (!globalSettings.useDefaultNtp) ntpTabCache.set(removeInfo.windowId, c.id);
                                 if (c.groupId !== NONE_GROUP && chrome.tabGroups) chrome.tabs.ungroup(c.id).catch(() => {});
-                            });
+                            })
+                            .catch(() => {});
                     }
                 });
             }
@@ -328,6 +330,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     discardedTabs.delete(tabId);
     recentlyAwakened.delete(tabId);
     clearPendingDiscard(tabId);
+    pendingInheritanceCheck.delete(tabId);
 
     await ensureLoaded();
 
@@ -493,6 +496,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 
 // --- MESSAGE DISPATCHER ---
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (!request || typeof request !== 'object' || typeof request.action !== 'string') return;
     switch (request.action) {
         case 'search-items':
             handleSearchItems(request, sender, sendResponse);
@@ -543,7 +547,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case 'update-settings':
             if (request.settings && typeof request.settings === 'object') {
                 updateSettings(request.settings);
-                chrome.storage.local.set({ settings: globalSettings });
+                chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
             }
             sendResponse({ success: true });
             return true;
@@ -553,12 +557,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
 
         case 'switch-to-tab':
-            chrome.tabs.update(request.tabId, { active: true });
-            chrome.windows.update(request.windowId, { focused: true });
+            if (!Number.isFinite(request.tabId) || !Number.isFinite(request.windowId)) return;
+            chrome.tabs.update(request.tabId, { active: true }).catch(() => {});
+            chrome.windows.update(request.windowId, { focused: true }).catch(() => {});
             sendResponse({ success: true });
             return true;
 
         case 'open-url':
+            if (typeof request.url !== 'string') return;
             if (request.url === 'virtual:restore-vault') {
                 ensureLoaded().then(async () => {
                     const success = await restoreVault(sessionVault);
@@ -567,21 +573,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 });
                 return true;
             }
-            chrome.tabs.create({ url: request.url, active: true }, (tab) => {
-                if (tab) chrome.windows.update(tab.windowId, { focused: true });
-            });
+            chrome.tabs.create({ url: request.url, active: true })
+                .then(tab => {
+                    if (tab) chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+                })
+                .catch(() => {});
             sendResponse({ success: true });
             return true;
 
         case 'open-query': {
-            const q = request.query || '';
+            if (typeof request.query !== 'string') return;
+            const q = request.query.trim();
             const isUrl = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\\/\w \.-]*)*\/?$/.test(q.toLowerCase()) || q.startsWith('localhost');
             const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
             let url = engine.url + encodeURIComponent(q);
             if (isUrl) url = q.startsWith('http://') || q.startsWith('https://') ? q : 'https://' + q;
-            chrome.tabs.create({ url, active: true }, (tab) => {
-                if (tab) chrome.windows.update(tab.windowId, { focused: true });
-            });
+            chrome.tabs.create({ url, active: true })
+                .then(tab => {
+                    if (tab) chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+                })
+                .catch(() => {});
             sendResponse({ success: true });
             return true;
         }
@@ -595,27 +606,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
 
         case 'launch-set':
+            if (typeof request.name !== 'string') return;
             performLaunchSet(request.name)
                 .then(success => sendResponse({ success }))
                 .catch(e => { console.warn('[Tabs++] launch-set error:', e.message); sendResponse({ success: false }); });
             return true;
 
         case 'summon-set':
+            if (typeof request.name !== 'string' || !Number.isFinite(request.windowId)) return;
             performSummonSet(request.name, request.windowId).then(result => sendResponse({ success: result ? result.success : false }));
             return true;
 
         case 'replace-set':
+            if (typeof request.name !== 'string') return;
             performReplaceSet(request.name, request.windowId).then(success => sendResponse({ success }));
             return true;
 
         case 'delete-set':
+            if (typeof request.name !== 'string') return;
             performDeleteSet(request.name).then(sets => sendResponse({ success: true, sets }));
             return true;
 
         case 'import-sets':
             ensureLoaded().then(() => {
                 const imported = request.sets;
-                if (imported && typeof imported === 'object') {
+                if (imported && typeof imported === 'object' && !Array.isArray(imported)) {
                     for (const key in imported) {
                         tabSets[key] = Array.isArray(imported[key]) ? { type: 'workspace', tabs: imported[key] } : imported[key];
                     }
@@ -741,11 +756,11 @@ async function queryOrCreateNtpWithPalette(windowId) {
     const existing = await chrome.tabs.query({ url: NTP_URL, windowId });
     if (existing && existing.length > 0) {
         ntpTabCache.set(windowId, existing[0].id);
-        await chrome.tabs.update(existing[0].id, { active: true });
+        await chrome.tabs.update(existing[0].id, { active: true }).catch(() => {});
         await chrome.tabs.sendMessage(existing[0].id, { action: 'toggle-palette' }).catch(() => {});
     } else {
-        const created = await chrome.tabs.create({ url: NTP_URL + '?action=palette', active: true });
-        ntpTabCache.set(windowId, created.id);
+        const created = await chrome.tabs.create({ url: NTP_URL + '?action=palette', active: true }).catch(() => null);
+        if (created) ntpTabCache.set(windowId, created.id);
     }
 }
 
@@ -762,7 +777,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
             title: completedType === 'work' ? 'Time for a break!' : 'Break over, let\'s focus!',
             message: completedType === 'work' ? 'You completed your Pomodoro session.' : 'Ready to start working again?',
             priority: 2
-        });
+        }).catch(() => {});
         return;
     }
     if (alarm.name === 'tabs-plus-auto-hibernate') {
@@ -822,7 +837,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
                 }
             }
             syncVaultToStorage();
-            chrome.tabs.remove(toClose.map(t => t.id));
+            chrome.tabs.remove(toClose.map(t => t.id)).catch(() => {});
         }
     }
 });

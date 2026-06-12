@@ -80,3 +80,4 @@ export function clearPendingDiscard(tabId) {
         pendingDiscards.delete(tabId);
     }
 }
+

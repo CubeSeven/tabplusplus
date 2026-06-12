@@ -1,4 +1,4 @@
-Latest Update: v2.2.1 (The "Flexibility" Update)
+Latest Update: v2.2.2 (Performance & Stability)
 
 **What's new:**
 

@@ -15,7 +15,12 @@ let pendingCommand = null;
 let domOrderedResults = [];
 let blurOverlay = null;
 let focusTimeouts = [];
+let isActionMode = false;
+let suppressActionModeToggle = false;
+let actionModeIndicator = null;
 let cachedResultItems = [];
+let hidePaletteTimeout = null;
+let hasStaggered = false;
 
 let cachedQueryRegex = null;
 let cachedQueryForRegex = '';
@@ -34,6 +39,7 @@ let isMediaMode = false;
 let extractedMedia = [];
 let selectedMediaIds = new Set();
 let domOrderedMedia = [];
+let cachedMediaItems = [];
 
 // Pomodoro Timer State
 let pomoHost = null;
@@ -63,10 +69,163 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
     if (namespace === 'local' && changes.settings) {
         settings = { ...settings, ...changes.settings.newValue };
         isPaletteEnabled = settings.enablePalette;
+        if (palette && shadow) {
+            const container = shadow.querySelector('.container');
+            if (container) {
+                if (settings.enableLiquidGlass) {
+                    injectLiquidGlassFilter(shadow);
+                    container.classList.add('liquid-glass');
+                } else {
+                    container.classList.remove('liquid-glass');
+                }
+            }
+        }
     }
 });
 
+// ── Liquid Glass Displacement Filter ──
+// Physics: convex squircle profile + Snell's law refraction
+function generateLiquidGlassMap(width, height, radius, bezel, glassThickness) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(width, height);
+    const d = imgData.data;
+    const cx = width / 2;
+    const cy = height / 2;
+    const hw = width / 2;
+    const hh = height / 2;
+    const bx = hw - radius;
+    const by = hh - radius;
+    const nGlass = 1.5;
 
+    function surfaceSlope(t) {
+        const u = Math.max(0.0001, Math.min(0.9999, 1 - t));
+        return Math.pow(u, 3) / Math.pow(1 - Math.pow(u, 4), 0.75);
+    }
+
+    // First pass: compute raw displacements and find maximum
+    const rawDisp = new Float32Array(width * height * 2);
+    let maxDisp = 0;
+
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const px = Math.abs(x - cx);
+            const py = Math.abs(y - cy);
+
+            let dist;
+            if (px > bx && py > by) {
+                dist = Math.sqrt((px - bx) ** 2 + (py - by) ** 2) - radius;
+            } else {
+                dist = Math.max(px - hw, py - hh);
+            }
+
+            const idx = (y * width + x) * 2;
+
+            if (dist < 0 && dist > -bezel) {
+                const t = Math.max(0, Math.min(1, -dist / bezel));
+                const slope = surfaceSlope(t); // dh/dt in normalized units
+                const actualSlope = (glassThickness / bezel) * slope;
+
+                // Surface angle from horizontal
+                const surfaceAngle = Math.atan(actualSlope);
+
+                // For vertical incident ray, angle of incidence = surfaceAngle
+                const sinTheta1 = Math.sin(Math.min(surfaceAngle, Math.PI / 2 - 0.001));
+                const sinTheta2 = Math.min(sinTheta1 / nGlass, 0.999);
+                const theta2 = Math.asin(sinTheta2);
+
+                // Displacement = glassThickness * tan(theta2) (single refraction approximation)
+                const dispMag = glassThickness * Math.tan(theta2);
+
+                // Direction: inward normal
+                let nx = 0, ny = 0;
+                if (px > bx && py > by) {
+                    const cdx = px - bx;
+                    const cdy = py - by;
+                    const cl = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
+                    nx = cdx / cl;
+                    ny = cdy / cl;
+                } else if (px > bx) {
+                    nx = 1;
+                } else if (py > by) {
+                    ny = 1;
+                } else {
+                    if (px > hw - bezel) nx = 1;
+                    else if (py > hh - bezel) ny = 1;
+                }
+
+                rawDisp[idx] = -nx * Math.sign(x - cx) * dispMag;
+                rawDisp[idx + 1] = -ny * Math.sign(y - cy) * dispMag;
+
+                const mag = Math.sqrt(rawDisp[idx] ** 2 + rawDisp[idx + 1] ** 2);
+                if (mag > maxDisp) maxDisp = mag;
+            } else {
+                rawDisp[idx] = 0;
+                rawDisp[idx + 1] = 0;
+            }
+        }
+    }
+
+    // Second pass: normalize and encode
+    const scale = Math.max(maxDisp, 1);
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const idx = (y * width + x) * 2;
+            const i = (y * width + x) * 4;
+
+            const dx = rawDisp[idx] / scale;
+            const dy = rawDisp[idx + 1] / scale;
+
+            d[i] = Math.max(0, Math.min(255, 128 + dx * 127));
+            d[i + 1] = Math.max(0, Math.min(255, 128 + dy * 127));
+            d[i + 2] = 128;
+            d[i + 3] = 255;
+        }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+    return { dataUrl: canvas.toDataURL('image/png'), maxDisp: scale };
+}
+
+function injectLiquidGlassFilter(shadowRoot) {
+    if (shadowRoot.getElementById('tabspp-liquid-glass-svg')) return;
+    let dataUrl, maxDisp;
+    try {
+        ({ dataUrl, maxDisp } = generateLiquidGlassMap(750, 520, 20, 18, 55));
+    } catch (e) { return; }
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.id = 'tabspp-liquid-glass-svg';
+    svg.style.cssText = 'position:absolute;width:0;height:0;';
+    const defs = document.createElementNS(svgNS, 'defs');
+    const filter = document.createElementNS(svgNS, 'filter');
+    filter.id = 'tabspp-liquid-glass';
+    filter.setAttribute('x', '-20%');
+    filter.setAttribute('y', '-20%');
+    filter.setAttribute('width', '140%');
+    filter.setAttribute('height', '140%');
+    const feImage = document.createElementNS(svgNS, 'feImage');
+    feImage.setAttribute('href', dataUrl);
+    feImage.setAttribute('x', '0');
+    feImage.setAttribute('y', '0');
+    feImage.setAttribute('width', '100%');
+    feImage.setAttribute('height', '100%');
+    feImage.setAttribute('preserveAspectRatio', 'none');
+    feImage.setAttribute('result', 'displacement_map');
+    const feDisp = document.createElementNS(svgNS, 'feDisplacementMap');
+    feDisp.setAttribute('in', 'SourceGraphic');
+    feDisp.setAttribute('in2', 'displacement_map');
+    feDisp.setAttribute('scale', String(Math.round(maxDisp * 1.5)));
+    feDisp.setAttribute('xChannelSelector', 'R');
+    feDisp.setAttribute('yChannelSelector', 'G');
+    filter.appendChild(feImage);
+    filter.appendChild(feDisp);
+    defs.appendChild(filter);
+    svg.appendChild(defs);
+    shadowRoot.appendChild(svg);
+}
 
 /* =========================================================================
    PALETTE & PEEK STYLES
@@ -78,7 +237,7 @@ const PALETTE_STYLES = `
         --input-bg: transparent;
         --border-color: rgba(255, 255, 255, 0.08);
         --border-top: rgba(255, 255, 255, 0.18);
-        --highlight: #ff3b30;
+        --highlight: rgba(255,255,255,0.4);
         --result-bg-hover: rgba(255, 255, 255, 0.06);
         --subtext: #8e8e93;
         --separator: rgba(255, 255, 255, 0.07);
@@ -91,11 +250,12 @@ const PALETTE_STYLES = `
             --input-bg: transparent;
             --border-color: rgba(0, 0, 0, 0.07);
             --border-top: rgba(255, 255, 255, 0.9);
-            --highlight: #ff3b30;
+            --highlight: rgba(0,0,0,0.3);
             --result-bg-hover: rgba(0, 0, 0, 0.04);
             --subtext: #86868b;
             --separator: rgba(0, 0, 0, 0.06);
         }
+        mark { background: transparent; color: #ffffff; font-weight: 700; }
     }
 
     .container {
@@ -103,31 +263,29 @@ const PALETTE_STYLES = `
         max-width: 95vw;
         position: relative;
         background:
-            radial-gradient(ellipse 80% 40% at 50% 0%, rgba(255,255,255,0.12) 0%, transparent 60%),
-            radial-gradient(ellipse 60% 50% at 20% 80%, rgba(120,130,255,0.06) 0%, transparent 55%),
-            radial-gradient(ellipse 50% 40% at 80% 70%, rgba(255,140,150,0.04) 0%, transparent 55%),
             linear-gradient(180deg,
-                rgba(255,255,255,0.06) 0%,
-                rgba(255,255,255,0.015) 40%,
-                rgba(0,0,0,0.02) 100%),
+                rgba(255,255,255,0.04) 0%,
+                rgba(255,255,255,0.0) 60%
+            ),
             var(--bg-color);
-        backdrop-filter: blur(24px) saturate(180%);
-        -webkit-backdrop-filter: blur(24px) saturate(180%);
-        border-radius: 20px;
-        border: 1px solid rgba(255,255,255,0.1);
+        backdrop-filter: blur(48px) saturate(200%) brightness(0.95);
+        -webkit-backdrop-filter: blur(48px) saturate(200%) brightness(0.95);
+        border-radius: 28px;
         box-shadow:
-            inset 0 0 0 1px rgba(255,255,255,0.08),
-            inset 0 1px 0 rgba(255,255,255,0.2),
-            0 0 0 1px rgba(0,0,0,0.04),
-            0 4px 16px rgba(0,0,0,0.12),
-            0 32px 64px rgba(0,0,0,0.3),
-            0 64px 128px rgba(0,0,0,0.18);
+            0 0 0 1px rgba(255,255,255,0.06),
+            0 4px 16px rgba(0,0,0,0.25),
+            0 32px 72px rgba(0,0,0,0.5),
+            0 64px 128px rgba(0,0,0,0.3),
+            inset 0 1px 0 var(--border-top),
+            inset 0 -1px 0 rgba(0,0,0,0.2);
         display: flex;
         flex-direction: column;
         overflow: hidden;
         opacity: 0;
         transform: translateY(-40px) scale(0.96);
         transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+        will-change: transform, opacity, backdrop-filter;
+        backface-visibility: hidden;
     }
 
     .container.visible {
@@ -142,6 +300,26 @@ const PALETTE_STYLES = `
         display: flex;
         align-items: center;
         gap: 16px;
+    }
+
+    .action-indicator {
+        display: none;
+        flex-shrink: 0;
+        width: 30px;
+        height: 30px;
+        opacity: 0.7;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .action-indicator.visible {
+        display: flex;
+    }
+
+    .action-indicator svg {
+        width: 30px;
+        height: 30px;
+        display: block;
     }
 
     input {
@@ -185,28 +363,59 @@ const PALETTE_STYLES = `
         align-items: center;
         gap: 16px;
         padding: 10px 16px;
-        border-radius: 10px;
+        border-radius: 14px;
         cursor: pointer;
         color: var(--text-color);
         margin-bottom: 1px;
         overflow: hidden;
-        transition: background 0.12s ease;
+        position: relative;
+        transition: background 0.18s cubic-bezier(0.16, 1, 0.3, 1), transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .result-item.selected {
-        background: rgba(128, 128, 128, 0.15);
-        box-shadow: inset 0 0 0 1px var(--border-color);
+        background: radial-gradient(ellipse 100% 100% at 50% 50%, rgba(200,200,215,0.28) 0%, rgba(200,200,215,0.08) 100%);
+        box-shadow: 0 0 32px rgba(200,200,215,0.08);
     }
 
     .result-item.selected .title {
-        color: #ff3b30;
+        opacity: 1;
     }
 
     .result-item.selected .subtext,
     .result-item.selected .badge {
-        color: var(--text-color);
-        opacity: 0.8;
+        opacity: 0.55;
     }
+
+    .result-item:hover {
+        background: radial-gradient(ellipse 100% 100% at 50% 50%, rgba(200,200,215,0.16) 0%, rgba(200,200,215,0.05) 100%);
+        box-shadow: 0 0 16px rgba(200,200,215,0.05);
+        transform: translateY(-1px);
+    }
+
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .results.staggered .result-item {
+        animation: fadeInUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .results.staggered .result-item:nth-child(1) { animation-delay: 0.02s; }
+    .results.staggered .result-item:nth-child(2) { animation-delay: 0.04s; }
+    .results.staggered .result-item:nth-child(3) { animation-delay: 0.06s; }
+    .results.staggered .result-item:nth-child(4) { animation-delay: 0.08s; }
+    .results.staggered .result-item:nth-child(5) { animation-delay: 0.10s; }
+    .results.staggered .result-item:nth-child(6) { animation-delay: 0.12s; }
+    .results.staggered .result-item:nth-child(7) { animation-delay: 0.14s; }
+    .results.staggered .result-item:nth-child(8) { animation-delay: 0.16s; }
+    .results.staggered .result-item:nth-child(9) { animation-delay: 0.18s; }
+    .results.staggered .result-item:nth-child(10) { animation-delay: 0.20s; }
+    .results.staggered .result-item:nth-child(11) { animation-delay: 0.22s; }
+    .results.staggered .result-item:nth-child(12) { animation-delay: 0.24s; }
+    .results.staggered .result-item:nth-child(13) { animation-delay: 0.26s; }
+    .results.staggered .result-item:nth-child(14) { animation-delay: 0.28s; }
+    .results.staggered .result-item:nth-child(15) { animation-delay: 0.30s; }
 
     .icon {
         width: 36px;
@@ -215,7 +424,7 @@ const PALETTE_STYLES = `
         display: flex;
         align-items: center;
         justify-content: center;
-        border-radius: 10px;
+        border-radius: 50%;
         overflow: hidden;
         background: rgba(128, 128, 128, 0.1);
         color: var(--subtext);
@@ -251,6 +460,7 @@ const PALETTE_STYLES = `
     .subtext {
         font-size: 13px;
         color: var(--subtext);
+        opacity: 0.65;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -260,7 +470,7 @@ const PALETTE_STYLES = `
     .badge {
         font-size: 10px;
         padding: 4px 10px;
-        border-radius: 8px;
+        border-radius: 999px;
         background: rgba(128, 128, 128, 0.1);
         color: var(--subtext);
         text-transform: uppercase;
@@ -270,7 +480,7 @@ const PALETTE_STYLES = `
 
     mark {
         background: transparent;
-        color: #ff3b30;
+        color: #ffffff;
         font-weight: 700;
         font-style: normal;
     }
@@ -485,6 +695,147 @@ const PALETTE_STYLES = `
         height: 12px;
         stroke-width: 3;
     }
+
+    /* ── Liquid Glass ───────────────────────── */
+    .container.liquid-glass {
+        --text-color: #ffffff;
+        --subtext: rgba(255,255,255,0.92);
+        --highlight: rgba(255,255,255,0.4);
+        --separator: rgba(255,255,255,0.06);
+        --border-color: rgba(255,255,255,0.08);
+        border-radius: 28px;
+        background:
+            linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.005) 50%),
+            rgba(8,10,20,0.32);
+        backdrop-filter:
+            url(#tabspp-liquid-glass)
+            blur(32px)
+            saturate(110%)
+            brightness(0.90);
+        -webkit-backdrop-filter:
+            url(#tabspp-liquid-glass)
+            blur(32px)
+            saturate(110%)
+            brightness(0.90);
+        box-shadow:
+            0 24px 64px rgba(0,0,0,0.35);
+    }
+
+    .container.liquid-glass::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background:
+            radial-gradient(ellipse 100% 18% at 50% 0%, rgba(255,255,255,0.55) 0%, transparent 55%),
+            radial-gradient(ellipse 90% 12% at 50% 100%, rgba(255,255,255,0.18) 0%, transparent 60%),
+            radial-gradient(ellipse 12% 90% at 0% 50%, rgba(255,255,255,0.15) 0%, transparent 60%),
+            radial-gradient(ellipse 12% 90% at 100% 50%, rgba(255,255,255,0.15) 0%, transparent 60%);
+        mix-blend-mode: overlay;
+        pointer-events: none;
+        z-index: 2;
+    }
+
+    .container.liquid-glass::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        box-shadow:
+            inset 0 0 18px 2px rgba(255,255,255,0.18),
+            inset 0 0 6px 1px rgba(255,255,255,0.35);
+        pointer-events: none;
+        z-index: 2;
+    }
+
+    .container.liquid-glass .input-wrapper {
+        border-bottom: none;
+        box-shadow: none;
+        padding: 24px 28px;
+    }
+
+    .container.liquid-glass input,
+    .container.liquid-glass .title,
+    .container.liquid-glass .badge {
+        text-shadow: none;
+    }
+
+    .container.liquid-glass .result-item {
+        border-radius: 14px;
+        margin-bottom: 4px;
+        padding: 12px 16px;
+    }
+
+    .container.liquid-glass .result-item.selected {
+        background: radial-gradient(ellipse 100% 100% at 50% 50%, rgba(255,255,255,0.26) 0%, rgba(255,255,255,0.06) 100%);
+        box-shadow: 0 0 32px rgba(255,255,255,0.07);
+    }
+
+    .container.liquid-glass .icon {
+        border-radius: 50%;
+        background: rgba(255,255,255,0.05);
+    }
+
+    .container.liquid-glass .badge {
+        border-radius: 999px;
+    }
+
+    .container.liquid-glass .result-item:hover {
+        background: radial-gradient(ellipse 100% 100% at 50% 50%, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.03) 100%);
+        box-shadow: 0 0 16px rgba(255,255,255,0.04);
+        border-radius: 14px;
+    }
+
+    .container.liquid-glass .empty-state {
+        border-radius: 16px;
+    }
+
+    @media (prefers-color-scheme: light) {
+        .container.liquid-glass {
+            --text-color: #1d1d20;
+            --subtext: rgba(0,0,0,0.48);
+            --highlight: rgba(0,0,0,0.3);
+            --separator: rgba(0,0,0,0.05);
+            --border-color: rgba(0,0,0,0.06);
+            background: rgba(228,230,245,0.52);
+            backdrop-filter:
+                blur(40px)
+                saturate(100%)
+                brightness(0.88);
+            -webkit-backdrop-filter:
+                blur(40px)
+                saturate(100%)
+                brightness(0.88);
+            box-shadow: 0 24px 64px rgba(0,0,0,0.15);
+        }
+        .container.liquid-glass::before {
+            background:
+                radial-gradient(ellipse 100% 18% at 50% 0%, rgba(255,255,255,0.70) 0%, transparent 55%),
+                radial-gradient(ellipse 90% 12% at 50% 100%, rgba(255,255,255,0.22) 0%, transparent 60%),
+                radial-gradient(ellipse 12% 90% at 0% 50%, rgba(255,255,255,0.18) 0%, transparent 60%),
+                radial-gradient(ellipse 12% 90% at 100% 50%, rgba(255,255,255,0.18) 0%, transparent 60%);
+        }
+        .container.liquid-glass::after {
+            box-shadow:
+                inset 0 0 18px 2px rgba(255,255,255,0.22),
+                inset 0 0 6px 1px rgba(255,255,255,0.40);
+        }
+        .container.liquid-glass .result-item:hover {
+            background: radial-gradient(ellipse 100% 100% at 50% 50%, rgba(0,0,0,0.06) 0%, rgba(0,0,0,0.01) 100%);
+            border-radius: 14px;
+        }
+        .container.liquid-glass .result-item.selected {
+            background: radial-gradient(ellipse 100% 100% at 50% 50%, rgba(0,0,0,0.08) 0%, rgba(0,0,0,0.02) 100%);
+            box-shadow: 0 0 24px rgba(0,0,0,0.03);
+        }
+        .container.liquid-glass .icon {
+            border-radius: 50%;
+            background: rgba(0,0,0,0.03);
+        }
+        .container.liquid-glass .badge {
+            border-radius: 999px;
+        }
+    }
 `;
 
 const READER_STYLES = `
@@ -608,6 +959,7 @@ function createPalette() {
         justify-content: center;
         padding-top: 15vh;
         background: transparent;
+        transition: background 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
     `;
 
@@ -627,18 +979,40 @@ function createPalette() {
     input.placeholder = 'Search tabs, history, bookmarks... or try !yt, !gh, !mdn';
     input.spellcheck = false;
     input.autocomplete = 'off';
-    
+
+    actionModeIndicator = document.createElement('div');
+    actionModeIndicator.className = 'action-indicator';
+    actionModeIndicator.innerHTML = LOGO_ICON;
+    inputWrapper.appendChild(actionModeIndicator);
     inputWrapper.appendChild(input);
 
     resultsContainer = document.createElement('div');
-    resultsContainer.className = 'results';
+    resultsContainer.className = 'results staggered';
 
     resultsContainer.addEventListener('click', (e) => {
-        const item = e.target.closest('.result-item');
-        if (!item) return;
-        const idx = parseInt(item.getAttribute('data-idx'));
-        if (idx >= 0 && idx < domOrderedResults.length) {
-            activateResult(domOrderedResults[idx]);
+        const resultItem = e.target.closest('.result-item');
+        if (resultItem) {
+            const idx = parseInt(resultItem.getAttribute('data-idx'));
+            if (idx >= 0 && idx < domOrderedResults.length) {
+                activateResult(domOrderedResults[idx]);
+            }
+            return;
+        }
+
+        const mediaItem = e.target.closest('.media-item');
+        if (mediaItem) {
+            const midx = parseInt(mediaItem.getAttribute('data-midx'));
+            if (midx >= 0 && midx < domOrderedMedia.length) {
+                const item = domOrderedMedia[midx];
+                if (selectedMediaIds.has(item.url)) {
+                    selectedMediaIds.delete(item.url);
+                    mediaItem.classList.remove('selected');
+                } else {
+                    selectedMediaIds.add(item.url);
+                    mediaItem.classList.add('selected');
+                }
+                updateSelection(midx);
+            }
         }
     });
 
@@ -669,6 +1043,7 @@ function createPalette() {
     document.documentElement.appendChild(palette);
 
     // Event Listeners
+    input.addEventListener('input', handleActionModeInput);
     input.addEventListener('input', debounce(handleSearch, 150));
     input.addEventListener('keydown', handleKeydown);
 
@@ -678,9 +1053,9 @@ function createPalette() {
         if (isVisible) {
             // Snatch back if focus went to the host page or "null" (omnibox)
             if (!e.relatedTarget || !palette.contains(e.relatedTarget)) {
-                setTimeout(() => {
+                focusTimeouts.push(setTimeout(() => {
                     if (isVisible && input) input.focus();
-                }, 10);
+                }, 10));
             }
         }
     });
@@ -723,6 +1098,23 @@ function createPalette() {
     });
 }
 
+function handleActionModeInput() {
+    if (!actionModeIndicator) return;
+    const val = input.value;
+    if (suppressActionModeToggle) { suppressActionModeToggle = false; return; }
+    if (!isActionMode && val.startsWith('>')) {
+        isActionMode = true;
+        suppressActionModeToggle = true;
+        input.value = val.substring(1);
+        actionModeIndicator.classList.add('visible');
+        return;
+    }
+    if (isActionMode && val === '') {
+        isActionMode = false;
+        actionModeIndicator.classList.remove('visible');
+    }
+}
+
 function debounce(func, wait) {
     let timeout;
     return function executedFunction(...args) {
@@ -738,12 +1130,30 @@ function debounce(func, wait) {
 function showPalette() {
     if (!palette) createPalette();
     palette.style.display = 'flex';
+    palette.style.background = 'rgba(0,0,0,0.12)';
     isVisible = true;
-    
+    isActionMode = false;
+    if (actionModeIndicator) actionModeIndicator.classList.remove('visible');
+
     // Force reflow for animation
     palette.offsetHeight;
-    shadow.querySelector('.container').classList.add('visible');
-    
+    if (!shadow) return;
+    const container = shadow.querySelector('.container');
+    if (!container) return;
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            try { container.classList.add('visible'); } catch (e) {}
+        });
+    });
+
+    if (settings.enableLiquidGlass) {
+        injectLiquidGlassFilter(shadow);
+        try { container.classList.add('liquid-glass'); } catch (e) {}
+    } else {
+        try { container.classList.remove('liquid-glass'); } catch (e) {}
+    }
+
     input.value = '';
     currentResults = [];
     renderResults([]);
@@ -754,17 +1164,22 @@ function showPalette() {
     focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 80));
     focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 200));
     focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 500));
-    
+
     handleSearch(); // Fetch initial tabs list
 }
 
 function hidePalette() {
     if (!isVisible || !palette) return;
     isVisible = false;
+    isActionMode = false;
+    if (actionModeIndicator) actionModeIndicator.classList.remove('visible');
     for (const t of focusTimeouts) clearTimeout(t);
     focusTimeouts = [];
-    shadow.querySelector('.container').classList.remove('visible');
-    setTimeout(() => {
+    palette.style.background = 'transparent';
+    const container = shadow.querySelector('.container');
+    if (container) container.classList.remove('visible');
+    if (hidePaletteTimeout) clearTimeout(hidePaletteTimeout);
+    hidePaletteTimeout = setTimeout(() => {
         if (!isVisible) {
             palette.style.display = 'none';
             // Aggressive Garbage Collection to free RAM
@@ -774,13 +1189,15 @@ function hidePalette() {
             }
             if (resultsContainer) {
                 resultsContainer.innerHTML = '';
-                resultsContainer.className = 'results';
+                resultsContainer.className = 'results staggered';
             }
             currentResults = [];
+            cachedResultItems = [];
             pendingCommand = null;
             isMediaMode = false;
             extractedMedia = [];
             selectedMediaIds.clear();
+            hasStaggered = false;
         }
     }, 150); // wait for animation
 }
@@ -827,19 +1244,19 @@ function showVolumeToast(level) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (!request || typeof request !== 'object' || typeof request.action !== 'string') return;
     if (request.action === 'toggle-palette') {
-        if (request.forceAction) {
+        if (request.forceAction && typeof request.forceAction === 'string') {
             // Open palette and immediately activate the action
             if (!isVisible) togglePalette();
-            setTimeout(() => activateResult({ type: 'action', id: request.forceAction }), 50);
+            focusTimeouts.push(setTimeout(() => { if (isVisible) activateResult({ type: 'action', id: request.forceAction }); }, 50));
         } else {
             togglePalette();
         }
     }
     if (request.action === 'update-palette-query') {
         if (!isVisible) showPalette();
-        if (input) {
-            input.value = request.query;
+        if (input && typeof request.query === 'string') {
             handleSearch();
             // Move cursor to end
             setTimeout(() => {
@@ -860,6 +1277,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
     if (request.action === 'copy-to-clipboard') {
+        if (typeof request.text !== 'string') { sendResponse({ success: false }); return true; }
         navigator.clipboard.writeText(request.text).then(() => {
             sendResponse({ success: true });
         }).catch(() => {
@@ -894,9 +1312,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         let currentVol = media[0].volume * 100;
         let targetLevel;
-        if (request.level !== undefined) {
+        if (typeof request.level === 'number' && Number.isFinite(request.level)) {
             targetLevel = Math.min(100, Math.max(0, request.level));
-        } else if (request.delta !== undefined) {
+        } else if (typeof request.delta === 'number' && Number.isFinite(request.delta)) {
             targetLevel = Math.min(100, Math.max(0, Math.round(currentVol) + request.delta));
         } else {
             sendResponse({ success: false }); return true;
@@ -1034,7 +1452,7 @@ function createPomoUI() {
     
     card.addEventListener('click', () => {
         if (confirm('Stop Pomodoro timer?')) {
-            chrome.runtime.sendMessage({ action: 'stop-pomo-timer' });
+            chrome.runtime.sendMessage({ action: 'stop-pomo-timer' }).catch(() => {});
         }
     });
     
@@ -1077,10 +1495,15 @@ function toggleParentBlur(active) {
     }
 }
 
+function getSearchQuery() {
+    const raw = input.value.trim();
+    return isActionMode ? '>' + raw : raw;
+}
+
 async function handleSearch() {
     if (pendingCommand) return;
 
-    const query = input.value.trim();
+    const query = getSearchQuery();
 
     if (!chrome.runtime?.id) {
         hidePalette();
@@ -1101,7 +1524,7 @@ async function handleSearch() {
                 hidePalette();
                 return;
             }
-            if (input.value.trim() !== sentQuery) return;
+            if (getSearchQuery() !== sentQuery) return;
             if (response && response.results) {
                 lastSearchedQuery = query;
                 currentResults = response.results;
@@ -1137,6 +1560,8 @@ const ICONS = {
     link: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`,
     file: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>`
 };
+
+const LOGO_ICON = `<svg width="30" height="30" viewBox="0 0 193 193" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M148.277 43.0867C115.56 42.91 82.8308 43.0685 50.1095 43.0074C46.8919 43.1643 44.0688 46.055 44.0143 49.2859C43.9962 58.4749 43.9929 67.6656 44.0143 76.8546C44.1811 79.1642 45.6801 81.1486 47.6282 82.3109C66.3414 96.8621 81.089 118.035 83.6645 142.049C84.2506 144.316 83.2369 147.252 85.043 149.074C85.6902 149.545 86.4017 150.103 87.2569 149.984C102.941 149.997 118.624 149.997 134.308 149.984C136.37 150.06 137.901 147.805 137.453 145.865C136.785 137.62 133.819 129.706 129.694 122.583C125.126 114.979 119.333 108.149 112.833 102.13C105.391 95.0626 97.0468 88.865 87.7505 84.4505C76.5672 79.2352 64.2662 76.5228 51.9288 76.3923C50.0848 76.6895 48.3513 74.8636 48.4702 73.0591C48.4437 65.5739 48.4734 58.0886 48.4553 50.605C48.6006 48.8599 50.1211 47.3279 51.9272 47.4748C60.3238 47.4038 68.6477 49.7547 75.9728 53.811C84.0013 58.2949 90.0833 65.3328 97.0881 71.1507C102.615 76.6103 108.935 81.421 116.252 84.1929C120.985 86.0238 125.989 87.0738 131.038 87.5195C136.638 87.6698 142.246 87.5509 147.849 87.5856C149.591 87.5988 151.012 85.9627 150.974 84.2854C150.987 71.6278 150.989 58.9702 150.973 46.3142C151.06 44.7574 149.823 43.2749 148.277 43.0867Z" fill="#b0b0b8"/></svg>`;
 
 const TYPE_FALLBACK = {
     action: ICONS.zap, tab: ICONS.globe, history: ICONS.clock, bookmark: ICONS.star, bang: ICONS.zap,
@@ -1271,7 +1696,13 @@ function renderResults(results) {
         }
     });
 
+    if (hasStaggered) {
+        resultsContainer.classList.remove('staggered');
+    }
     resultsContainer.innerHTML = html;
+    if (!hasStaggered && results.length > 0) {
+        hasStaggered = true;
+    }
     cachedResultItems = Array.from(resultsContainer.querySelectorAll('.result-item'));
 }
 
@@ -1290,14 +1721,18 @@ function escapeHTML(str) {
 
 function updateSelection(index) {
     if (isMediaMode) {
-        const items = resultsContainer.querySelectorAll('.media-item');
-        if (selectedIndex >= 0 && selectedIndex < items.length) {
-            items[selectedIndex].classList.remove('focused');
+        if (selectedIndex >= 0 && selectedIndex < cachedMediaItems.length) {
+            cachedMediaItems[selectedIndex].classList.remove('focused');
         }
         selectedIndex = index;
-        if (selectedIndex >= 0 && selectedIndex < items.length) {
-            items[selectedIndex].classList.add('focused');
-            items[selectedIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (selectedIndex >= 0 && selectedIndex < cachedMediaItems.length) {
+            cachedMediaItems[selectedIndex].classList.add('focused');
+            const el = cachedMediaItems[selectedIndex];
+            const rect = el.getBoundingClientRect();
+            const containerRect = resultsContainer.getBoundingClientRect();
+            if (rect.top < containerRect.top || rect.bottom > containerRect.bottom) {
+                el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
         }
     } else {
         if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) {
@@ -1306,7 +1741,12 @@ function updateSelection(index) {
         selectedIndex = index;
         if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) {
             cachedResultItems[selectedIndex].classList.add('selected');
-            cachedResultItems[selectedIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            const el = cachedResultItems[selectedIndex];
+            const rect = el.getBoundingClientRect();
+            const containerRect = resultsContainer.getBoundingClientRect();
+            if (rect.top < containerRect.top || rect.bottom > containerRect.bottom) {
+                el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
         }
     }
 }
@@ -1533,24 +1973,13 @@ function renderMediaResults(results) {
             </div>
         `;
 
-        el.addEventListener('click', (e) => {
-            if (e.shiftKey) {
-                // Range selection logic could go here, but simple toggle for now
-            }
-            if (selectedMediaIds.has(item.url)) {
-                selectedMediaIds.delete(item.url);
-                el.classList.remove('selected');
-            } else {
-                selectedMediaIds.add(item.url);
-                el.classList.add('selected');
-            }
-            updateSelection(index);
-        });
+        el.setAttribute('data-midx', index);
 
         fragment.appendChild(el);
     });
 
     resultsContainer.appendChild(fragment);
+    cachedMediaItems = Array.from(resultsContainer.querySelectorAll('.media-item'));
 }
 
 function handleKeydown(e) {
@@ -1569,8 +1998,8 @@ function handleKeydown(e) {
             return;
         }
 
-        const items = resultsContainer.querySelectorAll('.media-item');
-        if (items.length === 0) return;
+        const items = cachedMediaItems;
+        if (!items || items.length === 0) return;
 
         // Calculate columns for grid navigation
         let columns = 1;
@@ -1635,7 +2064,7 @@ function handleKeydown(e) {
             }
             
             if (urlsToDownload.length > 0) {
-                chrome.runtime.sendMessage({ action: 'download-media', urls: urlsToDownload });
+                chrome.runtime.sendMessage({ action: 'download-media', urls: urlsToDownload }).catch(() => {});
                 hidePalette();
             }
             e.preventDefault();
@@ -1669,7 +2098,7 @@ function handleKeydown(e) {
     if (pendingCommand) {
         if (e.key === 'Enter') {
             const name = input.value.trim();
-            chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: pendingCommand, args: name });
+            chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: pendingCommand, args: name }).catch(() => {});
             pendingCommand = null;
             hidePalette();
             e.preventDefault();
@@ -1677,10 +2106,19 @@ function handleKeydown(e) {
         return;
     }
 
-    if (domOrderedResults.length === 0 && e.key !== 'ArrowRight') return;
+    if (domOrderedResults.length === 0 && e.key !== 'ArrowRight' && e.key !== 'Backspace') return;
 
-    if (e.key === 'ArrowRight' && input.value === '') {
-        input.value = '>';
+    if (e.key === 'ArrowRight' && input.value === '' && !isActionMode) {
+        isActionMode = true;
+        actionModeIndicator.classList.add('visible');
+        handleSearch();
+        e.preventDefault();
+        return;
+    }
+
+    if (e.key === 'Backspace' && isActionMode && input.value === '') {
+        isActionMode = false;
+        actionModeIndicator.classList.remove('visible');
         handleSearch();
         e.preventDefault();
         return;
@@ -1697,9 +2135,9 @@ function handleKeydown(e) {
         updateSelection(newIndex);
         e.preventDefault();
     } else if (e.key === 'Enter') {
-        const currentQuery = input.value.trim();
-        if (currentQuery && currentQuery !== lastSearchedQuery) {
-            chrome.runtime.sendMessage({ action: 'open-query', query: currentQuery });
+        const currentQuery = getSearchQuery();
+        if (!isActionMode && currentQuery && currentQuery !== lastSearchedQuery) {
+            chrome.runtime.sendMessage({ action: 'open-query', query: currentQuery }).catch(() => {});
             hidePalette();
             e.preventDefault();
             return;
@@ -1794,16 +2232,16 @@ function activateResult(result) {
             navigator.clipboard.writeText(text).catch(() => {});
             input.value = `Copied: ${text}`;
             input.style.color = '#4ade80';
-            setTimeout(() => { hidePalette(); }, 400);
+            focusTimeouts.push(setTimeout(() => { hidePalette(); }, 400));
             return;
         }
 
-        chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: result.id });
+        chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: result.id }).catch(() => {});
     } else if (result.type === 'tab') {
-        chrome.runtime.sendMessage({ action: 'switch-to-tab', tabId: result.id, windowId: result.windowId });
+        chrome.runtime.sendMessage({ action: 'switch-to-tab', tabId: result.id, windowId: result.windowId }).catch(() => {});
     } else {
         // Includes 'search', 'navigate', 'history', 'bookmark', 'bang', 'closed'
-        chrome.runtime.sendMessage({ action: 'open-url', url: result.url });
+        chrome.runtime.sendMessage({ action: 'open-url', url: result.url }).catch(() => {});
     }
     hidePalette();
 }
@@ -1948,7 +2386,7 @@ function injectPeekUI() {
     closeBtn.title = 'Close Peek (Esc)';
     closeBtn.innerHTML = `<span class="icon">✕</span>`;
     closeBtn.onclick = () => {
-        chrome.runtime.sendMessage({ action: 'close-peek' });
+        chrome.runtime.sendMessage({ action: 'close-peek' }).catch(() => {});
     };
 
     const promoteBtn = document.createElement('button');
@@ -1957,7 +2395,7 @@ function injectPeekUI() {
     promoteBtn.innerHTML = `<span class="icon">↗</span>`;
     promoteBtn.onclick = () => {
         host.remove();
-        chrome.runtime.sendMessage({ action: 'promote-peek' });
+        chrome.runtime.sendMessage({ action: 'promote-peek' }).catch(() => {});
     };
 
     container.appendChild(closeBtn);
@@ -2263,7 +2701,7 @@ function startCustomEyedropper(dataUrl) {
                 history = history.filter(c => c !== hex);
                 history.unshift(hex);
                 if (history.length > 5) history = history.slice(0, 5);
-                chrome.storage.local.set({ colorHistory: history });
+                chrome.storage.local.set({ colorHistory: history }).catch(() => {});
 
                 toast.innerHTML = '';
                 

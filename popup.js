@@ -91,6 +91,15 @@ const FEATURES = [
     badge: null,
     category: 'Appearance',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`
+  },
+  {
+    id: 'enableLiquidGlass',
+    title: 'Liquid Glass',
+    description: 'Refractive glass effect for the Command Palette.',
+    default: false,
+    badge: 'Beta',
+    category: 'Appearance',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h20M12 2v20m-8-4 4-4-4-4m12 8-4-4 4-4"/></svg>`
   }
 ];
 
@@ -401,7 +410,7 @@ function renderTools(settings, filter = '') {
           checkbox.dispatchEvent(new Event('change'));
         }
       } else if (tool.actionId) {
-        chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: tool.actionId });
+        chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: tool.actionId }).catch(() => {});
         window.close();
       }
     });
@@ -468,6 +477,7 @@ function getDefaults() {
   defaults.timeFormat = '24h';
   defaults.showClock = true;
   defaults.searchEngine = 'google';
+  defaults.enableLiquidGlass = false;
   defaults.useDefaultNtp = false;
   defaults.peekExcludedDomains = ['google.com', 'bing.com', 'duckduckgo.com', 'search.brave.com', 'perplexity.ai', 'x.com', 'twitter.com', 'reddit.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'youtube.com', 'twitch.tv', 'vimeo.com', 'news.ycombinator.com', 'amazon.com', 'ebay.com'];
   
@@ -487,7 +497,7 @@ function saveSettings() {
         if (el) settings[tool.settingId] = el.checked;
       }
     });
-    chrome.storage.local.set({ settings });
+    chrome.storage.local.set({ settings }).catch(() => {});
     chrome.runtime.sendMessage({ action: 'update-settings', settings }).catch(() => {});
   });
 }
@@ -534,13 +544,13 @@ const tipCloseBtn = document.getElementById('tip-close-btn');
 if (tipCloseBtn) {
   tipCloseBtn.addEventListener('click', () => {
     document.getElementById('tip-footer').style.display = 'none';
-    chrome.storage.local.set({ tipDismissed: true });
+    chrome.storage.local.set({ tipDismissed: true }).catch(() => {});
   });
 }
 const tipFixBtn = document.getElementById('tip-fix-btn');
 if (tipFixBtn) {
   tipFixBtn.addEventListener('click', () => {
-    chrome.tabs.create({ url: 'chrome://settings/onStartup' });
+    chrome.tabs.create({ url: 'chrome://settings/onStartup' }).catch(() => {});
   });
 }
 

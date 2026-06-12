@@ -62,11 +62,11 @@ export function handlePromotePeek(request, sender, sendResponse) {
         if (targetWinId) {
             chrome.tabs.move(sender.tab.id, { windowId: targetWinId, index: -1 }, (movedTab) => {
                 if (chrome.runtime.lastError || !movedTab) return;
-                chrome.tabs.update(movedTab.id, { active: true });
-                chrome.windows.update(targetWinId, { focused: true });
+                chrome.tabs.update(movedTab.id, { active: true }).catch(() => {});
+                chrome.windows.update(targetWinId, { focused: true }).catch(() => {});
             });
         } else {
-            chrome.windows.create({ tabId: sender.tab.id });
+            chrome.windows.create({ tabId: sender.tab.id }).catch(() => {});
         }
     });
     sendResponse({ success: true });

@@ -12,7 +12,9 @@ let searchGeneration = 0;
 let pendingFetchController = null;
 let tabCache = { results: [], ts: 0 };
 const historyCache = new Map();
+const bookmarkCache = new Map();
 const HISTORY_CACHE_TTL = 2000;
+const BOOKMARK_CACHE_TTL = 5000;
 
 // ── Recent Actions ──
 const recentActions = [];
@@ -41,7 +43,7 @@ function recordRecentAction(commandId) {
 
 function getCachedTabs() {
     const now = Date.now();
-    if (now - tabCache.ts < 500) return Promise.resolve(tabCache.results);
+    if (now - tabCache.ts < 2000) return Promise.resolve(tabCache.results);
     return chrome.tabs.query({}).then(tabs => {
         tabCache = { results: tabs, ts: now };
         return tabs;
@@ -58,8 +60,18 @@ function getCachedHistory(query) {
     });
 }
 
+function getCachedBookmarks(query) {
+    if (!query) return Promise.resolve([]);
+    const cached = bookmarkCache.get(query);
+    if (cached && Date.now() - cached.ts < BOOKMARK_CACHE_TTL) return Promise.resolve(cached.results);
+    return chrome.bookmarks.search({ query }).then(results => {
+        bookmarkCache.set(query, { results, ts: Date.now() });
+        return results;
+    });
+}
+
 function getSuggestions(query) {
-    if (!query || query.length < 2) return Promise.resolve([]);
+    if (!query || query.length < 3) return Promise.resolve([]);
     const suggestUrl = getSuggestUrl(query);
     if (!suggestUrl) return Promise.resolve([]);
     if (pendingFetchController) pendingFetchController.abort();
@@ -196,6 +208,8 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'peek_unblock_site', category: 'Appearance', title: 'Enable Auto-Peek on This Site', aliases: ['peek unblock', 'allow peek', 'include in peek'], requiredSetting: 'autoPeekCrossDomain' }
 ];
 
+const actionMap = new Map(EXTENSION_ACTIONS.map(a => [a.id, a]));
+
 function getSearchUrl(query) {
     const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
     return engine.url + encodeURIComponent(query);
@@ -307,10 +321,9 @@ export async function handleSearchItems(request, sender, sendResponse) {
             const recentIds = new Set();
 
             for (const actionId of recentActions) {
-                let action = EXTENSION_ACTIONS.find(a => a.id === actionId);
+                let action = actionMap.get(actionId);
                 if (!action && actionId.includes('|')) {
-                    const base = actionId.split('|')[0];
-                    action = EXTENSION_ACTIONS.find(a => a.id === base);
+                    action = actionMap.get(actionId.split('|')[0]);
                 }
                 if (action && (!action.requiredSetting || globalSettings[action.requiredSetting])) {
                     recentResults.push({ ...action, _recent: true });
@@ -336,7 +349,7 @@ export async function handleSearchItems(request, sender, sendResponse) {
     
     const pTabs = getCachedTabs();
     const pHistory = query ? getCachedHistory(query) : Promise.resolve([]);
-    const pBookmarks = (query && chrome.bookmarks) ? chrome.bookmarks.search({ query: query }) : Promise.resolve([]);
+    const pBookmarks = (query && chrome.bookmarks) ? getCachedBookmarks(query) : Promise.resolve([]);
     const pClosed = (!query && chrome.sessions) ? chrome.sessions.getRecentlyClosed({ maxResults: 7 }) : Promise.resolve([]);
     const pSuggestions = getSuggestions(query);
 
@@ -672,7 +685,7 @@ export async function executeAction(commandId, args, senderTab = null) {
                 const tabs = await chrome.tabs.query({ windowId: currentWinId });
                 const seen = new Set(); const toClose = [];
                 tabs.forEach(t => { if (!t.url) return; const c = t.url.split('#')[0]; if (seen.has(c)) { if (!t.active) toClose.push(t.id); } else seen.add(c); });
-                if (toClose.length > 0) chrome.tabs.remove(toClose);
+                if (toClose.length > 0) chrome.tabs.remove(toClose).catch(() => {});
                 break;
             }
             case 'merge_groups': {
@@ -757,7 +770,7 @@ export async function executeAction(commandId, args, senderTab = null) {
                 if (!tab || tab.groupId === NONE_GROUP) break;
                 await performSaveSet({ setType: 'group', name: args || 'Stashed Group', groupId: tab.groupId }).catch(() => {});
                 const gTabs = await chrome.tabs.query({ groupId: tab.groupId });
-                chrome.tabs.remove(gTabs.map(t => t.id));
+                chrome.tabs.remove(gTabs.map(t => t.id)).catch(() => {});
                 break;
             }
             case 'export_sets':
@@ -765,7 +778,7 @@ export async function executeAction(commandId, args, senderTab = null) {
                     const res = { sets: tabSets };
                     if (!res?.sets) return;
                     const url = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(res.sets, null, 2));
-                    chrome.downloads.download({ url, filename: 'tabs_plus_plus_sets.json' });
+                    chrome.downloads.download({ url, filename: 'tabs_plus_plus_sets.json' }).catch(() => {});
                 });
                 break;
             case 'hibernate_all': {
@@ -816,37 +829,37 @@ export async function executeAction(commandId, args, senderTab = null) {
             }
             case 'mute_background': {
                 const tabs = await chrome.tabs.query({ audible: true, active: false });
-                tabs.forEach(t => chrome.tabs.update(t.id, { muted: true }));
+                tabs.forEach(t => chrome.tabs.update(t.id, { muted: true }).catch(() => {}));
                 break;
             }
             case 'zen_fullscreen':
-                chrome.windows.update(currentWinId, { state: 'fullscreen' });
+                chrome.windows.update(currentWinId, { state: 'fullscreen' }).catch(() => {});
                 break;
             case 'snapshot_session':
                 syncBaselinesToStorage(); saveSnapshot();
                 break;
             case 'clear_cache_hour':
-                chrome.browsingData.remove({ since: Date.now() - 3600000 }, { cache: true, cookies: false, history: true });
+                chrome.browsingData.remove({ since: Date.now() - 3600000 }, { cache: true, cookies: false, history: true }).catch(() => {});
                 break;
             case 'clear_unprotected': {
                 const tabs = await chrome.tabs.query({ windowId: currentWinId });
                 const toClose = tabs.filter(t => !t.pinned && t.groupId === NONE_GROUP && !t.active).map(t => t.id);
-                if (toClose.length > 0) chrome.tabs.remove(toClose);
+                if (toClose.length > 0) chrome.tabs.remove(toClose).catch(() => {});
                 break;
             }
             case 'toggle_pin':
-                if (tab) chrome.tabs.update(tab.id, { pinned: !tab.pinned });
+                if (tab) chrome.tabs.update(tab.id, { pinned: !tab.pinned }).catch(() => {});
                 break;
             case 'duplicate_tab':
-                if (tab) chrome.tabs.duplicate(tab.id);
+                if (tab) chrome.tabs.duplicate(tab.id).catch(() => {});
                 break;
             case 'toggle_mute':
-                if (tab) chrome.tabs.update(tab.id, { muted: !tab.mutedInfo?.muted });
+                if (tab) chrome.tabs.update(tab.id, { muted: !tab.mutedInfo?.muted }).catch(() => {});
                 break;
             case 'toggle_group':
                 if (!tab) break;
                 if (tab.groupId !== NONE_GROUP) {
-                    chrome.tabs.ungroup(tab.id);
+                    chrome.tabs.ungroup(tab.id).catch(() => {});
                 } else {
                     const gid = await chrome.tabs.group({ tabIds: [tab.id] });
                     await chrome.tabGroups.update(gid, { title: '' });
@@ -868,7 +881,7 @@ export async function executeAction(commandId, args, senderTab = null) {
                 }
                 break;
             case 'hard_reload':
-                if (tab) chrome.tabs.reload(tab.id, { bypassCache: true });
+                if (tab) chrome.tabs.reload(tab.id, { bypassCache: true }).catch(() => {});
                 break;
             case 'split_view': {
                 if (!tab) break;
@@ -881,7 +894,7 @@ export async function executeAction(commandId, args, senderTab = null) {
             case 'close_other_tabs': {
                 const tabs = await chrome.tabs.query({ windowId: currentWinId });
                 const toClose = tabs.filter(t => t.id !== tab?.id).map(t => t.id);
-                if (toClose.length > 0) chrome.tabs.remove(toClose);
+                if (toClose.length > 0) chrome.tabs.remove(toClose).catch(() => {});
                 break;
             }
             case "update_baseline":
@@ -914,31 +927,31 @@ export async function executeAction(commandId, args, senderTab = null) {
                     if (stored) { memoryBaselines.set(tab.id, { ...stored, url }); syncBaselinesToStorage(); }
                 }
                 break;
-            case 'open_downloads': chrome.tabs.create({ url: 'chrome://downloads/' }); break;
-            case 'open_extensions': chrome.tabs.create({ url: 'chrome://extensions/' }); break;
-            case 'open_settings': chrome.tabs.create({ url: 'chrome://settings/' }); break;
-            case 'set_gpu': chrome.tabs.create({ url: 'chrome://settings/?search=hardware+acceleration' }); break;
-            case 'set_performance': chrome.tabs.create({ url: 'chrome://settings/performance' }); break;
-            case 'set_privacy': chrome.tabs.create({ url: 'chrome://settings/privacy' }); break;
-            case 'set_clear_data': chrome.tabs.create({ url: 'chrome://settings/clearBrowserData' }); break;
-            case 'set_cookies': chrome.tabs.create({ url: 'chrome://settings/cookies' }); break;
-            case 'set_ad_privacy': chrome.tabs.create({ url: 'chrome://settings/adPrivacy' }); break;
-            case 'set_permissions': chrome.tabs.create({ url: 'chrome://settings/content' }); break;
-            case 'set_passwords': chrome.tabs.create({ url: 'chrome://password-manager/passwords' }); break;
-            case 'set_autofill': chrome.tabs.create({ url: 'chrome://settings/addresses' }); break;
-            case 'set_payments': chrome.tabs.create({ url: 'chrome://settings/payments' }); break;
-            case 'set_appearance': chrome.tabs.create({ url: 'chrome://settings/appearance' }); break;
-            case 'set_fonts': chrome.tabs.create({ url: 'chrome://settings/fonts' }); break;
-            case 'set_search': chrome.tabs.create({ url: 'chrome://settings/search' }); break;
-            case 'set_downloads': chrome.tabs.create({ url: 'chrome://settings/downloads' }); break;
-            case 'set_languages': chrome.tabs.create({ url: 'chrome://settings/languages' }); break;
-            case 'set_accessibility': chrome.tabs.create({ url: 'chrome://settings/accessibility' }); break;
-            case 'set_flags': chrome.tabs.create({ url: 'chrome://flags/' }); break;
-            case 'set_reset': chrome.tabs.create({ url: 'chrome://settings/reset' }); break;
-            case 'set_help': chrome.tabs.create({ url: 'chrome://settings/help' }); break;
-            case 'set_sync': chrome.tabs.create({ url: 'chrome://settings/syncSetup' }); break;
-            case 'set_startup': chrome.tabs.create({ url: 'chrome://settings/onStartup' }); break;
-            case 'set_extensions': chrome.tabs.create({ url: 'chrome://extensions/' }); break;
+            case 'open_downloads': chrome.tabs.create({ url: 'chrome://downloads/' }).catch(() => {}); break;
+            case 'open_extensions': chrome.tabs.create({ url: 'chrome://extensions/' }).catch(() => {}); break;
+            case 'open_settings': chrome.tabs.create({ url: 'chrome://settings/' }).catch(() => {}); break;
+            case 'set_gpu': chrome.tabs.create({ url: 'chrome://settings/?search=hardware+acceleration' }).catch(() => {}); break;
+            case 'set_performance': chrome.tabs.create({ url: 'chrome://settings/performance' }).catch(() => {}); break;
+            case 'set_privacy': chrome.tabs.create({ url: 'chrome://settings/privacy' }).catch(() => {}); break;
+            case 'set_clear_data': chrome.tabs.create({ url: 'chrome://settings/clearBrowserData' }).catch(() => {}); break;
+            case 'set_cookies': chrome.tabs.create({ url: 'chrome://settings/cookies' }).catch(() => {}); break;
+            case 'set_ad_privacy': chrome.tabs.create({ url: 'chrome://settings/adPrivacy' }).catch(() => {}); break;
+            case 'set_permissions': chrome.tabs.create({ url: 'chrome://settings/content' }).catch(() => {}); break;
+            case 'set_passwords': chrome.tabs.create({ url: 'chrome://password-manager/passwords' }).catch(() => {}); break;
+            case 'set_autofill': chrome.tabs.create({ url: 'chrome://settings/addresses' }).catch(() => {}); break;
+            case 'set_payments': chrome.tabs.create({ url: 'chrome://settings/payments' }).catch(() => {}); break;
+            case 'set_appearance': chrome.tabs.create({ url: 'chrome://settings/appearance' }).catch(() => {}); break;
+            case 'set_fonts': chrome.tabs.create({ url: 'chrome://settings/fonts' }).catch(() => {}); break;
+            case 'set_search': chrome.tabs.create({ url: 'chrome://settings/search' }).catch(() => {}); break;
+            case 'set_downloads': chrome.tabs.create({ url: 'chrome://settings/downloads' }).catch(() => {}); break;
+            case 'set_languages': chrome.tabs.create({ url: 'chrome://settings/languages' }).catch(() => {}); break;
+            case 'set_accessibility': chrome.tabs.create({ url: 'chrome://settings/accessibility' }).catch(() => {}); break;
+            case 'set_flags': chrome.tabs.create({ url: 'chrome://flags/' }).catch(() => {}); break;
+            case 'set_reset': chrome.tabs.create({ url: 'chrome://settings/reset' }).catch(() => {}); break;
+            case 'set_help': chrome.tabs.create({ url: 'chrome://settings/help' }).catch(() => {}); break;
+            case 'set_sync': chrome.tabs.create({ url: 'chrome://settings/syncSetup' }).catch(() => {}); break;
+            case 'set_startup': chrome.tabs.create({ url: 'chrome://settings/onStartup' }).catch(() => {}); break;
+            case 'set_extensions': chrome.tabs.create({ url: 'chrome://extensions/' }).catch(() => {}); break;
             case 'pomo_25': if (globalSettings.enablePomo) startPomoTimer(25, 'work'); break;
             case 'pomo_50': if (globalSettings.enablePomo) startPomoTimer(50, 'work'); break;
             case 'pomo_5':  if (globalSettings.enablePomo) startPomoTimer(5, 'break'); break;

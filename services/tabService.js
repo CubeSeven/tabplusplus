@@ -64,11 +64,11 @@ export function updateCleanupAlarms() {
 const pendingEvictionIds = new Set();
 
 export function syncVaultToStorage() {
-    chrome.storage.local.set({ vault: sessionVault });
+    chrome.storage.local.set({ vault: sessionVault }).catch(() => {});
 }
 
 export function syncSetsToStorage() {
-    chrome.storage.local.set({ tabSets: tabSets });
+    chrome.storage.local.set({ tabSets: tabSets }).catch(() => {});
 }
 
 let syncTimeout = null;
@@ -78,7 +78,7 @@ export function syncBaselinesToStorage(force = false) {
         chrome.storage.local.set({
             baselines: Object.fromEntries(memoryBaselines),
             lastSession: Array.from(memoryBaselines.values())
-        });
+        }).catch(() => {});
         return;
     }
     if (syncTimeout) clearTimeout(syncTimeout);
@@ -86,12 +86,12 @@ export function syncBaselinesToStorage(force = false) {
         chrome.storage.local.set({
             baselines: Object.fromEntries(memoryBaselines),
             lastSession: Array.from(memoryBaselines.values())
-        });
+        }).catch(() => {});
     }, 2000);
 }
 
 export function saveSnapshot() {
-    chrome.storage.local.set({ lastSession: Array.from(memoryBaselines.values()) });
+    chrome.storage.local.set({ lastSession: Array.from(memoryBaselines.values()) }).catch(() => {});
 }
 
 chrome.runtime.onSuspend.addListener(() => {
@@ -101,7 +101,7 @@ chrome.runtime.onSuspend.addListener(() => {
         chrome.storage.local.set({
             baselines: Object.fromEntries(memoryBaselines),
             lastSession: Array.from(memoryBaselines.values())
-        });
+        }).catch(() => {});
     }
 });
 
@@ -226,27 +226,27 @@ export async function initializeState(isFreshStartup = false) {
             if (domainMatched) continue;
 
             // Truly orphaned — tab is gone. Save to vault if not already there.
-            // Use groupTitle as a secondary key so two different groups with the same
-            // URL (e.g., two YouTube tabs in different groups) are both preserved.
-            const vaultKey = `${canonical}|${data.groupTitle || ''}`;
-            const alreadyInVault = sessionVault.some(t =>
-                getCanonicalUrl(t.url) === canonical && (t.groupTitle || '') === (data.groupTitle || '')
-            );
-            if (!alreadyInVault) {
+            if (!vaultCanonicalUrls.has(canonical)) {
                 data.savedAt = Date.now();
                 sessionVault.push(data);
+                vaultCanonicalUrls.add(canonical);
             }
             memoryBaselines.delete(oldId);
             changed = true;
         }
     }
 
-    if (changed) syncVaultToStorage();
     for (const tab of tabs) {
         if (tab.discarded) discardedTabs.add(tab.id);
         if (processTab(tab)) changed = true;
     }
-    if (changed) syncBaselinesToStorage();
+    if (changed) {
+        chrome.storage.local.set({
+            vault: sessionVault,
+            baselines: Object.fromEntries(memoryBaselines),
+            lastSession: Array.from(memoryBaselines.values())
+        }).catch(() => {});
+    }
 
     // --- STARTUP HIBERNATE ---
     // On a fresh browser open, all background tabs are loaded by Chrome by default,
