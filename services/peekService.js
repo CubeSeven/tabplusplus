@@ -1,4 +1,13 @@
-import { peekWindows } from '../state.js';
+import { peekWindows, blurredSourceTabs } from '../state.js';
+
+// Returns true if any open peek window still references the given source tab.
+// Used to decide whether the parent blur can be safely removed.
+function isSourceStillPeeking(sourceTabId) {
+    for (const [, data] of peekWindows.entries()) {
+        if (data.sourceTabId === sourceTabId) return true;
+    }
+    return false;
+}
 
 export function handleOpenPeek(request, sender, sendResponse) {
     const refWinId = sender.tab ? sender.tab.windowId : chrome.windows.WINDOW_ID_CURRENT;
@@ -29,6 +38,7 @@ export function handleOpenPeek(request, sender, sendResponse) {
                 });
                 if (sourceTabId) {
                     chrome.tabs.sendMessage(sourceTabId, { action: 'apply-parent-blur' }).catch(() => {});
+                    blurredSourceTabs.add(sourceTabId);
                 }
             }
         });
@@ -46,8 +56,9 @@ export function handlePromotePeek(request, sender, sendResponse) {
     // closing) doesn't fire a duplicate remove-parent-blur.
     peekWindows.delete(sender.tab.windowId);
 
-    if (sourceData?.sourceTabId) {
+    if (sourceData?.sourceTabId && !isSourceStillPeeking(sourceData.sourceTabId)) {
         chrome.tabs.sendMessage(sourceData.sourceTabId, { action: 'remove-parent-blur' }).catch(() => {});
+        blurredSourceTabs.delete(sourceData.sourceTabId);
     }
 
     chrome.windows.getAll({ windowTypes: ['normal'] }, (windows) => {
@@ -80,8 +91,9 @@ export function handleCheckPeekStatus(sender, sendResponse) {
 
 export function cleanupPeekWindow(windowId) {
     const peekData = peekWindows.get(windowId);
-    if (peekData && peekData.sourceTabId) {
-        chrome.tabs.sendMessage(peekData.sourceTabId, { action: 'remove-parent-blur' }).catch(() => {});
-    }
     peekWindows.delete(windowId);
+    if (peekData && peekData.sourceTabId && !isSourceStillPeeking(peekData.sourceTabId)) {
+        chrome.tabs.sendMessage(peekData.sourceTabId, { action: 'remove-parent-blur' }).catch(() => {});
+        blurredSourceTabs.delete(peekData.sourceTabId);
+    }
 }

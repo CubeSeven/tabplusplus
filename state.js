@@ -9,6 +9,11 @@ export let vaultCanonicalUrls = new Set();
 export let tabSets = {};
 export let groupCache = new Map();
 export let peekWindows = new Map();
+// Tabs whose content script currently shows the peek parent-blur overlay.
+// Tracked background-side so a lost remove-parent-blur message (discarded tab,
+// content script unavailable) can be recovered via onActivated. Must be cleaned
+// up in tabs.onRemoved and windows.onRemoved.
+export let blurredSourceTabs = new Set();
 export let evictionGraveyard = new Map();
 export let recreationRegistry = new Map();
 export let groupClosureTracker = new Map();
@@ -24,6 +29,7 @@ export let pomoTimer = { endTime: null, type: null, isActive: false };
 export let discardedTabs = new Set();
 export let recentlyAwakened = new Map();
 export let pendingFocusGuardWindowIds = new Set();
+export let savedPrompts = [];
 
 
 export function setLastActiveTabId(id) { lastActiveTabId = id; }
@@ -31,6 +37,7 @@ export function setInitialized(val) { isInitialized = val; }
 export function setSessionVault(val) { sessionVault = val; }
 export function setTabSets(val) { tabSets = val; }
 export function setPomoTimer(val) { pomoTimer = val; }
+export function setSavedPrompts(val) { savedPrompts = val; }
 
 
 // Helper to update settings

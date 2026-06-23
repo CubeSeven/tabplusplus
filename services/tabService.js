@@ -1,4 +1,4 @@
-import { memoryBaselines, globalSettings, sessionVault, vaultCanonicalUrls, tabSets, groupCache, setInitialized, setSessionVault, setTabSets, isInitialized, ntpTabCache, evictionGraveyard, peekWindows, autoGroupRegistry, discardedTabs } from '../state.js';
+import { memoryBaselines, globalSettings, sessionVault, vaultCanonicalUrls, tabSets, groupCache, setInitialized, setSessionVault, setTabSets, isInitialized, ntpTabCache, evictionGraveyard, peekWindows, autoGroupRegistry, discardedTabs, savedPrompts, setSavedPrompts } from '../state.js';
 import { getCanonicalUrl, safeDiscard } from '../utils.js';
 import { NONE_GROUP, GROUPING_RULES, NTP_URL } from '../constants.js';
 
@@ -71,6 +71,10 @@ export function syncSetsToStorage() {
     chrome.storage.local.set({ tabSets: tabSets }).catch(() => {});
 }
 
+export function syncPromptsToStorage() {
+    chrome.storage.local.set({ savedPrompts }).catch(() => {});
+}
+
 let syncTimeout = null;
 export function syncBaselinesToStorage(force = false) {
     if (force) {
@@ -109,12 +113,13 @@ let loadPromise = null;
 export async function ensureLoaded() {
     if (isInitialized) return;
     if (!loadPromise) {
-        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'tabSets']).then((data) => {
+        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'tabSets', 'savedPrompts']).then((data) => {
             if (data.settings) Object.assign(globalSettings, data.settings);
             setSessionVault(data.vault || []);
             vaultCanonicalUrls.clear();
             for (const t of sessionVault) { vaultCanonicalUrls.add(getCanonicalUrl(t.url)); }
             setTabSets(data.tabSets || {});
+            setSavedPrompts(data.savedPrompts || []);
             const stored = data.baselines || {};
             memoryBaselines.clear();
             for (const [key, value] of Object.entries(stored)) {
@@ -328,7 +333,13 @@ export function processTab(tab) {
                     // in flight even though processTab already flagged the tab.
                     const ageNow = stored._restoredAt ? (Date.now() - stored._restoredAt) : Infinity;
                     if (ageNow < 2000) return; // still within grace period — back off
-                    if (!currentTab.pinned && currentTab.groupId === NONE_GROUP) {
+                    // Evict when the tab is no longer protected under current settings,
+                    // not merely when it's ungrouped/unpinned. This ensures toggling
+                    // protectGrouped/protectPinned off actually releases baselines for
+                    // tabs that are still grouped/pinned.
+                    const stillProtected = (globalSettings.protectPinned && currentTab.pinned) ||
+                        (globalSettings.protectGrouped && currentTab.groupId !== NONE_GROUP);
+                    if (!stillProtected) {
                         memoryBaselines.delete(tab.id);
                         syncBaselinesToStorage();
                     }
@@ -427,4 +438,63 @@ export async function restoreVault(vaultData) {
     }
     syncBaselinesToStorage(true);
     return true;
+}
+
+// Immediate eviction of baselines for tabs that are no longer protected under
+// current settings. Called when protectPinned/protectGrouped is toggled OFF so
+// those tabs close normally instead of being silently restored. Respects the
+// 2s restore grace period so tabs mid-restore (group assignment in flight) are
+// not evicted prematurely.
+export async function evictUnprotectedBaselines() {
+    const tabs = await chrome.tabs.query({});
+    const tabMap = new Map(tabs.map(t => [t.id, t]));
+    let changed = false;
+    for (const [tabId, data] of memoryBaselines.entries()) {
+        const tab = tabMap.get(tabId);
+        if (!tab) {
+            memoryBaselines.delete(tabId);
+            changed = true;
+            continue;
+        }
+        const stillProtected = (globalSettings.protectPinned && tab.pinned) ||
+            (globalSettings.protectGrouped && tab.groupId !== NONE_GROUP);
+        const restoredAge = data._restoredAt ? (Date.now() - data._restoredAt) : Infinity;
+        if (!stillProtected && restoredAge > 2000) {
+            memoryBaselines.delete(tabId);
+            changed = true;
+        }
+    }
+    if (changed) syncBaselinesToStorage();
+}
+
+// Symmetric counterpart to evictUnprotectedBaselines: when protectPinned or
+// protectGrouped is toggled ON, register baselines for existing tabs that are
+// now protected but don't have one yet. Without this, tabs that were already
+// pinned/grouped before the toggle would only get a baseline on their next
+// onUpdated event — meaning closing them before visiting/navigating would
+// silently destroy them.
+export async function registerProtectedBaselines() {
+    const tabs = await chrome.tabs.query({});
+    let changed = false;
+    for (const tab of tabs) {
+        if (peekWindows.has(tab.windowId)) continue;
+        const url = tab.url || tab.pendingUrl || '';
+        if (!url || url.startsWith('chrome://') || url.startsWith('chrome-extension://') || url.startsWith(NTP_URL)) continue;
+
+        const isProtected = (globalSettings.protectPinned && tab.pinned) ||
+            (globalSettings.protectGrouped && tab.groupId !== NONE_GROUP);
+        if (!isProtected) continue;
+        if (memoryBaselines.has(tab.id)) continue; // already tracked
+
+        const title = (tab.groupId !== NONE_GROUP && groupCache.has(tab.groupId)) ? groupCache.get(tab.groupId).title : '';
+        const color = (tab.groupId !== NONE_GROUP && groupCache.has(tab.groupId)) ? groupCache.get(tab.groupId).color : 'grey';
+        memoryBaselines.set(tab.id, {
+            url, index: tab.index, windowId: tab.windowId,
+            pinned: tab.pinned, groupId: tab.groupId,
+            groupTitle: title, groupColor: color,
+            _lastMessagedProtection: true
+        });
+        changed = true;
+    }
+    if (changed) syncBaselinesToStorage();
 }

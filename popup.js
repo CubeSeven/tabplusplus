@@ -23,7 +23,7 @@ const FEATURES = [
   {
     id: 'enablePalette',
     title: 'Command Palette',
-    description: 'Search tabs & history instantly.',
+    description: 'Search tabs & history instantly. Open with Ctrl+Shift+K (Cmd+Shift+K on Mac).',
     default: true,
     badge: 'Core',
     category: 'Tools',
@@ -110,7 +110,7 @@ const TOOLS = [
   {
     id: 'pip-player',
     title: 'PiP Player',
-    description: 'Pop out any video into a floating window.',
+    description: 'Pop out any video into a floating window. May conflict with other PiP extensions.',
     badge: null,
     category: 'Media',
     settingId: 'autoPiP',
@@ -296,9 +296,27 @@ function renderTools(settings, filter = '') {
 
   const paletteOff = settings.enablePalette === false;
 
+  const hint = document.querySelector('.tools-hint');
+  if (hint) hint.style.display = paletteOff ? 'none' : '';
+
   if (paletteOff) {
-    container.innerHTML = '<div class="palette-disabled-message">Enable Command Palette to use tools</div>';
+    container.className = 'tools-list-disabled';
+    container.innerHTML = `
+      <div class="tools-disabled-overlay">
+        <div class="tools-disabled-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2" ry="2"></rect>
+            <path d="M6 8h.01"></path><path d="M10 8h.01"></path><path d="M14 8h.01"></path><path d="M18 8h.01"></path>
+            <path d="M8 12h.01"></path><path d="M12 12h.01"></path><path d="M16 12h.01"></path><path d="M7 16h10"></path>
+          </svg>
+        </div>
+        <div class="tools-disabled-title">Command Palette is disabled</div>
+        <div class="tools-disabled-text">Enable the Command Palette in Settings to use tools.</div>
+      </div>`;
+    return;
   }
+
+  container.className = 'features-grid';
 
   const filtered = TOOLS.filter(t => 
     t.title.toLowerCase().includes(filter.toLowerCase()) || 
@@ -311,7 +329,6 @@ function renderTools(settings, filter = '') {
     const card = document.createElement('div');
     let cardClass = 'feature-card';
     if (tool.settingId && isEnabled) cardClass += ' is-on';
-    if (paletteOff) cardClass += ' palette-disabled';
     card.className = cardClass;
     
     // Header Row (Icon + Badge/Toggle)
@@ -344,7 +361,6 @@ function renderTools(settings, filter = '') {
       checkbox.type = 'checkbox';
       checkbox.id = `toggle-${tool.settingId}`;
       checkbox.checked = isEnabled;
-      if (paletteOff) checkbox.disabled = true;
 
       const track = document.createElement('div');
       track.className = 'toggle-track';
@@ -356,20 +372,18 @@ function renderTools(settings, filter = '') {
       toggleWrap.appendChild(track);
       rightGroup.appendChild(toggleWrap);
 
-      if (!paletteOff) {
-        checkbox.addEventListener('change', (e) => {
-          e.stopPropagation();
-          const newState = checkbox.checked;
-          if (newState) {
-            card.classList.add('is-on');
-            toggleWrap.classList.add('is-on');
-          } else {
-            card.classList.remove('is-on');
-            toggleWrap.classList.remove('is-on');
-          }
-          saveSettings();
-        });
-      }
+      checkbox.addEventListener('change', (e) => {
+        e.stopPropagation();
+        const newState = checkbox.checked;
+        if (newState) {
+          card.classList.add('is-on');
+          toggleWrap.classList.add('is-on');
+        } else {
+          card.classList.remove('is-on');
+          toggleWrap.classList.remove('is-on');
+        }
+        saveSettings();
+      });
     }
 
     cardHeader.appendChild(iconBox);
@@ -390,8 +404,6 @@ function renderTools(settings, filter = '') {
 
     // Click interaction
     card.addEventListener('click', (e) => {
-      if (paletteOff) return;
-
       // Let the toggle's own change event handle direct toggle clicks
       if (e.target.type === 'checkbox' || (e.target.closest && e.target.closest('.toggle-wrap'))) return;
 
@@ -570,10 +582,9 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     const targetId = btn.getAttribute('data-target');
     document.getElementById(targetId).classList.add('active');
     
-    // Maintain search if search is active
-    if (searchRow.classList.contains('active')) {
-      triggerSearch(globalSearchInput.value);
-    }
+    // Re-render with current filter (empty when search is closed) so toggled
+    // settings on another tab are reflected immediately upon tab switch.
+    triggerSearch(globalSearchInput.value);
   });
 });
 

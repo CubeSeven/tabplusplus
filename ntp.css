@@ -547,12 +547,10 @@ mark {
         linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.005) 50%),
         rgba(8,10,20,0.32);
     backdrop-filter:
-        url(#tabspp-liquid-glass)
         blur(32px)
         saturate(110%)
         brightness(0.90);
     -webkit-backdrop-filter:
-        url(#tabspp-liquid-glass)
         blur(32px)
         saturate(110%)
         brightness(0.90);
@@ -674,5 +672,62 @@ mark {
     .container.liquid-glass .badge {
         border-radius: 999px;
     }
+}
+
+/* Prompt Vault Grid */
+#results-container.prompts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    padding: 16px;
+}
+
+.prompt-item {
+    position: relative;
+    border-radius: 12px;
+    background: rgba(128, 128, 128, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, background 0.2s ease;
+    overflow: hidden;
+    min-height: 92px;
+    user-select: none;
+}
+
+.prompt-item:hover {
+    transform: translateY(-2px);
+    background: rgba(128, 128, 128, 0.14);
+}
+
+.prompt-item.focused {
+    transform: translateY(-4px) scale(1.02);
+    z-index: 10;
+    box-shadow:
+        0 16px 40px rgba(0, 0, 0, 0.25),
+        0 0 0 2px var(--highlight, rgba(0, 0, 0, 0.4)),
+        0 0 20px rgba(255, 59, 48, 0.3);
+}
+
+.prompt-item .prompt-name {
+    font-weight: 750;
+    font-size: 13.5px;
+    color: var(--text-color);
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.01em;
+}
+
+.prompt-item .prompt-preview {
+    font-size: 12px;
+    color: var(--subtext);
+    line-height: 1.4;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
 }
 

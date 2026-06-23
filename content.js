@@ -41,6 +41,14 @@ let selectedMediaIds = new Set();
 let domOrderedMedia = [];
 let cachedMediaItems = [];
 
+// Prompt Vault State
+let isPromptsMode = false;
+let domOrderedPrompts = [];
+let cachedAllPrompts = [];
+let cachedPromptItems = [];
+let pendingPromptText = '';
+let cachedSelectionAtOpen = '';
+
 // Pomodoro Timer State
 let pomoHost = null;
 let pomoInterval = null;
@@ -73,7 +81,6 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
             const container = shadow.querySelector('.container');
             if (container) {
                 if (settings.enableLiquidGlass) {
-                    injectLiquidGlassFilter(shadow);
                     container.classList.add('liquid-glass');
                 } else {
                     container.classList.remove('liquid-glass');
@@ -82,150 +89,6 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
         }
     }
 });
-
-// ── Liquid Glass Displacement Filter ──
-// Physics: convex squircle profile + Snell's law refraction
-function generateLiquidGlassMap(width, height, radius, bezel, glassThickness) {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    const imgData = ctx.createImageData(width, height);
-    const d = imgData.data;
-    const cx = width / 2;
-    const cy = height / 2;
-    const hw = width / 2;
-    const hh = height / 2;
-    const bx = hw - radius;
-    const by = hh - radius;
-    const nGlass = 1.5;
-
-    function surfaceSlope(t) {
-        const u = Math.max(0.0001, Math.min(0.9999, 1 - t));
-        return Math.pow(u, 3) / Math.pow(1 - Math.pow(u, 4), 0.75);
-    }
-
-    // First pass: compute raw displacements and find maximum
-    const rawDisp = new Float32Array(width * height * 2);
-    let maxDisp = 0;
-
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const px = Math.abs(x - cx);
-            const py = Math.abs(y - cy);
-
-            let dist;
-            if (px > bx && py > by) {
-                dist = Math.sqrt((px - bx) ** 2 + (py - by) ** 2) - radius;
-            } else {
-                dist = Math.max(px - hw, py - hh);
-            }
-
-            const idx = (y * width + x) * 2;
-
-            if (dist < 0 && dist > -bezel) {
-                const t = Math.max(0, Math.min(1, -dist / bezel));
-                const slope = surfaceSlope(t); // dh/dt in normalized units
-                const actualSlope = (glassThickness / bezel) * slope;
-
-                // Surface angle from horizontal
-                const surfaceAngle = Math.atan(actualSlope);
-
-                // For vertical incident ray, angle of incidence = surfaceAngle
-                const sinTheta1 = Math.sin(Math.min(surfaceAngle, Math.PI / 2 - 0.001));
-                const sinTheta2 = Math.min(sinTheta1 / nGlass, 0.999);
-                const theta2 = Math.asin(sinTheta2);
-
-                // Displacement = glassThickness * tan(theta2) (single refraction approximation)
-                const dispMag = glassThickness * Math.tan(theta2);
-
-                // Direction: inward normal
-                let nx = 0, ny = 0;
-                if (px > bx && py > by) {
-                    const cdx = px - bx;
-                    const cdy = py - by;
-                    const cl = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
-                    nx = cdx / cl;
-                    ny = cdy / cl;
-                } else if (px > bx) {
-                    nx = 1;
-                } else if (py > by) {
-                    ny = 1;
-                } else {
-                    if (px > hw - bezel) nx = 1;
-                    else if (py > hh - bezel) ny = 1;
-                }
-
-                rawDisp[idx] = -nx * Math.sign(x - cx) * dispMag;
-                rawDisp[idx + 1] = -ny * Math.sign(y - cy) * dispMag;
-
-                const mag = Math.sqrt(rawDisp[idx] ** 2 + rawDisp[idx + 1] ** 2);
-                if (mag > maxDisp) maxDisp = mag;
-            } else {
-                rawDisp[idx] = 0;
-                rawDisp[idx + 1] = 0;
-            }
-        }
-    }
-
-    // Second pass: normalize and encode
-    const scale = Math.max(maxDisp, 1);
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const idx = (y * width + x) * 2;
-            const i = (y * width + x) * 4;
-
-            const dx = rawDisp[idx] / scale;
-            const dy = rawDisp[idx + 1] / scale;
-
-            d[i] = Math.max(0, Math.min(255, 128 + dx * 127));
-            d[i + 1] = Math.max(0, Math.min(255, 128 + dy * 127));
-            d[i + 2] = 128;
-            d[i + 3] = 255;
-        }
-    }
-
-    ctx.putImageData(imgData, 0, 0);
-    return { dataUrl: canvas.toDataURL('image/png'), maxDisp: scale };
-}
-
-function injectLiquidGlassFilter(shadowRoot) {
-    if (shadowRoot.getElementById('tabspp-liquid-glass-svg')) return;
-    let dataUrl, maxDisp;
-    try {
-        ({ dataUrl, maxDisp } = generateLiquidGlassMap(750, 520, 20, 18, 55));
-    } catch (e) { return; }
-    const svgNS = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(svgNS, 'svg');
-    svg.id = 'tabspp-liquid-glass-svg';
-    svg.style.cssText = 'position:absolute;width:0;height:0;';
-    const defs = document.createElementNS(svgNS, 'defs');
-    const filter = document.createElementNS(svgNS, 'filter');
-    filter.id = 'tabspp-liquid-glass';
-    filter.setAttribute('x', '-20%');
-    filter.setAttribute('y', '-20%');
-    filter.setAttribute('width', '140%');
-    filter.setAttribute('height', '140%');
-    const feImage = document.createElementNS(svgNS, 'feImage');
-    feImage.setAttribute('href', dataUrl);
-    feImage.setAttribute('x', '0');
-    feImage.setAttribute('y', '0');
-    feImage.setAttribute('width', '100%');
-    feImage.setAttribute('height', '100%');
-    feImage.setAttribute('preserveAspectRatio', 'none');
-    feImage.setAttribute('result', 'displacement_map');
-    const feDisp = document.createElementNS(svgNS, 'feDisplacementMap');
-    feDisp.setAttribute('in', 'SourceGraphic');
-    feDisp.setAttribute('in2', 'displacement_map');
-    feDisp.setAttribute('scale', String(Math.round(maxDisp * 1.5)));
-    feDisp.setAttribute('xChannelSelector', 'R');
-    feDisp.setAttribute('yChannelSelector', 'G');
-    filter.appendChild(feImage);
-    filter.appendChild(feDisp);
-    defs.appendChild(filter);
-    svg.appendChild(defs);
-    shadowRoot.appendChild(svg);
-}
 
 /* =========================================================================
    PALETTE & PEEK STYLES
@@ -696,6 +559,62 @@ const PALETTE_STYLES = `
         stroke-width: 3;
     }
 
+    /* Prompt Vault Grid Styles */
+    .results.prompts-grid {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        padding: 16px;
+    }
+
+    .prompt-item {
+        position: relative;
+        border-radius: 12px;
+        background: rgba(128, 128, 128, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        padding: 12px 14px;
+        cursor: pointer;
+        transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, background 0.2s ease;
+        overflow: hidden;
+        min-height: 92px;
+    }
+
+    .prompt-item:hover {
+        transform: translateY(-2px);
+        background: rgba(128, 128, 128, 0.14);
+    }
+
+    .prompt-item.focused {
+        transform: translateY(-4px) scale(1.02);
+        z-index: 10;
+        box-shadow:
+            0 16px 40px rgba(0, 0, 0, 0.4),
+            0 0 0 2px var(--highlight),
+            0 0 20px rgba(255, 59, 48, 0.3);
+    }
+
+    .prompt-name {
+        font-weight: 750;
+        font-size: 12.5px;
+        color: var(--text-color);
+        margin-bottom: 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        letter-spacing: -0.01em;
+    }
+
+    .prompt-preview {
+        font-size: 11px;
+        color: var(--subtext);
+        line-height: 1.4;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        word-break: break-word;
+    }
+
     /* ── Liquid Glass ───────────────────────── */
     .container.liquid-glass {
         --text-color: #ffffff;
@@ -708,12 +627,10 @@ const PALETTE_STYLES = `
             linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.005) 50%),
             rgba(8,10,20,0.32);
         backdrop-filter:
-            url(#tabspp-liquid-glass)
             blur(32px)
             saturate(110%)
             brightness(0.90);
         -webkit-backdrop-filter:
-            url(#tabspp-liquid-glass)
             blur(32px)
             saturate(110%)
             brightness(0.90);
@@ -1013,6 +930,19 @@ function createPalette() {
                 }
                 updateSelection(midx);
             }
+            return;
+        }
+
+        const promptItem = e.target.closest('.prompt-item');
+        if (promptItem) {
+            const pidx = parseInt(promptItem.getAttribute('data-pidx'));
+            if (pidx >= 0 && pidx < domOrderedPrompts.length) {
+                const prompt = domOrderedPrompts[pidx];
+                updateSelection(pidx);
+                navigator.clipboard.writeText(prompt.text).catch(() => {});
+                showPromptsFeedback(`Copied: ${prompt.name}`, '#4ade80');
+                focusTimeouts.push(setTimeout(() => { hidePalette(); }, 400));
+            }
         }
     });
 
@@ -1135,6 +1065,11 @@ function showPalette() {
     isActionMode = false;
     if (actionModeIndicator) actionModeIndicator.classList.remove('visible');
 
+    try {
+        const sel = window.getSelection();
+        cachedSelectionAtOpen = sel ? (sel.toString() || '').trim() : '';
+    } catch (e) { cachedSelectionAtOpen = ''; }
+
     // Force reflow for animation
     palette.offsetHeight;
     if (!shadow) return;
@@ -1148,7 +1083,6 @@ function showPalette() {
     });
 
     if (settings.enableLiquidGlass) {
-        injectLiquidGlassFilter(shadow);
         try { container.classList.add('liquid-glass'); } catch (e) {}
     } else {
         try { container.classList.remove('liquid-glass'); } catch (e) {}
@@ -1197,6 +1131,12 @@ function hidePalette() {
             isMediaMode = false;
             extractedMedia = [];
             selectedMediaIds.clear();
+            isPromptsMode = false;
+            domOrderedPrompts = [];
+            cachedAllPrompts = [];
+            cachedPromptItems = [];
+            pendingPromptText = '';
+            cachedSelectionAtOpen = '';
             hasStaggered = false;
         }
     }, 150); // wait for animation
@@ -1517,6 +1457,12 @@ async function handleSearch() {
         return;
     }
 
+    if (isPromptsMode) {
+        const filtered = filterPromptsByQuery(cachedAllPrompts, query);
+        renderPromptsResults(filtered);
+        return;
+    }
+
     const sentQuery = query;
     try {
         chrome.runtime.sendMessage({ action: 'search-items', query }, response => {
@@ -1734,6 +1680,20 @@ function updateSelection(index) {
                 el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
             }
         }
+    } else if (isPromptsMode) {
+        if (selectedIndex >= 0 && selectedIndex < cachedPromptItems.length) {
+            cachedPromptItems[selectedIndex].classList.remove('focused');
+        }
+        selectedIndex = index;
+        if (selectedIndex >= 0 && selectedIndex < cachedPromptItems.length) {
+            cachedPromptItems[selectedIndex].classList.add('focused');
+            const el = cachedPromptItems[selectedIndex];
+            const rect = el.getBoundingClientRect();
+            const containerRect = resultsContainer.getBoundingClientRect();
+            if (rect.top < containerRect.top || rect.bottom > containerRect.bottom) {
+                el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+        }
     } else {
         if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) {
             cachedResultItems[selectedIndex].classList.remove('selected');
@@ -1935,6 +1895,17 @@ function filterMediaResults(results, filter) {
     });
 }
 
+function filterPromptsByQuery(prompts, query) {
+    if (!query) return prompts;
+    const lower = query.toLowerCase();
+    const parts = lower.split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return prompts;
+    return prompts.filter(p => {
+        const hay = `${p.name} ${p.text}`.toLowerCase();
+        return parts.every(part => hay.includes(part));
+    });
+}
+
 function renderMediaResults(results) {
     resultsContainer.innerHTML = '';
     resultsContainer.scrollTop = 0;
@@ -1980,6 +1951,59 @@ function renderMediaResults(results) {
 
     resultsContainer.appendChild(fragment);
     cachedMediaItems = Array.from(resultsContainer.querySelectorAll('.media-item'));
+}
+
+function renderPromptsResults(results) {
+    resultsContainer.innerHTML = '';
+    resultsContainer.scrollTop = 0;
+    domOrderedPrompts = results;
+    selectedIndex = results.length > 0 ? 0 : -1;
+
+    resultsContainer.className = 'results prompts-grid has-items';
+
+    if (results.length === 0) {
+        resultsContainer.className = 'results has-items';
+        resultsContainer.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">${ICONS.search}</div>
+                <div class="empty-title">No saved prompts</div>
+                <div class="empty-hint">Use &gt;save prompt to capture selected text</div>
+            </div>`;
+        return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    results.forEach((prompt, index) => {
+        const el = document.createElement('div');
+        el.className = 'prompt-item';
+        if (index === 0) el.classList.add('focused');
+
+        const preview = (prompt.text || '').replace(/\s+/g, ' ').trim();
+
+        el.innerHTML = `
+            <div class="prompt-name">${escapeHTML(prompt.name)}</div>
+            <div class="prompt-preview">${escapeHTML(preview)}</div>
+        `;
+
+        el.setAttribute('data-pidx', index);
+
+        fragment.appendChild(el);
+    });
+
+    resultsContainer.appendChild(fragment);
+    cachedPromptItems = Array.from(resultsContainer.querySelectorAll('.prompt-item'));
+}
+
+function showPromptsFeedback(message, color, restoreValue) {
+    if (!input) return;
+    input.value = message;
+    input.style.color = color;
+    focusTimeouts.push(setTimeout(() => {
+        if (!input) return;
+        input.style.color = '';
+        input.value = restoreValue !== undefined ? restoreValue : '';
+    }, 400));
 }
 
 function handleKeydown(e) {
@@ -2049,7 +2073,7 @@ function handleKeydown(e) {
             e.preventDefault();
         } else if (e.key === 'Enter') {
             let urlsToDownload = [];
-            
+
             if (selectedMediaIds.size > 0) {
                 // If anything is explicitly selected, Enter downloads those.
                 urlsToDownload = Array.from(selectedMediaIds);
@@ -2062,10 +2086,91 @@ function handleKeydown(e) {
                     urlsToDownload = [domOrderedMedia[selectedIndex].url];
                 }
             }
-            
+
             if (urlsToDownload.length > 0) {
                 chrome.runtime.sendMessage({ action: 'download-media', urls: urlsToDownload }).catch(() => {});
                 hidePalette();
+            }
+            e.preventDefault();
+        }
+        return;
+    }
+
+    if (isPromptsMode) {
+        if (e.key === 'Escape') {
+            isPromptsMode = false;
+            input.value = "";
+            input.placeholder = "Search tabs, history, bookmarks... or try !yt, !gh, !mdn";
+            resultsContainer.className = 'results';
+            domOrderedPrompts = [];
+            cachedAllPrompts = [];
+            cachedPromptItems = [];
+            handleSearch();
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
+
+        if (e.shiftKey && (e.key === 'Delete' || e.key === 'Backspace')) {
+            if (selectedIndex >= 0 && selectedIndex < domOrderedPrompts.length) {
+                const target = domOrderedPrompts[selectedIndex];
+                const savedQuery = input.value;
+                const deletedIdx = selectedIndex;
+                chrome.runtime.sendMessage({ action: 'delete-prompt', id: target.id }, (response) => {
+                    if (chrome.runtime.lastError || !response?.success) {
+                        showPromptsFeedback('Delete failed', '#ff3b30', savedQuery);
+                        return;
+                    }
+                    const remaining = response.prompts || [];
+                    cachedAllPrompts = remaining;
+                    showPromptsFeedback(`Deleted: ${target.name}`, '#ff3b30', savedQuery);
+                    if (remaining.length === 0) {
+                        isPromptsMode = false;
+                        input.value = "";
+                        input.placeholder = "Search tabs, history, bookmarks... or try !yt, !gh, !mdn";
+                        handleSearch();
+                    } else {
+                        const filtered = filterPromptsByQuery(remaining, savedQuery);
+                        renderPromptsResults(filtered);
+                        const newIdx = Math.min(deletedIdx, domOrderedPrompts.length - 1);
+                        if (newIdx >= 0) updateSelection(newIdx);
+                    }
+                });
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
+
+        const items = cachedPromptItems;
+        if (!items || items.length === 0) return;
+
+        if (e.key === 'ArrowRight') {
+            let newIndex = selectedIndex + 1;
+            if (newIndex >= domOrderedPrompts.length) newIndex = 0;
+            updateSelection(newIndex);
+            e.preventDefault();
+        } else if (e.key === 'ArrowLeft') {
+            let newIndex = selectedIndex - 1;
+            if (newIndex < 0) newIndex = domOrderedPrompts.length - 1;
+            updateSelection(newIndex);
+            e.preventDefault();
+        } else if (e.key === 'ArrowDown') {
+            let newIndex = selectedIndex + 2;
+            if (newIndex >= domOrderedPrompts.length) newIndex = domOrderedPrompts.length - 1;
+            updateSelection(newIndex);
+            e.preventDefault();
+        } else if (e.key === 'ArrowUp') {
+            let newIndex = selectedIndex - 2;
+            if (newIndex < 0) newIndex = 0;
+            updateSelection(newIndex);
+            e.preventDefault();
+        } else if (e.key === 'Enter' || e.key === ' ') {
+            if (selectedIndex >= 0 && selectedIndex < domOrderedPrompts.length) {
+                const prompt = domOrderedPrompts[selectedIndex];
+                navigator.clipboard.writeText(prompt.text).catch(() => {});
+                showPromptsFeedback(`Copied: ${prompt.name}`, '#4ade80');
+                focusTimeouts.push(setTimeout(() => { hidePalette(); }, 400));
             }
             e.preventDefault();
         }
@@ -2096,6 +2201,26 @@ function handleKeydown(e) {
     }
 
     if (pendingCommand) {
+        if (pendingCommand === 'save_prompt_data') {
+            if (e.key === 'Enter') {
+                const name = input.value.trim();
+                if (name && pendingPromptText) {
+                    const captured = pendingPromptText;
+                    chrome.runtime.sendMessage({ action: 'save-prompt', name, text: captured }, (response) => {
+                        if (chrome.runtime.lastError || !response?.success) {
+                            showPromptsFeedback('Save failed', '#ff3b30');
+                            return;
+                        }
+                        showPromptsFeedback(`Saved: ${name}`, '#4ade80');
+                        focusTimeouts.push(setTimeout(() => { hidePalette(); }, 400));
+                    });
+                }
+                pendingCommand = null;
+                pendingPromptText = '';
+                e.preventDefault();
+            }
+            return;
+        }
         if (e.key === 'Enter') {
             const name = input.value.trim();
             chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: pendingCommand, args: name }).catch(() => {});
@@ -2176,6 +2301,18 @@ function renderPendingHint(commandId) {
             `Paste or type a <strong>URL</strong> for this tab`,
             `Examples: <code>https://example.com</code>`
         ];
+    } else if (commandId === 'save_prompt_data') {
+        iconSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`;
+        lines = [
+            `Type a <strong>name</strong> for this prompt`,
+            `Examples: <code>Follow-up email</code> &nbsp;·&nbsp; <code>Code review ask</code>`
+        ];
+    } else if (commandId === 'save_prompt_empty') {
+        iconSvg = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+        lines = [
+            `Select text on the page first, then try again`,
+            `Tip: highlight any snippet and run <code>&gt;save prompt</code>`
+        ];
     } else {
         return; // no hint for unknown commands
     }
@@ -2205,6 +2342,45 @@ function activateResult(result) {
             input.placeholder = 'Filter media (e.g. "png w > 1000")...';
             extractMediaFromPage();
             renderMediaResults(extractedMedia);
+            return;
+        }
+
+        if (result.id === 'show_prompts') {
+            isPromptsMode = true;
+            cachedAllPrompts = [];
+            input.value = '';
+            input.placeholder = 'Loading prompts...';
+            renderPromptsResults([]);
+            chrome.runtime.sendMessage({ action: 'get-prompts' }, (response) => {
+                if (chrome.runtime.lastError || !response?.prompts) {
+                    renderPromptsResults([]);
+                    input.placeholder = 'Filter prompts (name or text)...';
+                    return;
+                }
+                cachedAllPrompts = response.prompts;
+                input.placeholder = 'Filter prompts (name or text)...';
+                renderPromptsResults(cachedAllPrompts);
+            });
+            return;
+        }
+
+        if (result.id === 'save_prompt') {
+            let selection = '';
+            try { selection = window.getSelection() ? window.getSelection().toString() : ''; }
+            catch (e) { selection = ''; }
+            selection = (selection || '').trim();
+            if (!selection) selection = cachedSelectionAtOpen || '';
+            resultsContainer.className = 'results has-items';
+            resultsContainer.innerHTML = '';
+            if (!selection) {
+                renderPendingHint('save_prompt_empty');
+                return;
+            }
+            pendingCommand = 'save_prompt_data';
+            pendingPromptText = selection;
+            input.value = '';
+            input.placeholder = 'Name for this prompt...';
+            renderPendingHint('save_prompt_data');
             return;
         }
 

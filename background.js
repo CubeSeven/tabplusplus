@@ -1,7 +1,7 @@
-import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds } from './state.js';
+import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, blurredSourceTabs, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds, savedPrompts, setSavedPrompts } from './state.js';
 import { NONE_GROUP, NTP_URL, SEARCH_ENGINES } from './constants.js';
 import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard } from './utils.js';
-import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, saveSnapshot, restoreVault, safeHibernate, updateCleanupAlarms } from './services/tabService.js';
+import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, saveSnapshot, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines } from './services/tabService.js';
 import { startPomoTimer, stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
 import { handleSearchItems, executeAction } from './services/paletteService.js';
 import { cleanupPeekWindow, handleOpenPeek, handlePromotePeek, handleCheckPeekStatus } from './services/peekService.js';
@@ -95,6 +95,21 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
             } catch (e) {}
             safeDiscard(tab.id);
         });
+    }
+
+    // Peek blur cleanup: if the activated tab was a peek source and no peek
+    // window is still open for it, ensure the blur overlay is removed. This
+    // recovers from lost remove-parent-blur messages (e.g. the peek window was
+    // closed while the source tab was discarded or its content script busy).
+    if (blurredSourceTabs.has(activeInfo.tabId)) {
+        let stillPeeking = false;
+        for (const [, data] of peekWindows.entries()) {
+            if (data.sourceTabId === activeInfo.tabId) { stillPeeking = true; break; }
+        }
+        if (!stillPeeking) {
+            chrome.tabs.sendMessage(activeInfo.tabId, { action: 'remove-parent-blur' }).catch(() => {});
+            blurredSourceTabs.delete(activeInfo.tabId);
+        }
     }
 });
 
@@ -331,6 +346,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     recentlyAwakened.delete(tabId);
     clearPendingDiscard(tabId);
     pendingInheritanceCheck.delete(tabId);
+    blurredSourceTabs.delete(tabId);
 
     await ensureLoaded();
 
@@ -546,8 +562,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             
         case 'update-settings':
             if (request.settings && typeof request.settings === 'object') {
+                const oldProtectPinned = globalSettings.protectPinned;
+                const oldProtectGrouped = globalSettings.protectGrouped;
                 updateSettings(request.settings);
                 chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
+                // When a protection toggle is switched off, evict baselines for
+                // tabs that are no longer protected so they close normally
+                // instead of being silently restored.
+                if ((oldProtectPinned && !globalSettings.protectPinned) ||
+                    (oldProtectGrouped && !globalSettings.protectGrouped)) {
+                    evictUnprotectedBaselines().catch(() => {});
+                }
+                // When a protection toggle is switched on, register baselines
+                // for existing tabs that are now protected but don't have one
+                // yet. Without this, pre-existing pinned/grouped tabs would
+                // only get a baseline on their next onUpdated event.
+                if ((!oldProtectPinned && globalSettings.protectPinned) ||
+                    (!oldProtectGrouped && globalSettings.protectGrouped)) {
+                    registerProtectedBaselines().catch(() => {});
+                }
             }
             sendResponse({ success: true });
             return true;
@@ -626,6 +659,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (typeof request.name !== 'string') return;
             performDeleteSet(request.name).then(sets => sendResponse({ success: true, sets }));
             return true;
+
+        case 'get-prompts':
+            ensureLoaded().then(() => sendResponse({ prompts: savedPrompts }));
+            return true;
+
+        case 'save-prompt': {
+            const name = (typeof request.name === 'string' ? request.name : '').trim();
+            const text = typeof request.text === 'string' ? request.text : '';
+            if (!name || !text) { sendResponse({ success: false, error: 'name and text required' }); return true; }
+            if (name.length > 200) { sendResponse({ success: false, error: 'name too long' }); return true; }
+            if (text.length > 1_000_000) { sendResponse({ success: false, error: 'text too large' }); return true; }
+            ensureLoaded().then(() => {
+                const prompt = { id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, name, text, createdAt: Date.now() };
+                const updated = [...savedPrompts, prompt];
+                setSavedPrompts(updated);
+                syncPromptsToStorage();
+                sendResponse({ success: true, prompts: updated });
+            });
+            return true;
+        }
+
+        case 'delete-prompt': {
+            if (typeof request.id !== 'string' || !request.id || request.id.length > 64) return;
+            ensureLoaded().then(() => {
+                const updated = savedPrompts.filter(p => p.id !== request.id);
+                if (updated.length === savedPrompts.length) { sendResponse({ success: false, error: 'not found' }); return; }
+                setSavedPrompts(updated);
+                syncPromptsToStorage();
+                sendResponse({ success: true, prompts: updated });
+            });
+            return true;
+        }
 
         case 'import-sets':
             ensureLoaded().then(() => {

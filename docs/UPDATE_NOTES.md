@@ -1,3 +1,17 @@
+Latest Update: v2.2.3 (Bug Fixes & UX Polish)
+
+**What's new:**
+
+- **Palette toggle reliability:** Disabling then re-enabling the command palette no longer leaves the Tools tab stuck saying "enable palette." Settings now refresh on every tab switch.
+- **Protection drops immediately:** Turning off "Protect Grouped Tabs" or "Protect Pinned Tabs" instantly evicts their baselines — no more tabs restoring after you told them not to.
+- **Instant protection for existing tabs:** Turning protection ON now covers already-open pinned/grouped tabs right away, not just newly opened ones.
+- **Liquid Glass no longer breaks suggestions:** Removed the SVG displacement map that caused rendering glitches and killed auto-suggestions. The blur/brightness/saturate effect remains.
+- **Peek blur reliability:** Blur overlay is now tracked on the background side, with cleanup on tab close, window close, and tab activation. No more stuck blur after peek closes.
+- **Better discoverability:** Shortcut hint (Ctrl+Shift+K) added to Command Palette card, "> for tools" in the search bar, and an info banner on the Tools tab.
+- **PiP conflict warning:** PiP Player card now notes potential conflicts with other Picture-in-Picture extensions.
+
+---
+
 Latest Update: v2.2.2 (Performance & Stability)
 
 **What's new:**

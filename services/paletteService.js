@@ -158,6 +158,8 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'update_baseline', category: 'Control', title: 'Update Pinned URL', aliases: ['reset url', 'change baseline', 'smart update'] },
     { type: 'action', id: 'set_baseline_url', category: 'Control', title: 'Set Custom Baseline URL', aliases: ['set url', 'change url', 'paste url'] },
     { type: 'action', id: 'copy_md_link', category: 'Productivity', title: 'Copy Markdown Link', aliases: ['markdown', 'url', 'copy link'] },
+    { type: 'action', id: 'show_prompts', category: 'Productivity', title: 'Saved Prompts', aliases: ['snippets', 'scripts', 'templates', 'paste'] },
+    { type: 'action', id: 'save_prompt', category: 'Productivity', title: 'Save Selection as Prompt', aliases: ['save snippet', 'store text', 'capture text'] },
     { type: 'action', id: 'split_view', category: 'Window', title: 'Split View (Side-by-Side)', aliases: ['split', 'half', 'tile', 'side by side'] },
     { type: 'action', id: 'hard_reload', category: 'Control', title: 'Hard Reload', aliases: ['refresh', 'f5', 'cache', 'bypass'] },
     { type: 'action', id: 'close_other_tabs', category: 'Organization', title: 'Close Other Tabs', aliases: ['close rest', 'keep only this', 'isolate'] },

@@ -55,7 +55,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
             const container = document.getElementById('palette-container');
             if (container) {
                 if (enableLiquidGlass) {
-                    injectLiquidGlassFilter();
                     container.classList.add('liquid-glass');
                 } else {
                     container.classList.remove('liquid-glass');
@@ -84,6 +83,13 @@ let actionModeIndicator = null;
 let cachedQueryRegex = null;
 let cachedQueryForRegex = '';
 
+// Prompt Vault State
+let isPromptsMode = false;
+let domOrderedPrompts = [];
+let cachedAllPrompts = [];
+let cachedPromptItems = [];
+let pendingPromptText = '';
+
 function getQueryRegex(query) {
     if (!query) return null;
     if (query === cachedQueryForRegex) return cachedQueryRegex;
@@ -111,139 +117,6 @@ function debounce(func, wait) {
         clearTimeout(timeout);
         timeout = setTimeout(() => func(...args), wait);
     };
-}
-
-function generateLiquidGlassMap(width, height, radius, bezel, glassThickness) {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    const imgData = ctx.createImageData(width, height);
-    const d = imgData.data;
-    const cx = width / 2;
-    const cy = height / 2;
-    const hw = width / 2;
-    const hh = height / 2;
-    const bx = hw - radius;
-    const by = hh - radius;
-    const nGlass = 1.5;
-
-    function surfaceSlope(t) {
-        const u = Math.max(0.0001, Math.min(0.9999, 1 - t));
-        return Math.pow(u, 3) / Math.pow(1 - Math.pow(u, 4), 0.75);
-    }
-
-    const rawDisp = new Float32Array(width * height * 2);
-    let maxDisp = 0;
-
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const px = Math.abs(x - cx);
-            const py = Math.abs(y - cy);
-
-            let dist;
-            if (px > bx && py > by) {
-                dist = Math.sqrt((px - bx) ** 2 + (py - by) ** 2) - radius;
-            } else {
-                dist = Math.max(px - hw, py - hh);
-            }
-
-            const idx = (y * width + x) * 2;
-
-            if (dist < 0 && dist > -bezel) {
-                const t = Math.max(0, Math.min(1, -dist / bezel));
-                const slope = surfaceSlope(t);
-                const actualSlope = (glassThickness / bezel) * slope;
-                const surfaceAngle = Math.atan(actualSlope);
-                const sinTheta1 = Math.sin(Math.min(surfaceAngle, Math.PI / 2 - 0.001));
-                const sinTheta2 = Math.min(sinTheta1 / nGlass, 0.999);
-                const theta2 = Math.asin(sinTheta2);
-                const dispMag = glassThickness * Math.tan(theta2);
-
-                let nx = 0, ny = 0;
-                if (px > bx && py > by) {
-                    const cdx = px - bx;
-                    const cdy = py - by;
-                    const cl = Math.sqrt(cdx * cdx + cdy * cdy) || 1;
-                    nx = cdx / cl;
-                    ny = cdy / cl;
-                } else if (px > bx) {
-                    nx = 1;
-                } else if (py > by) {
-                    ny = 1;
-                } else {
-                    if (px > hw - bezel) nx = 1;
-                    else if (py > hh - bezel) ny = 1;
-                }
-
-                rawDisp[idx] = -nx * Math.sign(x - cx) * dispMag;
-                rawDisp[idx + 1] = -ny * Math.sign(y - cy) * dispMag;
-
-                const mag = Math.sqrt(rawDisp[idx] ** 2 + rawDisp[idx + 1] ** 2);
-                if (mag > maxDisp) maxDisp = mag;
-            } else {
-                rawDisp[idx] = 0;
-                rawDisp[idx + 1] = 0;
-            }
-        }
-    }
-
-    const scale = Math.max(maxDisp, 1);
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            const idx = (y * width + x) * 2;
-            const i = (y * width + x) * 4;
-
-            const dx = rawDisp[idx] / scale;
-            const dy = rawDisp[idx + 1] / scale;
-
-            d[i] = Math.max(0, Math.min(255, 128 + dx * 127));
-            d[i + 1] = Math.max(0, Math.min(255, 128 + dy * 127));
-            d[i + 2] = 128;
-            d[i + 3] = 255;
-        }
-    }
-
-    ctx.putImageData(imgData, 0, 0);
-    return { dataUrl: canvas.toDataURL('image/png'), maxDisp: scale };
-}
-
-function injectLiquidGlassFilter() {
-    if (document.getElementById('tabspp-liquid-glass-svg')) return;
-    let dataUrl, maxDisp;
-    try {
-        ({ dataUrl, maxDisp } = generateLiquidGlassMap(750, 520, 20, 18, 55));
-    } catch (e) { return; }
-    const svgNS = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(svgNS, 'svg');
-    svg.id = 'tabspp-liquid-glass-svg';
-    svg.style.cssText = 'position:absolute;width:0;height:0;';
-    const defs = document.createElementNS(svgNS, 'defs');
-    const filter = document.createElementNS(svgNS, 'filter');
-    filter.id = 'tabspp-liquid-glass';
-    filter.setAttribute('x', '-20%');
-    filter.setAttribute('y', '-20%');
-    filter.setAttribute('width', '140%');
-    filter.setAttribute('height', '140%');
-    const feImage = document.createElementNS(svgNS, 'feImage');
-    feImage.setAttribute('href', dataUrl);
-    feImage.setAttribute('x', '0');
-    feImage.setAttribute('y', '0');
-    feImage.setAttribute('width', '100%');
-    feImage.setAttribute('height', '100%');
-    feImage.setAttribute('preserveAspectRatio', 'none');
-    feImage.setAttribute('result', 'displacement_map');
-    const feDisp = document.createElementNS(svgNS, 'feDisplacementMap');
-    feDisp.setAttribute('in', 'SourceGraphic');
-    feDisp.setAttribute('in2', 'displacement_map');
-    feDisp.setAttribute('scale', String(Math.round(maxDisp * 1.5)));
-    feDisp.setAttribute('xChannelSelector', 'R');
-    feDisp.setAttribute('yChannelSelector', 'G');
-    filter.appendChild(feImage);
-    filter.appendChild(feDisp);
-    defs.appendChild(filter);
-    svg.appendChild(defs);
-    document.body.appendChild(svg);
 }
 
 const GROUP_COLORS = {
@@ -303,10 +176,28 @@ function initDashboard() {
 
     resultsContainer.addEventListener('click', (e) => {
         const item = e.target.closest('.result-item');
-        if (!item) return;
-        const idx = parseInt(item.getAttribute('data-idx'));
-        if (idx >= 0 && idx < domOrderedResults.length) {
-            activateResult(domOrderedResults[idx]);
+        if (item) {
+            const idx = parseInt(item.getAttribute('data-idx'));
+            if (idx >= 0 && idx < domOrderedResults.length) {
+                activateResult(domOrderedResults[idx]);
+            }
+            return;
+        }
+
+        const promptItem = e.target.closest('.prompt-item');
+        if (promptItem) {
+            const pidx = parseInt(promptItem.getAttribute('data-pidx'));
+            if (pidx >= 0 && pidx < domOrderedPrompts.length) {
+                const prompt = domOrderedPrompts[pidx];
+                updateSelection(pidx);
+                navigator.clipboard.writeText(prompt.text).catch(() => {});
+                showPromptsFeedback(`Copied: ${prompt.name}`, '#4ade80');
+                if (clipTimeout) clearTimeout(clipTimeout);
+                clipTimeout = setTimeout(() => {
+                    if (isFallback) closeFallback();
+                    else { exitPromptsMode(); }
+                }, 500);
+            }
         }
     });
 
@@ -386,7 +277,6 @@ function initDashboard() {
     handleSearch();
 
     if (enableLiquidGlass) {
-        injectLiquidGlassFilter();
         paletteContainer.classList.add('liquid-glass');
     }
 
@@ -513,6 +403,13 @@ async function handleSearch() {
     if (pendingCommand) return;
     if (!chrome.runtime?.id) return;
     const query = getSearchQuery();
+
+    if (isPromptsMode) {
+        const filtered = filterPromptsByQuery(cachedAllPrompts, query);
+        renderPromptsResults(filtered);
+        return;
+    }
+
     const sentQuery = query;
     chrome.runtime.sendMessage({ action: 'search-items', query }, response => {
         if (chrome.runtime.lastError) return;
@@ -643,6 +540,15 @@ function renderResults(results, query) {
 }
 
 function updateSelection(index) {
+    if (isPromptsMode) {
+        if (selectedIndex >= 0 && selectedIndex < cachedPromptItems.length) cachedPromptItems[selectedIndex].classList.remove('focused');
+        selectedIndex = index;
+        if (selectedIndex >= 0 && selectedIndex < cachedPromptItems.length) {
+            cachedPromptItems[selectedIndex].classList.add('focused');
+            cachedPromptItems[selectedIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+        return;
+    }
     if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) cachedResultItems[selectedIndex].classList.remove('selected');
     selectedIndex = index;
     if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) {
@@ -651,19 +557,199 @@ function updateSelection(index) {
     }
 }
 
+function filterPromptsByQuery(prompts, query) {
+    if (!query) return prompts;
+    const lower = query.toLowerCase();
+    const parts = lower.split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return prompts;
+    return prompts.filter(p => {
+        const hay = `${p.name} ${p.text}`.toLowerCase();
+        return parts.every(part => hay.includes(part));
+    });
+}
+
+function renderPromptsResults(results) {
+    resultsContainer.innerHTML = '';
+    resultsContainer.scrollTop = 0;
+    domOrderedPrompts = results;
+    selectedIndex = results.length > 0 ? 0 : -1;
+    resultsContainer.classList.add('prompts-grid');
+
+    if (results.length === 0) {
+        resultsContainer.classList.remove('prompts-grid');
+        resultsContainer.classList.add('has-items');
+        resultsContainer.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-title">No saved prompts</div>
+                <div class="empty-hint">Use &gt;save prompt on a page with selected text</div>
+            </div>`;
+        return;
+    }
+
+    let html = '';
+    results.forEach((prompt, index) => {
+        const focused = index === 0 ? ' focused' : '';
+        const preview = (prompt.text || '').replace(/\s+/g, ' ').trim();
+        html += `<div class="prompt-item${focused}" data-pidx="${index}">
+            <div class="prompt-name">${escapeHTML(prompt.name)}</div>
+            <div class="prompt-preview">${escapeHTML(preview)}</div>
+        </div>`;
+    });
+    resultsContainer.innerHTML = html;
+    cachedPromptItems = Array.from(resultsContainer.querySelectorAll('.prompt-item'));
+}
+
+function showPromptsFeedback(message, color, restoreValue) {
+    if (!input) return;
+    input.value = message;
+    input.style.color = color;
+    if (clipTimeout) clearTimeout(clipTimeout);
+    clipTimeout = setTimeout(() => {
+        if (!input) return;
+        input.style.color = '';
+        input.value = restoreValue !== undefined ? restoreValue : '';
+    }, 400);
+}
+
+function exitPromptsMode() {
+    isPromptsMode = false;
+    domOrderedPrompts = [];
+    cachedAllPrompts = [];
+    cachedPromptItems = [];
+    pendingPromptText = '';
+    input.value = '';
+    input.placeholder = "Search tabs, history, bookmarks... try !yt, !gh, or > for tools";
+    resultsContainer.classList.remove('prompts-grid');
+    handleSearch();
+}
+
 function handleKeydown(e) {
     if (e.key === 'Escape') {
+        if (isPromptsMode) {
+            exitPromptsMode();
+            e.preventDefault();
+            return;
+        }
         if (pendingCommand) {
             pendingCommand = null;
+            pendingPromptText = '';
             input.value = "";
-            input.placeholder = "Search tabs, history, bookmarks... or try !yt, !gh, !mdn";
+            input.placeholder = "Search tabs, history, bookmarks... try !yt, !gh, or > for tools";
             handleSearch();
             e.preventDefault();
             return;
         }
     }
 
+    if (pendingCommand === 'save_prompt_data') {
+        if (e.key === 'Enter') {
+            const name = input.value.trim();
+            if (name && pendingPromptText) {
+                const captured = pendingPromptText;
+                chrome.runtime.sendMessage({ action: 'save-prompt', name, text: captured }, (response) => {
+                    pendingCommand = null;
+                    pendingPromptText = '';
+                    if (chrome.runtime.lastError || !response?.success) {
+                        showPromptsFeedback('Save failed', '#ff3b30');
+                        if (clipTimeout) clearTimeout(clipTimeout);
+                        clipTimeout = setTimeout(() => {
+                            input.value = '';
+                            input.style.color = '';
+                            if (isFallback) closeFallback();
+                            else handleSearch();
+                        }, 500);
+                        return;
+                    }
+                    showPromptsFeedback(`Saved: ${name}`, '#4ade80');
+                    if (clipTimeout) clearTimeout(clipTimeout);
+                    clipTimeout = setTimeout(() => {
+                        input.value = '';
+                        input.style.color = '';
+                        if (isFallback) closeFallback();
+                        else handleSearch();
+                    }, 500);
+                });
+            } else {
+                pendingCommand = null;
+                pendingPromptText = '';
+                if (isFallback) closeFallback();
+                else handleSearch();
+            }
+            e.preventDefault();
+        }
+        return;
+    }
+
+    if (isPromptsMode) {
+        if (e.shiftKey && (e.key === 'Delete' || e.key === 'Backspace')) {
+            if (selectedIndex >= 0 && selectedIndex < domOrderedPrompts.length) {
+                const target = domOrderedPrompts[selectedIndex];
+                const savedQuery = input.value;
+                const deletedIdx = selectedIndex;
+                chrome.runtime.sendMessage({ action: 'delete-prompt', id: target.id }, (response) => {
+                    if (chrome.runtime.lastError || !response?.success) {
+                        showPromptsFeedback('Delete failed', '#ff3b30', savedQuery);
+                        return;
+                    }
+                    const remaining = response.prompts || [];
+                    showPromptsFeedback(`Deleted: ${target.name}`, '#ff3b30', savedQuery);
+                    if (remaining.length === 0) {
+                        exitPromptsMode();
+                    } else {
+                        cachedAllPrompts = remaining;
+                        const filtered = filterPromptsByQuery(remaining, savedQuery);
+                        renderPromptsResults(filtered);
+                        const newIdx = Math.min(deletedIdx, domOrderedPrompts.length - 1);
+                        if (newIdx >= 0) updateSelection(newIdx);
+                    }
+                });
+            }
+            e.preventDefault();
+            return;
+        }
+
+        const items = cachedPromptItems;
+        if (!items || items.length === 0) return;
+
+        if (e.key === 'ArrowRight') {
+            updateSelection(selectedIndex + 1 >= domOrderedPrompts.length ? 0 : selectedIndex + 1);
+            e.preventDefault();
+        } else if (e.key === 'ArrowLeft') {
+            updateSelection(selectedIndex - 1 < 0 ? domOrderedPrompts.length - 1 : selectedIndex - 1);
+            e.preventDefault();
+        } else if (e.key === 'ArrowDown') {
+            let newIndex = selectedIndex + 2;
+            if (newIndex >= domOrderedPrompts.length) newIndex = domOrderedPrompts.length - 1;
+            updateSelection(newIndex);
+            e.preventDefault();
+        } else if (e.key === 'ArrowUp') {
+            let newIndex = selectedIndex - 2;
+            if (newIndex < 0) newIndex = 0;
+            updateSelection(newIndex);
+            e.preventDefault();
+        } else if (e.key === 'Enter' || e.key === ' ') {
+            if (selectedIndex >= 0 && selectedIndex < domOrderedPrompts.length) {
+                const prompt = domOrderedPrompts[selectedIndex];
+                navigator.clipboard.writeText(prompt.text).catch(() => {});
+                showPromptsFeedback(`Copied: ${prompt.name}`, '#4ade80');
+                if (clipTimeout) clearTimeout(clipTimeout);
+                clipTimeout = setTimeout(() => {
+                    if (isFallback) closeFallback();
+                    else { exitPromptsMode(); }
+                }, 500);
+            }
+            e.preventDefault();
+        }
+        return;
+    }
+
     if (pendingCommand) {
+        if (pendingCommand === 'save_prompt_empty') {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+            }
+            return;
+        }
         if (e.key === 'Enter') {
             const name = input.value.trim();
             isNavigating = true;
@@ -671,7 +757,7 @@ function handleKeydown(e) {
             chrome.runtime.sendMessage({ action: 'execute-browser-action', commandId: pendingCommand, args: name }).catch(() => {});
             pendingCommand = null;
             input.value = "";
-            input.placeholder = "Search tabs, history, bookmarks... or try !yt, !gh, !mdn";
+            input.placeholder = "Search tabs, history, bookmarks... try !yt, !gh, or > for tools";
             if (isFallback) closeFallback();
             else {
                 isNavigating = false;
@@ -728,6 +814,49 @@ function handleKeydown(e) {
 
 function activateResult(result) {
     if (result.type === 'action') {
+        if (result.id === 'show_prompts') {
+            isPromptsMode = true;
+            cachedAllPrompts = [];
+            input.value = '';
+            input.placeholder = 'Loading prompts...';
+            renderPromptsResults([]);
+            chrome.runtime.sendMessage({ action: 'get-prompts' }, (response) => {
+                if (chrome.runtime.lastError || !response?.prompts) {
+                    renderPromptsResults([]);
+                    input.placeholder = 'Filter prompts (name or text)...';
+                    return;
+                }
+                cachedAllPrompts = response.prompts;
+                input.placeholder = 'Filter prompts (name or text)...';
+                renderPromptsResults(cachedAllPrompts);
+            });
+            return;
+        }
+
+        if (result.id === 'save_prompt') {
+            let selection = '';
+            try { selection = window.getSelection() ? window.getSelection().toString() : ''; }
+            catch (e) { selection = ''; }
+            selection = (selection || '').trim();
+            resultsContainer.classList.remove('prompts-grid');
+            resultsContainer.innerHTML = '';
+            if (!selection) {
+                resultsContainer.classList.add('has-items');
+                resultsContainer.innerHTML = `<div class="empty-state"><div class="empty-title">No text selected</div><div class="empty-hint">Select text on the page first, then try &gt;save prompt again</div></div>`;
+                input.value = '';
+                input.placeholder = 'Select text on the page first, then try again';
+                pendingCommand = 'save_prompt_empty';
+                input.focus();
+                return;
+            }
+            pendingCommand = 'save_prompt_data';
+            pendingPromptText = selection;
+            input.value = '';
+            input.placeholder = 'Name for this prompt...';
+            input.focus();
+            return;
+        }
+
         if (result.id === 'save_workspace' || result.id === 'save_group' || result.id === 'stash_group' || result.id === 'set_baseline_url' || result.id === 'save_window_all' || result.id === 'set_clean_time' || result.id === 'set_hibernate_time') {
             pendingCommand = result.id;
             input.value = '';
