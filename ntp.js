@@ -14,13 +14,11 @@ let timeFormat = '24h';
 let showClock = true;
 
 let enablePalette = true;
-let enableLiquidGlass = false;
 
 chrome.storage.local.get({ settings: { enablePalette: true, showClock: true } }, (data) => {
     if (data.settings.timeFormat) timeFormat = data.settings.timeFormat;
     enablePalette = data.settings.enablePalette !== false;
     showClock = data.settings.showClock !== false;
-    enableLiquidGlass = data.settings.enableLiquidGlass === true;
     initDashboard();
 });
 
@@ -47,19 +45,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
             if (clock) clock.classList.toggle('hidden', !showClock);
             const date = document.getElementById('date');
             if (date) date.classList.toggle('hidden', !showClock);
-        }
-
-        const newLiquidGlass = changes.settings.newValue?.enableLiquidGlass;
-        if (newLiquidGlass !== undefined && newLiquidGlass !== enableLiquidGlass) {
-            enableLiquidGlass = newLiquidGlass;
-            const container = document.getElementById('palette-container');
-            if (container) {
-                if (enableLiquidGlass) {
-                    container.classList.add('liquid-glass');
-                } else {
-                    container.classList.remove('liquid-glass');
-                }
-            }
         }
     }
 });
@@ -275,10 +260,6 @@ function initDashboard() {
 
     // Initial search to populate open tabs
     handleSearch();
-
-    if (enableLiquidGlass) {
-        paletteContainer.classList.add('liquid-glass');
-    }
 
     initBgPicker();
 }
@@ -890,6 +871,27 @@ function activateResult(result) {
                 isNavigating = false;
                 handleSearch();
             }, 500);
+            return;
+        }
+
+        // Prompt-style actions rewrite the query locally instead of round-
+        // tripping through the background (ntp.js has no onMessage listener, so
+        // a background-sent update-palette-query message would never arrive).
+        if (result.id === 'summon_set_prompt' || result.id === 'replace_workspace_prompt' || result.id === 'open_bookmarks_folder_prompt') {
+            // Action mode strips '>' from input.value and shows a separate badge
+            // (getSearchQuery re-prepends it at search time). So the rewrite value
+            // must NOT include '>' — enter action mode programmatically instead.
+            const rewriteMap = {
+                'summon_set_prompt': 'summon ',
+                'replace_workspace_prompt': 'replace ',
+                'open_bookmarks_folder_prompt': 'open folder '
+            };
+            isActionMode = true;
+            actionModeIndicator.classList.add('visible');
+            input.value = rewriteMap[result.id];
+            input.focus();
+            setTimeout(() => { input.selectionStart = input.selectionEnd = input.value.length; }, 0);
+            handleSearch();
             return;
         }
 

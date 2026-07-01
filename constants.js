@@ -12,14 +12,14 @@ export const DEFAULT_SETTINGS = {
     enableEyedropper: true,
     enableScreenshot: true,
     enableUnitConverter: true,
-    enablePomo: true,
+    enablePomo: false,
     enableFocusView: true,
     baseRemSize: 16,
     ntpBgDesign: 0,
     archiveThresholdRaw: '12h',
     hibernateThresholdRaw: '1h',
     enableAutoHibernate: false,
-    enableMediaExtractor: true,
+    enableMediaExtractor: false,
     enableVolumeControl: true,
     timeFormat: '24h',
     showClock: true,
@@ -27,16 +27,21 @@ export const DEFAULT_SETTINGS = {
     searchEngine: 'google',
     useDefaultNtp: false,
     peekExcludedDomains: ['google.com', 'bing.com', 'duckduckgo.com', 'search.brave.com', 'perplexity.ai', 'x.com', 'twitter.com', 'reddit.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'youtube.com', 'twitch.tv', 'vimeo.com', 'news.ycombinator.com', 'amazon.com', 'ebay.com'],
-    enableLiquidGlass: false
+    // Optional-permission-gated features (off by default; toggled on in popup,
+    // which triggers a just-in-time chrome.permissions.request at that moment).
+    enableHistory: false,
+    enableBookmarks: false,
+    enableRecentlyClosed: false,
+    enablePanicClose: false
 };
 
 export const GROUPING_RULES = [
-    { title: 'Dev', color: 'blue', domains: ['github.com', 'gitlab.com', 'bitbucket.org', 'stackoverflow.com', 'aws.amazon.com', 'console.cloud.google.com', 'vercel.com', 'netlify.com', 'docker.com', 'cloudflare.com', 'jira.com', 'atlassian.net', 'linear.app', 'developer.mozilla.org', 'npmjs.com', 'codepen.io', 'replit.com', 'codesandbox.io', 'postman.com', 'sentry.io', 'datadoghq.com', 'cursor.sh', 'cursor.com', 'warp.dev', 'bun.sh', 'railway.app', 'supabase.com', 'huggingface.co', 'leetcode.com', 'geeksforgeeks.org', 'pypi.org', 'hub.docker.com', 'crates.io', 'search.maven.org'] },
-    { title: 'Design', color: 'purple', domains: ['figma.com', 'canva.com', 'dribbble.com', 'behance.net', 'miro.com', 'framer.com', 'spline.design', 'adobe.com', 'awwwards.com', 'lottiefiles.com', 'unsplash.com', 'pexels.com', 'colorhunt.co', 'sketch.com', 'invisionapp.com', 'principleformac.com', 'zeplin.io', 'affinity.serif.com', 'coreldraw.com', 'muz.li', 'land-book.com', 'siteinspire.com', 'fontshare.com', 'fonts.google.com', 'coolors.co', 'iconify.design', 'flaticon.com', 'readymag.com', 'typedream.com', 'poly.cam', 'sketchfab.com'] },
-    { title: 'AI', color: 'green', domains: ['chatgpt.com', 'openai.com', 'claude.ai', 'gemini.google.com', 'perplexity.ai', 'grok.com', 'deepseek.com', 'poe.com', 'midjourney.com', 'leonardo.ai', 'runwayml.com', 'pika.art', 'suno.com', 'udio.com', 'elevenlabs.io', 'zapier.com', 'make.com', 'gamma.app', 'notebooklm.google.com', 'consensus.app', 'phind.com'] },
-    { title: 'Media', color: 'red', domains: ['youtube.com', 'netflix.com', 'spotify.com', 'twitch.tv', 'hulu.com', 'disneyplus.com', 'primevideo.com', 'vimeo.com', 'soundcloud.com', 'music.apple.com', 'plex.tv', 'crunchyroll.com', 'paramountplus.com', 'peacocktv.com', 'mubi.com', 'nebula.tv', 'curiositystream.com', 'steampowered.com', 'epicgames.com', 'ign.com', 'gamespot.com', 'roblox.com', 'letterboxd.com', 'pocketcasts.com', 'mixcloud.com', 'bandcamp.com', 'tidal.com', 'audible.com'] },
-    { title: 'News', color: 'yellow', domains: ['nytimes.com', 'bbc.com', 'news.google.com', 'theverge.com', 'techcrunch.com', 'wsj.com', 'news.ycombinator.com', 'bloomberg.com', 'cnn.com', 'reuters.com', 'theguardian.com', 'hbr.org', 'wired.com', 'arstechnica.com', 'apnews.com', 'aljazeera.com', 'fortune.com', 'forbes.com', 'qz.com', 'mashable.com', 'engadget.com', 'gizmodo.com', 'medium.com', 'substack.com', 'ted.com', 'wikipedia.org', 'marketwatch.com', 'investopedia.com', 'finance.yahoo.com', 'seekingalpha.com'] },
-    { title: 'Social', color: 'cyan', domains: ['x.com', 'twitter.com', 'facebook.com', 'reddit.com', 'instagram.com', 'linkedin.com', 'tiktok.com', 'pinterest.com', 'discord.com', 'web.whatsapp.com', 'messenger.com', 'tumblr.com', 'threads.net', 'bsky.app', 'polywork.com', 'slack.com', 'mastodon.social', 'fark.com', 'quora.com', 'nextdoor.com', 'wechat.com', 'telegram.org', 'vk.com', 'line.me', 'lemon8-app.com'] }
+    { title: 'Dev', color: 'blue', domains: ['github.com', 'gitlab.com', 'bitbucket.org', 'stackoverflow.com', 'aws.amazon.com', 'console.cloud.google.com', 'vercel.com', 'netlify.com', 'docker.com', 'cloudflare.com', 'jira.com', 'atlassian.net', 'linear.app', 'developer.mozilla.org', 'npmjs.com', 'codepen.io', 'replit.com', 'codesandbox.io', 'postman.com', 'sentry.io', 'datadoghq.com', 'cursor.sh', 'cursor.com', 'warp.dev', 'bun.sh', 'railway.app', 'supabase.com', 'huggingface.co', 'leetcode.com', 'geeksforgeeks.org', 'pypi.org', 'hub.docker.com', 'crates.io', 'search.maven.org', 'codeberg.org', 'sourcehut.org', 'freecodecamp.org', 'khanacademy.org', 'w3schools.com', 'developer.android.com', 'developer.apple.com', 'learn.microsoft.com', 'developers.google.com', 'developer.chrome.com', 'web.dev', 'nodejs.org', 'python.org', 'go.dev', 'rust-lang.org', 'php.net', 'ruby-lang.org', 'react.dev', 'vuejs.org', 'angular.io', 'svelte.dev', 'nextjs.org', 'nuxt.com', 'astro.build', 'solidjs.com', 'vitejs.dev', 'getbootstrap.com', 'tailwindcss.com', 'kubernetes.io', 'heroku.com', 'render.com', 'fly.io', 'digitalocean.com', 'stripe.com', 'grafana.com', 'newrelic.com', 'packagist.org', 'rubygems.org', 'pkg.go.dev'] },
+    { title: 'Design', color: 'purple', domains: ['figma.com', 'canva.com', 'dribbble.com', 'behance.net', 'miro.com', 'framer.com', 'spline.design', 'adobe.com', 'awwwards.com', 'lottiefiles.com', 'unsplash.com', 'pexels.com', 'colorhunt.co', 'sketch.com', 'invisionapp.com', 'principleformac.com', 'zeplin.io', 'affinity.serif.com', 'coreldraw.com', 'muz.li', 'land-book.com', 'siteinspire.com', 'fontshare.com', 'fonts.google.com', 'coolors.co', 'iconify.design', 'flaticon.com', 'readymag.com', 'typedream.com', 'poly.cam', 'sketchfab.com', 'penpot.app', 'photopea.com', 'rive.app', 'freepik.com', 'pixabay.com', 'vecteezy.com', 'iconfinder.com', 'heroicons.com', 'lucide.dev', 'tabler-icons.com', 'fontawesome.com', 'boxicons.com', 'remixicon.com', 'fonts.adobe.com', 'themeforest.net', 'elements.envato.com', 'creative-tim.com'] },
+    { title: 'AI', color: 'green', domains: ['chatgpt.com', 'openai.com', 'claude.ai', 'gemini.google.com', 'perplexity.ai', 'grok.com', 'deepseek.com', 'poe.com', 'midjourney.com', 'leonardo.ai', 'runwayml.com', 'pika.art', 'suno.com', 'udio.com', 'elevenlabs.io', 'zapier.com', 'make.com', 'gamma.app', 'notebooklm.google.com', 'consensus.app', 'phind.com', 'anthropic.com', 'cohere.com', 'mistral.ai', 'you.com', 'copy.ai', 'jasper.ai', 'kaggle.com', 'replicate.com', 'together.ai', 'v0.dev', 'bolt.new', 'character.ai', 'meta.ai', 'ideogram.ai', 'copilot.microsoft.com', 'manus.ai'] },
+    { title: 'Media', color: 'red', domains: ['youtube.com', 'netflix.com', 'spotify.com', 'twitch.tv', 'hulu.com', 'disneyplus.com', 'primevideo.com', 'vimeo.com', 'soundcloud.com', 'music.apple.com', 'plex.tv', 'crunchyroll.com', 'paramountplus.com', 'peacocktv.com', 'mubi.com', 'nebula.tv', 'curiositystream.com', 'steampowered.com', 'epicgames.com', 'ign.com', 'gamespot.com', 'roblox.com', 'letterboxd.com', 'pocketcasts.com', 'mixcloud.com', 'bandcamp.com', 'tidal.com', 'audible.com', 'pandora.com', 'max.com', 'tv.apple.com', 'tubitv.com', 'dailymotion.com', 'kick.com', 'deezer.com', 'last.fm', 'discogs.com', 'goodreads.com', 'archive.org', 'odysee.com', 'rumble.com', 'itch.io', 'gog.com', 'battle.net', 'chess.com', 'lichess.org', 'mangadex.org'] },
+    { title: 'News', color: 'yellow', domains: ['nytimes.com', 'bbc.com', 'news.google.com', 'theverge.com', 'techcrunch.com', 'wsj.com', 'news.ycombinator.com', 'bloomberg.com', 'cnn.com', 'reuters.com', 'theguardian.com', 'hbr.org', 'wired.com', 'arstechnica.com', 'apnews.com', 'aljazeera.com', 'fortune.com', 'forbes.com', 'qz.com', 'mashable.com', 'engadget.com', 'gizmodo.com', 'medium.com', 'substack.com', 'ted.com', 'wikipedia.org', 'marketwatch.com', 'investopedia.com', 'finance.yahoo.com', 'seekingalpha.com', 'economist.com', 'npr.org', 'washingtonpost.com', 'time.com', 'politico.com', 'axios.com', 'nbcnews.com', 'ft.com', 'theatlantic.com', 'newyorker.com', 'nature.com', 'scientificamerican.com', 'technologyreview.com', 'venturebeat.com', 'techradar.com', 'tomshardware.com', 'producthunt.com', 'dev.to', 'vox.com', 'propublica.org', 'arxiv.org', 'space.com'] },
+    { title: 'Social', color: 'cyan', domains: ['x.com', 'twitter.com', 'facebook.com', 'reddit.com', 'instagram.com', 'linkedin.com', 'tiktok.com', 'pinterest.com', 'discord.com', 'web.whatsapp.com', 'messenger.com', 'tumblr.com', 'threads.net', 'bsky.app', 'polywork.com', 'slack.com', 'mastodon.social', 'fark.com', 'quora.com', 'nextdoor.com', 'wechat.com', 'telegram.org', 'vk.com', 'line.me', 'lemon8-app.com', 'signal.org', 'snapchat.com', 'weibo.com', 'flickr.com', 'deviantart.com', 'artstation.com', '500px.com', 'chat.google.com', 'teams.microsoft.com', 'zoom.us', 'mastodon.online', 'lemmy.world'] }
 ];
 
 export const NONE_GROUP = -1;

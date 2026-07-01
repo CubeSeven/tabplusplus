@@ -1,3 +1,55 @@
+Latest Update: v2.5.0 (Under-the-Hood Maintenance & Stability)
+
+> ⚠️ **This version contains a major codebase change and needs good testing.**
+> No new features — this is a deep internal cleanup that touches the core
+> command-palette, tab-set, and bookmark-launch engines. Everything *should*
+> behave exactly as before (only faster and more reliably), but please test
+> your usual workflows over the next few days and report anything off. A full
+> list of what to check is at the bottom of these notes.
+
+**What changed:**
+
+- **Fixed: "Insert Set" (Summon) was silently broken.** Clicking the ↓ Summon button in the Sets panel did nothing and logged a console error. The message handler was rejecting valid requests from the popup, so the command never reached the engine. Summon now works again, alongside Replace.
+- **Killed the "message port closed" console spam.** Thirteen background handlers could leave a message hanging if an operation failed, producing a recurring `Unchecked runtime.lastError: The message port closed before a response was received` error in the console (visible when inspecting the popup). Every background message handler now responds cleanly, success *or* failure.
+- **Faster Set and bookmark launches.** When inserting or launching a large Set or bookmark folder into a window that already has many tabs, the deduplication step no longer re-scans every open tab for every incoming tab. It now uses an indexed lookup, so launches into busy windows are noticeably snappier.
+- **One shared launch pipeline.** Launching a Set in a new window and launching bookmarks in a new window used to run two near-identical copies of the same window-creation + lock + seed-tab-cleanup code. They now share a single implementation, so future fixes land once.
+- **Tidier command catalog.** The ~25 "open chrome:// page" quick-actions (Settings, Downloads, Flags, GPU, Privacy, etc.) plus the Pomodoro and Volume shortcuts were collapsed from repetitive switch-cases into scannable lookup tables. No behavior change — just easier to maintain and extend.
+- **Harder command input validation.** The action engine now validates its inputs at the boundary, so a malformed message fails gracefully instead of throwing.
+
+**Stability audit performed** (no user-visible change, but documented for transparency): verified tab/window tracking structures all clean up on close, no Chrome-API listener leaks, the content-script injection guard is in place, and `state.js` stays minimal. See `docs/OPTIMIZATION.md` for the full technical breakdown.
+
+---
+
+**Please test these workflows and report regressions:**
+- Command palette (Ctrl+Shift+K) on a normal page: search, arrow-key navigation, `>` action mode, recently-closed, prompt vault.
+- Command palette on the New Tab Page: same checks.
+- `> open folder <name>` and "Insert All Bookmarks" — bookmark folder launches.
+- Sets panel: **Summon (↓)**, **Replace (⇄)**, Launch, Save, Delete.
+- Quick links: `> downloads`, `> settings`, `> gpu`, a Pomodoro command, a Volume command.
+- Hibernation (`Ctrl+Shift+H`) and tab protection (pinned/grouped tabs restoring on close).
+
+---
+
+Latest Update: v2.4.0 (Launch Bookmark Folders as Tabs + Groups)
+
+**What's new:**
+
+- **Import bookmarks from the command palette (`>` mode):** Type `> open bookmarks` to see two choices — **Insert All Bookmarks in New Window** (loads the entire collection into a fresh window, each top-level root folder becoming its own tab group) and **Insert a Bookmarks Folder...** (drills into a searchable list of every folder and subfolder, each labeled with its hierarchy path, e.g. `Bookmarks Bar / Dev / React`). Selecting a folder inserts its bookmarks into the current window, all grouped under a single tab group named after the folder.
+- **Hard-capped at 100 tabs** per launch to keep Chrome responsive, keeping the most-curated (top-of-tree) bookmarks first.
+- **Subfolders become tab groups automatically:** Each immediate subfolder turns into a named, deterministically-colored Chrome tab group; loose bookmarks at the folder's top level open as ungrouped tabs. Deeper-nested URLs roll up into their nearest subfolder's group.
+- **Reuses the Sets engine:** Folder launches go through the same tab+group materialization pipeline as Sets, so grouping, dedup, and the window-launch lock all behave identically. Requires the existing "Search Bookmarks" toggle (grants the optional `bookmarks` permission); the toggle's description now notes the 100-tab launch cap.
+
+---
+
+Latest Update: v2.3.0 (Palette Appearance Refresh)
+
+**What's new:**
+
+- **Frosted glass is now the default palette look:** The clean frosted-glass treatment (subtle blur, crisp specular edge, borderless search row, rounded pill badges) is now what every user sees out of the box — no toggle needed. The old heavy-blur/outer-shadow default has retired.
+- **Removed the experimental Liquid Glass toggle:** The opt-in refractive-glass experiment (and the earlier SVG displacement-map variant) have been removed entirely. The frosted look above is the single, polished palette theme.
+
+---
+
 Latest Update: v2.2.3 (Bug Fixes & UX Polish)
 
 **What's new:**

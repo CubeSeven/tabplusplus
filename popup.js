@@ -1,3 +1,5 @@
+import { FEATURE_PERMISSIONS } from './services/permissionService.js';
+
 // ─────────────────────────────────────────────
 //  Feature definitions — add new features here
 // ─────────────────────────────────────────────
@@ -93,13 +95,40 @@ const FEATURES = [
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`
   },
   {
-    id: 'enableLiquidGlass',
-    title: 'Liquid Glass',
-    description: 'Refractive glass effect for the Command Palette.',
+    id: 'enableHistory',
+    title: 'Search History',
+    description: 'Include your browsing history in palette search.',
     default: false,
-    badge: 'Beta',
-    category: 'Appearance',
-    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h20M12 2v20m-8-4 4-4-4-4m12 8-4-4 4-4"/></svg>`
+    badge: 'Opt-in',
+    category: 'Tools',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`
+  },
+  {
+    id: 'enableBookmarks',
+    title: 'Search Bookmarks',
+    description: 'Include your bookmarks in palette search. Use "> open folder <name>" to insert a bookmark folder as a tab group (capped at 100 tabs per insert).',
+    default: false,
+    badge: 'Opt-in',
+    category: 'Tools',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`
+  },
+  {
+    id: 'enableRecentlyClosed',
+    title: 'Recently Closed',
+    description: 'Show recently closed tabs at the top of the palette.',
+    default: false,
+    badge: 'Opt-in',
+    category: 'Tools',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="9" y1="11" x2="9.01" y2="11"/><line x1="13" y1="11" x2="13.01" y2="11"/></svg>`
+  },
+  {
+    id: 'enablePanicClose',
+    title: 'Panic Close',
+    description: 'Enable the "Clear Last Hour" emergency command.',
+    default: false,
+    badge: 'Opt-in',
+    category: 'Guard',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`
   }
 ];
 
@@ -268,15 +297,7 @@ function renderFeatures(settings, filter = '') {
     // Toggle interaction
     checkbox.addEventListener('change', (e) => {
       e.stopPropagation();
-      const newState = checkbox.checked;
-      if (newState) {
-        card.classList.add('is-on');
-        toggleWrap.classList.add('is-on');
-      } else {
-        card.classList.remove('is-on');
-        toggleWrap.classList.remove('is-on');
-      }
-      saveSettings();
+      handleToggleChange(feature.id, checkbox, card, toggleWrap);
     });
 
     // Clicking card also toggles it
@@ -374,15 +395,7 @@ function renderTools(settings, filter = '') {
 
       checkbox.addEventListener('change', (e) => {
         e.stopPropagation();
-        const newState = checkbox.checked;
-        if (newState) {
-          card.classList.add('is-on');
-          toggleWrap.classList.add('is-on');
-        } else {
-          card.classList.remove('is-on');
-          toggleWrap.classList.remove('is-on');
-        }
-        saveSettings();
+        handleToggleChange(tool.settingId, checkbox, card, toggleWrap);
       });
     }
 
@@ -465,6 +478,43 @@ function triggerSearch(query) {
 }
 
 // ─────────────────────────────────────────────
+//  Toggle change handler (shared by features & tools)
+// ─────────────────────────────────────────────
+// When a feature that requires an optional permission is turned ON, request
+// that permission just-in-time. chrome.permissions.request() must be called
+// synchronously within a user gesture — the checkbox 'change' event qualifies.
+// If the user denies (or the request fails), revert the toggle so UI and
+// stored settings stay consistent. Turning OFF just saves; the feature is
+// gated by the setting so the API simply won't be called while disabled.
+// (We intentionally don't revoke on toggle-off — see permissionService.js.)
+function handleToggleChange(featureId, checkbox, card, toggleWrap) {
+  const newState = checkbox.checked;
+  if (newState) {
+    card.classList.add('is-on');
+    toggleWrap.classList.add('is-on');
+  } else {
+    card.classList.remove('is-on');
+    toggleWrap.classList.remove('is-on');
+  }
+
+  const perms = FEATURE_PERMISSIONS[featureId];
+  if (newState && perms) {
+    chrome.permissions.request({ permissions: perms }, (granted) => {
+      if (chrome.runtime.lastError || !granted) {
+        // Denied — revert the toggle UI and do NOT persist the on-state.
+        checkbox.checked = false;
+        card.classList.remove('is-on');
+        toggleWrap.classList.remove('is-on');
+        return;
+      }
+      saveSettings();
+    });
+  } else {
+    saveSettings();
+  }
+}
+
+// ─────────────────────────────────────────────
 //  Load & Save
 // ─────────────────────────────────────────────
 // NOTE: Keep in sync with DEFAULT_SETTINGS in constants.js
@@ -476,20 +526,19 @@ function getDefaults() {
   
   defaults.archiveThresholdRaw = '12h';
   defaults.hibernateThresholdRaw = '1h';
-  defaults.enableMediaExtractor = true;
+  defaults.enableMediaExtractor = false;
   defaults.enableVolumeControl = true;
   defaults.autoPiP = false;
   defaults.enableEyedropper = true;
   defaults.enableScreenshot = true;
   defaults.enableUnitConverter = true;
-  defaults.enablePomo = true;
+  defaults.enablePomo = false;
   defaults.enableFocusView = true;
   defaults.baseRemSize = 16;
   defaults.ntpBgDesign = 0;
   defaults.timeFormat = '24h';
   defaults.showClock = true;
   defaults.searchEngine = 'google';
-  defaults.enableLiquidGlass = false;
   defaults.useDefaultNtp = false;
   defaults.peekExcludedDomains = ['google.com', 'bing.com', 'duckduckgo.com', 'search.brave.com', 'perplexity.ai', 'x.com', 'twitter.com', 'reddit.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'youtube.com', 'twitch.tv', 'vimeo.com', 'news.ycombinator.com', 'amazon.com', 'ebay.com'];
   

@@ -2,8 +2,9 @@ import { globalSettings, updateSettings, tabSets, memoryBaselines, sessionVault 
 import { startPomoTimer, stopPomoTimer } from './pomoService.js';
 import { BANGS, NONE_GROUP, SEARCH_ENGINES } from '../constants.js';
 import { getBaseDomain } from '../utils.js';
-import { syncBaselinesToStorage, saveSnapshot, ensureLoaded, safeHibernate, updateCleanupAlarms } from './tabService.js';
+import { syncBaselinesToStorage, saveSnapshot, ensureLoaded, safeHibernate, hibernateActiveTab, updateCleanupAlarms } from './tabService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './setService.js';
+import { performLaunchBookmarkFolder, performLaunchAllBookmarks } from './bookmarkService.js';
 
 
 
@@ -15,6 +16,20 @@ const historyCache = new Map();
 const bookmarkCache = new Map();
 const HISTORY_CACHE_TTL = 2000;
 const BOOKMARK_CACHE_TTL = 5000;
+// Cap the per-query caches so they can't grow unbounded across a long session.
+const MAX_CACHE_ENTRIES = 32;
+// Single-entry memo so a backspace→retype of the same query is free. Short TTL
+// stays well inside the tab-cache freshness budget (2s) — no extra staleness.
+const LAST_QUERY_TTL = 500;
+let lastQueryMemo = null;
+
+// Insert-order-bounded Map set: evicts the oldest entry once over the cap.
+function boundedMapSet(map, key, value) {
+    map.set(key, value);
+    if (map.size > MAX_CACHE_ENTRIES) {
+        map.delete(map.keys().next().value);
+    }
+}
 
 // ── Recent Actions ──
 const recentActions = [];
@@ -45,6 +60,12 @@ function getCachedTabs() {
     const now = Date.now();
     if (now - tabCache.ts < 2000) return Promise.resolve(tabCache.results);
     return chrome.tabs.query({}).then(tabs => {
+        // Precompute lowercased search fields once per cache refresh so the
+        // per-keystroke tab filter doesn't re-run toLowerCase() for every tab.
+        for (const t of tabs) {
+            t._titleLower = (t.title || '').toLowerCase();
+            t._urlLower = (t.url || '').toLowerCase();
+        }
         tabCache = { results: tabs, ts: now };
         return tabs;
     });
@@ -55,9 +76,9 @@ function getCachedHistory(query) {
     const cached = historyCache.get(query);
     if (cached && Date.now() - cached.ts < HISTORY_CACHE_TTL) return Promise.resolve(cached.results);
     return chrome.history.search({ text: query, maxResults: 10 }).then(results => {
-        historyCache.set(query, { results, ts: Date.now() });
+        boundedMapSet(historyCache, query, { results, ts: Date.now() });
         return results;
-    });
+    }).catch(() => []);
 }
 
 function getCachedBookmarks(query) {
@@ -65,9 +86,9 @@ function getCachedBookmarks(query) {
     const cached = bookmarkCache.get(query);
     if (cached && Date.now() - cached.ts < BOOKMARK_CACHE_TTL) return Promise.resolve(cached.results);
     return chrome.bookmarks.search({ query }).then(results => {
-        bookmarkCache.set(query, { results, ts: Date.now() });
+        boundedMapSet(bookmarkCache, query, { results, ts: Date.now() });
         return results;
-    });
+    }).catch(() => []);
 }
 
 function getSuggestions(query) {
@@ -134,7 +155,9 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'summon_set_prompt', category: 'Sets', title: 'Summon Set...', aliases: ['merge set', 'insert', 'summon'] },
     { type: 'action', id: 'save_group', category: 'Sets', title: 'Save Group as Set', aliases: ['store group', 'save'] },
     { type: 'action', id: 'stash_group', category: 'Sets', title: 'Stash Current Group', aliases: ['hide', 'store and close'] },
-    { type: 'action', id: 'export_sets', category: 'Sets', title: 'Export Sets JSON', aliases: ['backup sets', 'download'] },
+    { type: 'action', id: 'open_all_bookmarks', category: 'Sets', title: 'Insert All Bookmarks in New Window', aliases: ['load all bookmarks', 'all bookmarks', 'open bookmarks'], requiredSetting: 'enableBookmarks' },
+    { type: 'action', id: 'open_bookmarks_folder_prompt', category: 'Sets', title: 'Insert a Bookmarks Folder...', aliases: ['bookmarks folder', 'open folder', 'open bookmarks'], requiredSetting: 'enableBookmarks' },
+    { type: 'action', id: 'export_sets', category: 'Sets', title: 'Export Sets JSON', aliases: ['backup sets', 'download'], requiredSetting: 'enableMediaExtractor' },
     { type: 'action', id: 'hibernate_all', category: 'Performance', title: 'Hibernate Background Tabs', aliases: ['sleep', 'ram', 'memory', 'freeze'] },
     { type: 'action', id: 'hibernate_window', category: 'Performance', title: 'Hibernate Window', aliases: ['sleep', 'ram', 'memory'] },
     { type: 'action', id: 'pause_media', category: 'Performance', title: 'Pause All Media', aliases: ['stop audio', 'video', 'music'] },
@@ -151,7 +174,7 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'toggle_reader', category: 'Focus', title: 'Focus View (Reader Mode)', aliases: ['read', 'strip', 'clean page', 'article', 'focus view'], requiredSetting: 'enableFocusView' },
     { type: 'action', id: 'zen_fullscreen', category: 'Focus', title: 'Enter Zen Fullscreen', aliases: ['focus', 'maximize', 'hide ui'] },
     { type: 'action', id: 'snapshot_session', category: 'Safety', title: 'Snapshot Session Now', aliases: ['backup', 'save state'] },
-    { type: 'action', id: 'clear_cache_hour', category: 'Safety', title: 'Panic Close (Clear Last Hour)', aliases: ['history', 'delete', 'wipe'] },
+    { type: 'action', id: 'clear_cache_hour', category: 'Safety', title: 'Panic Close (Clear Last Hour)', aliases: ['history', 'delete', 'wipe'], requiredSetting: 'enablePanicClose' },
     { type: 'action', id: 'clear_unprotected', category: 'Organization', title: 'Close Unprotected Tabs', aliases: ['clear today', 'close loose', 'sweep'] },
     { type: 'action', id: 'toggle_pin', category: 'Organization', title: 'Toggle Pin', aliases: ['pin', 'unpin'] },
     { type: 'action', id: 'duplicate_tab', category: 'Organization', title: 'Duplicate Tab', aliases: ['clone', 'copy tab'] },
@@ -212,6 +235,61 @@ const EXTENSION_ACTIONS = [
 
 const actionMap = new Map(EXTENSION_ACTIONS.map(a => [a.id, a]));
 
+// Pre-lowercased search fields, built once at module load and held parallel to
+// EXTENSION_ACTIONS. Lets the action-mode filter skip per-keystroke toLowerCase()
+// allocations on title/category/aliases (which never change).
+const actionSearchIndex = EXTENSION_ACTIONS.map(a => ({
+    titleLower: (a.title || '').toLowerCase(),
+    categoryLower: (a.category || '').toLowerCase(),
+    aliasesLower: a.aliases ? a.aliases.map(alias => alias.toLowerCase()) : null
+}));
+
+// Static command→URL table for the chrome:// quick-link actions. Replaces ~25
+// one-liner `case 'set_*': chrome.tabs.create(...)` entries — one lookup
+// instead of a linear switch scan, and the table is scannable in one place.
+const CHROME_URL_MAP = {
+    open_downloads: 'chrome://downloads/',
+    open_extensions: 'chrome://extensions/',
+    open_settings: 'chrome://settings/',
+    set_gpu: 'chrome://settings/?search=hardware+acceleration',
+    set_performance: 'chrome://settings/performance',
+    set_privacy: 'chrome://settings/privacy',
+    set_clear_data: 'chrome://settings/clearBrowserData',
+    set_cookies: 'chrome://settings/cookies',
+    set_ad_privacy: 'chrome://settings/adPrivacy',
+    set_permissions: 'chrome://settings/content',
+    set_passwords: 'chrome://password-manager/passwords',
+    set_autofill: 'chrome://settings/addresses',
+    set_payments: 'chrome://settings/payments',
+    set_appearance: 'chrome://settings/appearance',
+    set_fonts: 'chrome://settings/fonts',
+    set_search: 'chrome://settings/search',
+    set_downloads: 'chrome://settings/downloads',
+    set_languages: 'chrome://settings/languages',
+    set_accessibility: 'chrome://settings/accessibility',
+    set_flags: 'chrome://flags/',
+    set_reset: 'chrome://settings/reset',
+    set_help: 'chrome://settings/help',
+    set_sync: 'chrome://settings/syncSetup',
+    set_startup: 'chrome://settings/onStartup',
+    set_extensions: 'chrome://extensions/'
+};
+
+// Pomodoro timer presets: [minutes, phase]. pomo_stop handled separately.
+const POMO_PRESETS = {
+    pomo_25: [25, 'work'],
+    pomo_50: [50, 'work'],
+    pomo_5: [5, 'break'],
+    pomo_15: [15, 'break']
+};
+
+// Volume control quick actions. vol_up/vol_down use delta, vol_max uses level.
+const VOL_ACTIONS = {
+    vol_up: { delta: 10 },
+    vol_down: { delta: -10 },
+    vol_max: { level: 100 }
+};
+
 function getSearchUrl(query) {
     const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
     return engine.url + encodeURIComponent(query);
@@ -243,7 +321,21 @@ export async function handleSearchItems(request, sender, sendResponse) {
     const currentGen = ++searchGeneration;
     const query = (typeof request.query === 'string' ? request.query : "").trim();
     const lowerQuery = query.toLowerCase();
-    
+
+    // Single-entry memo: a backspace→retype of the same query returns the
+    // previous payload for free within LAST_QUERY_TTL (well under the tab-cache
+    // freshness budget, so it adds no extra staleness).
+    if (lastQueryMemo && lastQueryMemo.query === query && Date.now() - lastQueryMemo.ts < LAST_QUERY_TTL) {
+        sendResponse(lastQueryMemo.payload);
+        return;
+    }
+    // Wrap sendResponse so every result path records into the memo automatically.
+    const realSendResponse = sendResponse;
+    sendResponse = (payload) => {
+        lastQueryMemo = { query, payload, ts: Date.now() };
+        realSendResponse(payload);
+    };
+
     if (query.startsWith('>')) {
         const actionQuery = query.substring(1).trim().toLowerCase();
         const dynamicRegex = /^(summon|launch|replace|delete set)\s*(.*)/;
@@ -269,6 +361,54 @@ export async function handleSearchItems(request, sender, sendResponse) {
             });
             sendResponse({ results: results.slice(0, 15) });
             return;
+        }
+
+        // "> open folder" — drill-in list of EVERY bookmark folder and subfolder
+        // (flat, with hierarchy path). Pick one to insert its tabs into the
+        // current window, all grouped under a single tab group named after the
+        // folder. Gated by enableBookmarks. Reached via the "Insert a Bookmarks
+        // Folder..." action, which rewrites the query to "> open folder ".
+        if (globalSettings.enableBookmarks) {
+            const folderMatch = actionQuery.match(/^open\s+folders?\s*(.*)/);
+            if (folderMatch) {
+                const term = folderMatch[1].trim();
+                try {
+                    const tree = await chrome.bookmarks.getTree();
+                    const folders = [];
+                    // Walk the tree once, collecting every folder node with its
+                    // ancestor-path label so nested folders stay distinguishable.
+                    const walk = (nodes, pathParts) => {
+                        for (const n of nodes) {
+                            if (n.children) {
+                                // Skip the virtual root (empty title) but still
+                                // recurse into its children.
+                                const title = (n.title || '').trim();
+                                const parts = title ? [...pathParts, title] : pathParts;
+                                if (title) folders.push({ id: n.id, title, path: parts });
+                                walk(n.children, parts);
+                            }
+                        }
+                    };
+                    walk(tree, []);
+                    const lowerTerm = term.toLowerCase();
+                    const matched = (lowerTerm
+                        ? folders.filter(f => f.title.toLowerCase().includes(lowerTerm) || f.path.join(' / ').toLowerCase().includes(lowerTerm))
+                        : folders
+                    ).slice(0, 30);
+                    sendResponse({
+                        results: matched.map(f => ({
+                            type: 'action',
+                            id: `launch_bookmark_folder|${f.id}`,
+                            category: 'Sets',
+                            title: f.title,
+                            subtitle: f.path.length > 1 ? `${f.path.slice(0, -1).join(' / ')} • Insert into current window` : 'Insert into current window • subfolders become groups'
+                        }))
+                    });
+                } catch (e) {
+                    sendResponse({ results: [] });
+                }
+                return;
+            }
         }
 
         // Handle direct timer setting commands: "> clean time 1h" or "> hibernate 30m"
@@ -312,11 +452,34 @@ export async function handleSearchItems(request, sender, sendResponse) {
                 });
                 return;
             }
+
+            // Handle ">vol" or ">volume" without a number — show the slider pill
+            if (actionQuery.match(/^vol(?:ume)?$/)) {
+                sendResponse({
+                    results: [{
+                        type: 'action',
+                        id: 'show_volume_slider',
+                        category: 'Media',
+                        title: 'Volume',
+                        subtitle: 'Press Enter to adjust'
+                    }]
+                });
+                return;
+            }
         }
 
-        let filtered = EXTENSION_ACTIONS
-            .filter(a => !a.requiredSetting || globalSettings[a.requiredSetting])
-            .filter(a => a.title.toLowerCase().includes(actionQuery) || a.category.toLowerCase().includes(actionQuery) || (a.aliases && a.aliases.some(alias => alias.toLowerCase().includes(actionQuery))));
+        // Filter using the pre-lowercased actionSearchIndex instead of re-running
+        // toLowerCase() on title/category/aliases for every action per keystroke.
+        const filteredIdx = [];
+        for (let i = 0; i < EXTENSION_ACTIONS.length; i++) {
+            const a = EXTENSION_ACTIONS[i];
+            if (a.requiredSetting && !globalSettings[a.requiredSetting]) continue;
+            const idx = actionSearchIndex[i];
+            if (idx.titleLower.includes(actionQuery) || idx.categoryLower.includes(actionQuery) || (idx.aliasesLower && idx.aliasesLower.some(alias => alias.includes(actionQuery)))) {
+                filteredIdx.push(a);
+            }
+        }
+        let filtered = filteredIdx;
 
         if (!actionQuery && recentActions.length > 0) {
             const recentResults = [];
@@ -341,7 +504,7 @@ export async function handleSearchItems(request, sender, sendResponse) {
         return;
     }
 
-    if (lowerQuery.startsWith('timer ')) {
+    if (globalSettings.enablePomo && lowerQuery.startsWith('timer ')) {
         const mins = parseInt(lowerQuery.replace('timer ', ''));
         if (!isNaN(mins) && mins > 0) {
             sendResponse({ results: [{ type: 'action', id: `pomo_custom|${mins}`, category: 'Focus', title: `Start ${mins}m Custom Timer`, aliases: ['timer', 'pomo'] }] });
@@ -350,9 +513,11 @@ export async function handleSearchItems(request, sender, sendResponse) {
     }
     
     const pTabs = getCachedTabs();
-    const pHistory = query ? getCachedHistory(query) : Promise.resolve([]);
-    const pBookmarks = (query && chrome.bookmarks) ? getCachedBookmarks(query) : Promise.resolve([]);
-    const pClosed = (!query && chrome.sessions) ? chrome.sessions.getRecentlyClosed({ maxResults: 7 }) : Promise.resolve([]);
+    const pHistory = (query && globalSettings.enableHistory) ? getCachedHistory(query) : Promise.resolve([]);
+    const pBookmarks = (query && globalSettings.enableBookmarks) ? getCachedBookmarks(query) : Promise.resolve([]);
+    const pClosed = (!query && globalSettings.enableRecentlyClosed)
+        ? chrome.sessions.getRecentlyClosed({ maxResults: 7 }).catch(() => [])
+        : Promise.resolve([]);
     const pSuggestions = getSuggestions(query);
 
     let virtualResults = [];
@@ -506,13 +671,15 @@ export async function handleSearchItems(request, sender, sendResponse) {
         }
         suggestions.slice(0, 5).forEach(s => results.push({ type: 'search', title: s, url: getSearchUrl(s) }));
         
-        const formattedTabs = tabs.filter(t => !query || (t.title && t.title.toLowerCase().includes(lowerQuery)) || (t.url && t.url.toLowerCase().includes(lowerQuery))).slice(0, query ? 5 : 15).map(t => ({
+        const formattedTabs = tabs.filter(t => !query || (t._titleLower && t._titleLower.includes(lowerQuery)) || (t._urlLower && t._urlLower.includes(lowerQuery))).slice(0, query ? 5 : 15).map(t => ({
             type: 'tab', id: t.id, title: t.title || t.url, url: t.url, windowId: t.windowId, favIconUrl: t.favIconUrl || null, groupId: t.groupId ?? NONE_GROUP
         }));
-        
+
         results.push(...formattedTabs);
         results.push(...bookmarks.filter(b => b.url).slice(0, 5).map(b => ({ type: 'bookmark', title: b.title || b.url, url: b.url })));
-        results.push(...history.filter(h => h.url && !tabs.some(t => t.url === h.url)).slice(0, 10).map(h => ({ type: 'history', title: h.title || h.url, url: h.url })));
+        // O(H) dedupe against open tabs via a Set (was O(H*T) nested tabs.some()).
+        const tabUrlSet = new Set(tabs.map(t => t.url));
+        results.push(...history.filter(h => h.url && !tabUrlSet.has(h.url)).slice(0, 10).map(h => ({ type: 'history', title: h.title || h.url, url: h.url })));
         if (!query && closedSessions) results.push(...closedSessions.filter(s => s.tab && s.tab.url && !s.tab.url.startsWith('chrome')).slice(0, 5).map(s => ({ type: 'closed', title: s.tab.title || s.tab.url, url: s.tab.url, favIconUrl: s.tab.favIconUrl || null })));
         if (sessionVault.length > 0 && (!query || "restore".includes(lowerQuery))) {
             results.unshift({ type: 'vault', title: `Restore ${sessionVault.length} protected tabs`, url: 'virtual:restore-vault' });
@@ -548,6 +715,19 @@ export async function handleSearchItems(request, sender, sendResponse) {
 
 export async function executeAction(commandId, args, senderTab = null) {
     await ensureLoaded();
+    // Input guard: commandId is used in .includes('|') / .split('|') below, so a
+    // non-string (malformed execute-browser-action message) would throw. Validate
+    // at the service boundary rather than relying on every caller.
+    if (typeof commandId !== 'string' || !commandId) return;
+    // Authority gate: re-check requiredSetting at execution time, not just at
+    // palette-listing time. The palette filter (line ~430) hides commands whose
+    // setting is off, but executeAction is also reachable via direct messages
+    // (popup tool card click, forceAction) that bypass that filter. Without this
+    // check, toggling a feature OFF mid-session wouldn't actually disable it.
+    const action = actionMap.get(commandId);
+    if (action && action.requiredSetting && !globalSettings[action.requiredSetting]) {
+        return;
+    }
     recordRecentAction(commandId);
     try {
         // Pipe-delimited dynamic palette commands
@@ -565,6 +745,7 @@ export async function executeAction(commandId, args, senderTab = null) {
             if (base === 'summon_set_palette') { performSummonSet(extra).catch(() => {}); return; }
             if (base === 'replace_set_palette') { performReplaceSet(extra).catch(() => {}); return; }
             if (base === 'launch_set_palette') { performLaunchSet(extra).catch(() => {}); return; }
+            if (base === 'launch_bookmark_folder') { performLaunchBookmarkFolder(extra).catch(() => {}); return; }
             if (base === 'delete_set_palette') { performDeleteSet(extra).catch(() => {}); return; }
 
             if (base === 'set_search_engine') {
@@ -577,7 +758,7 @@ export async function executeAction(commandId, args, senderTab = null) {
 
             if (base === 'pomo_custom') {
                 const mins = parseInt(extra);
-                startPomoTimer(mins, 'work');
+                if (globalSettings.enablePomo) startPomoTimer(mins, 'work');
                 return;
             }
 
@@ -608,17 +789,9 @@ export async function executeAction(commandId, args, senderTab = null) {
             }
         }
 
-        // --- NEW: Command Palette Prompts ---
-        if (commandId === 'replace_workspace_prompt') {
-            const tab = senderTab || (await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []))[0];
-            if (tab) chrome.tabs.sendMessage(tab.id, { action: 'update-palette-query', query: '> replace ' }).catch(() => {});
-            return;
-        }
-        if (commandId === 'summon_set_prompt') {
-            const tab = senderTab || (await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []))[0];
-            if (tab) chrome.tabs.sendMessage(tab.id, { action: 'update-palette-query', query: '> summon ' }).catch(() => {});
-            return;
-        }
+        // Prompt-style actions (replace_workspace_prompt, summon_set_prompt,
+        // open_bookmarks_folder_prompt) are handled client-side in activateResult:
+        // they rewrite the palette query locally. They never reach this point.
 
         const tab = senderTab || (await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []))[0];
         const currentWinId = tab ? tab.windowId : chrome.windows.WINDOW_ID_CURRENT;
@@ -775,6 +948,9 @@ export async function executeAction(commandId, args, senderTab = null) {
                 chrome.tabs.remove(gTabs.map(t => t.id)).catch(() => {});
                 break;
             }
+            case 'open_all_bookmarks':
+                performLaunchAllBookmarks().catch(() => {});
+                break;
             case 'export_sets':
                 ensureLoaded().then(() => {
                     const res = { sets: tabSets };
@@ -795,11 +971,18 @@ export async function executeAction(commandId, args, senderTab = null) {
             }
             case 'hibernate_pinned': {
                 const tabs = await chrome.tabs.query({ pinned: true });
-                tabs.forEach(t => safeHibernate(t).catch(() => {}));
+                // The active pinned tab can't be discarded directly (Chrome
+                // forbids discarding the focused tab) — defer it to
+                // hibernateActiveTab, which switches focus to an NTP first.
+                const activePinned = tabs.find(t => t.active);
+                tabs.forEach(t => { if (!t.active) safeHibernate(t).catch(() => {}); });
+                if (activePinned) await hibernateActiveTab(activePinned);
                 break;
             }
             case 'hibernate_current':
-                if (tab) safeHibernate(tab).catch(() => {});
+                // Chrome can't discard the active tab — hibernateActiveTab
+                // switches focus to an NTP first, then sleeps the original.
+                if (tab) await hibernateActiveTab(tab);
                 break;
             case 'pause_media':
                 if (tab) chrome.tabs.sendMessage(tab.id, { action: 'pause-media' }).catch(() => {});
@@ -922,54 +1105,32 @@ export async function executeAction(commandId, args, senderTab = null) {
                 }
                 break;
             case 'set_baseline_url':
-                if (tab && args) {
+                if (tab && typeof args === 'string' && args) {
                     let url = args.trim();
                     if (!/^https?:\/\//.test(url)) url = 'https://' + url;
                     const stored = memoryBaselines.get(tab.id);
                     if (stored) { memoryBaselines.set(tab.id, { ...stored, url }); syncBaselinesToStorage(); }
                 }
                 break;
-            case 'open_downloads': chrome.tabs.create({ url: 'chrome://downloads/' }).catch(() => {}); break;
-            case 'open_extensions': chrome.tabs.create({ url: 'chrome://extensions/' }).catch(() => {}); break;
-            case 'open_settings': chrome.tabs.create({ url: 'chrome://settings/' }).catch(() => {}); break;
-            case 'set_gpu': chrome.tabs.create({ url: 'chrome://settings/?search=hardware+acceleration' }).catch(() => {}); break;
-            case 'set_performance': chrome.tabs.create({ url: 'chrome://settings/performance' }).catch(() => {}); break;
-            case 'set_privacy': chrome.tabs.create({ url: 'chrome://settings/privacy' }).catch(() => {}); break;
-            case 'set_clear_data': chrome.tabs.create({ url: 'chrome://settings/clearBrowserData' }).catch(() => {}); break;
-            case 'set_cookies': chrome.tabs.create({ url: 'chrome://settings/cookies' }).catch(() => {}); break;
-            case 'set_ad_privacy': chrome.tabs.create({ url: 'chrome://settings/adPrivacy' }).catch(() => {}); break;
-            case 'set_permissions': chrome.tabs.create({ url: 'chrome://settings/content' }).catch(() => {}); break;
-            case 'set_passwords': chrome.tabs.create({ url: 'chrome://password-manager/passwords' }).catch(() => {}); break;
-            case 'set_autofill': chrome.tabs.create({ url: 'chrome://settings/addresses' }).catch(() => {}); break;
-            case 'set_payments': chrome.tabs.create({ url: 'chrome://settings/payments' }).catch(() => {}); break;
-            case 'set_appearance': chrome.tabs.create({ url: 'chrome://settings/appearance' }).catch(() => {}); break;
-            case 'set_fonts': chrome.tabs.create({ url: 'chrome://settings/fonts' }).catch(() => {}); break;
-            case 'set_search': chrome.tabs.create({ url: 'chrome://settings/search' }).catch(() => {}); break;
-            case 'set_downloads': chrome.tabs.create({ url: 'chrome://settings/downloads' }).catch(() => {}); break;
-            case 'set_languages': chrome.tabs.create({ url: 'chrome://settings/languages' }).catch(() => {}); break;
-            case 'set_accessibility': chrome.tabs.create({ url: 'chrome://settings/accessibility' }).catch(() => {}); break;
-            case 'set_flags': chrome.tabs.create({ url: 'chrome://flags/' }).catch(() => {}); break;
-            case 'set_reset': chrome.tabs.create({ url: 'chrome://settings/reset' }).catch(() => {}); break;
-            case 'set_help': chrome.tabs.create({ url: 'chrome://settings/help' }).catch(() => {}); break;
-            case 'set_sync': chrome.tabs.create({ url: 'chrome://settings/syncSetup' }).catch(() => {}); break;
-            case 'set_startup': chrome.tabs.create({ url: 'chrome://settings/onStartup' }).catch(() => {}); break;
-            case 'set_extensions': chrome.tabs.create({ url: 'chrome://extensions/' }).catch(() => {}); break;
-            case 'pomo_25': if (globalSettings.enablePomo) startPomoTimer(25, 'work'); break;
-            case 'pomo_50': if (globalSettings.enablePomo) startPomoTimer(50, 'work'); break;
-            case 'pomo_5':  if (globalSettings.enablePomo) startPomoTimer(5, 'break'); break;
-            case 'pomo_15': if (globalSettings.enablePomo) startPomoTimer(15, 'break'); break;
-            case 'pomo_stop': if (globalSettings.enablePomo) stopPomoTimer(); break;
-            case 'vol_up':
-                if (globalSettings.enableVolumeControl) chrome.tabs.sendMessage(tab?.id, { action: 'set-volume', delta: 10 }).catch(() => {});
-                break;
-            case 'vol_down':
-                if (globalSettings.enableVolumeControl) chrome.tabs.sendMessage(tab?.id, { action: 'set-volume', delta: -10 }).catch(() => {});
-                break;
-            case 'vol_max':
-                if (globalSettings.enableVolumeControl) chrome.tabs.sendMessage(tab?.id, { action: 'set-volume', level: 100 }).catch(() => {});
+            case 'pomo_stop':
+                if (globalSettings.enablePomo) stopPomoTimer();
                 break;
             case 'toggle_reader':
                 if (tab && globalSettings.enableFocusView) chrome.tabs.sendMessage(tab.id, { action: 'toggle-reader-view' }).catch(() => {});
+                break;
+            default:
+                if (CHROME_URL_MAP[commandId]) {
+                    chrome.tabs.create({ url: CHROME_URL_MAP[commandId] }).catch(() => {});
+                } else if (POMO_PRESETS[commandId]) {
+                    if (globalSettings.enablePomo) {
+                        const [mins, phase] = POMO_PRESETS[commandId];
+                        startPomoTimer(mins, phase);
+                    }
+                } else if (VOL_ACTIONS[commandId]) {
+                    if (globalSettings.enableVolumeControl) {
+                        chrome.tabs.sendMessage(tab?.id, { action: 'set-volume', ...VOL_ACTIONS[commandId] }).catch(() => {});
+                    }
+                }
                 break;
         }
     } catch (e) { console.error('[Tabs++] executeAction error:', commandId, e); }

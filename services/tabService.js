@@ -9,6 +9,9 @@ for (const rule of GROUPING_RULES) {
     }
 }
 const aiRule = GROUPING_RULES.find(r => r.title === 'AI');
+// Smart Group titles (Dev/Design/AI/Media/News/Social) — pre-built once so
+// regrouping can distinguish extension-managed groups from manual/custom ones.
+const ruleTitles = new Set(GROUPING_RULES.map(r => r.title));
 
 function findRuleByHost(host) {
     let rule = domainRuleMap.get(host);
@@ -21,16 +24,112 @@ function findRuleByHost(host) {
     return null;
 }
 
+// Resolves when the tab reaches status:'complete', or rejects after timeoutMs.
+// One-shot listener: registers, fires once, removes itself. Used by
+// safeHibernate to guarantee a reset-to-baseline navigation has committed to
+// Chrome's session store before the tab is discarded (BUG-006).
+function waitForTabComplete(tabId, timeoutMs = 8000) {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const listener = (tId, changeInfo) => {
+            if (tId === tabId && changeInfo.status === 'complete' && !settled) {
+                settled = true;
+                chrome.tabs.onUpdated.removeListener(listener);
+                clearTimeout(timer);
+                resolve();
+            }
+        };
+        const timer = setTimeout(() => {
+            if (!settled) {
+                settled = true;
+                chrome.tabs.onUpdated.removeListener(listener);
+                reject(new Error('waitForTabComplete timeout'));
+            }
+        }, timeoutMs);
+        chrome.tabs.onUpdated.addListener(listener);
+    });
+}
+
 export async function safeHibernate(tab) {
     if (tab.discarded) return;
     const baseline = memoryBaselines.get(tab.id);
-    if (baseline && baseline.url && (tab.pinned || baseline.groupId !== NONE_GROUP)) {
+    const needsReset = baseline && baseline.url && (tab.pinned || baseline.groupId !== NONE_GROUP);
+    if (needsReset) {
         const currentUrl = tab.pendingUrl || tab.url;
         if (currentUrl !== baseline.url) {
-            try { await chrome.tabs.update(tab.id, { url: baseline.url }); } catch (e) {}
+            try {
+                // Navigate back to baseline AND wait for the page to finish
+                // loading before discarding. Previously this was fire-and-forget,
+                // so the discard could land while status was still 'loading' and
+                // the baseline URL hadn't committed — and attemptDiscard's own
+                // targetUrl navigation then created a double-navigation race
+                // (BUG-006). We now pass NO targetUrl to safeDiscard so the
+                // second navigation never fires.
+                await chrome.tabs.update(tab.id, { url: baseline.url });
+                await waitForTabComplete(tab.id, 8000);
+            } catch (e) {
+                // Update threw or waitForTabComplete timed out (slow/hung site).
+                // Fall through and discard anyway — no worse than today.
+            }
         }
     }
-    safeDiscard(tab.id, null, baseline?.url);
+    safeDiscard(tab.id);
+}
+
+// Hibernate a tab that is currently ACTIVE. Chrome forbids discarding the
+// focused tab, so we must move focus elsewhere first. We activate an NTP
+// (resolving it via the same cache → query → create pattern the Focus Guard
+// uses), wait for the activation to land, then safeHibernate the original.
+// Used by the `hibernate_current` and `hibernate_pinned` palette commands.
+// (BUG-003 / BUG-004: previously these silently no-op'd because safeDiscard
+// aborts on the active tab.)
+export async function hibernateActiveTab(tab) {
+    if (!tab || tab.discarded) return;
+    const windowId = tab.windowId;
+
+    // 1. Resolve + activate an NTP to receive focus.
+    let activated = false;
+    try {
+        if (globalSettings.useDefaultNtp) {
+            // Native NTP: always create fresh (no canonical NTP URL to reuse).
+            await chrome.tabs.create({ active: true, windowId, index: 9999 });
+            activated = true;
+        } else {
+            // Tabs++ NTP: reuse cached → query existing → create.
+            const cachedNtpId = ntpTabCache.get(windowId);
+            if (cachedNtpId) {
+                try {
+                    await chrome.tabs.update(cachedNtpId, { active: true });
+                    activated = true;
+                } catch (e) {
+                    // Cached NTP is gone — fall through to query/create.
+                    ntpTabCache.delete(windowId);
+                }
+            }
+            if (!activated) {
+                const existing = await chrome.tabs.query({ url: NTP_URL, windowId });
+                if (existing && existing.length > 0) {
+                    ntpTabCache.set(windowId, existing[0].id);
+                    await chrome.tabs.update(existing[0].id, { active: true });
+                    activated = true;
+                } else {
+                    const c = await chrome.tabs.create({ url: NTP_URL, active: true, windowId, index: 9999 });
+                    ntpTabCache.set(windowId, c.id);
+                    if (c.groupId !== NONE_GROUP && chrome.tabGroups) {
+                        chrome.tabs.ungroup(c.id).catch(() => {});
+                    }
+                    activated = true;
+                }
+            }
+        }
+    } catch (e) {
+        // NTP activation failed — abort rather than risk throwing on discard.
+        return;
+    }
+
+    // 2. By now the target tab is no longer active. safeHibernate re-checks
+    //    tab.active via safeDiscard, so a timing race degrades to a safe no-op.
+    await safeHibernate(tab);
 }
 
 // Helper to dynamically update the auto-cleanup alarms based on timeout settings
@@ -113,8 +212,34 @@ let loadPromise = null;
 export async function ensureLoaded() {
     if (isInitialized) return;
     if (!loadPromise) {
-        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'tabSets', 'savedPrompts']).then((data) => {
-            if (data.settings) Object.assign(globalSettings, data.settings);
+        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'tabSets', 'savedPrompts', 'permMigrationDone']).then(async (data) => {
+            // Permission-refactor migration — runs inside the load critical
+            // section so in-memory settings are correct BEFORE isInitialized
+            // flips true. Without this, a concurrent palette search during SW
+            // startup would read enablePomo=false etc. and miss results.
+            // One-time per profile, guarded by permMigrationDone.
+            let settings = data.settings || {};
+            if (!data.permMigrationDone) {
+                // Seed ALL optional-permission toggles on for existing users so
+                // their experience is unchanged after the required→optional move.
+                // We detect "existing user" conservatively: they must have stored
+                // settings AND those settings must predate this refactor (i.e.
+                // lack the new enableHistory key). A brand-new install has no
+                // stored settings and keeps the lean DEFAULT_SETTINGS.
+                const isPreRefactorUser = !!data.settings && !('enableHistory' in data.settings);
+                if (isPreRefactorUser) {
+                    const preserve = [
+                        'enablePomo', 'enableMediaExtractor',
+                        'enableHistory', 'enableBookmarks',
+                        'enableRecentlyClosed', 'enablePanicClose'
+                    ];
+                    for (const key of preserve) settings[key] = true;
+                    await chrome.storage.local.set({ settings, permMigrationDone: true }).catch(() => {});
+                } else {
+                    await chrome.storage.local.set({ permMigrationDone: true }).catch(() => {});
+                }
+            }
+            Object.assign(globalSettings, settings);
             setSessionVault(data.vault || []);
             vaultCanonicalUrls.clear();
             for (const t of sessionVault) { vaultCanonicalUrls.add(getCanonicalUrl(t.url)); }
@@ -272,9 +397,12 @@ export async function initializeState(isFreshStartup = false) {
         );
         toHibernate.forEach((tab, i) => {
             setTimeout(() => {
-                chrome.tabs.discard(tab.id).then(() => {
-                    discardedTabs.add(tab.id);
-                }).catch(() => {});
+                // safeHibernate resets protected tabs to their baseline URL before
+                // discarding, so a restarted pinned/grouped tab wakes at its clean
+                // home URL — not whatever page Chrome session-restored it onto.
+                // (BUG-001) The discarded:true onUpdated listener handles
+                // discardedTabs.add, so no manual tracking is needed here.
+                safeHibernate(tab).catch(() => {});
             }, i * 50); // 50ms stagger between each discard
         });
     }
@@ -299,23 +427,26 @@ export function processTab(tab) {
         const title = (tab.groupId !== NONE_GROUP && groupCache.has(tab.groupId)) ? groupCache.get(tab.groupId).title : '';
         const color = (tab.groupId !== NONE_GROUP && groupCache.has(tab.groupId)) ? groupCache.get(tab.groupId).color : 'grey';
 
-        const isUrlDiff = data && data.url !== url;
-        // Allow URL update only when:
+        // URL IMMUTABILITY (BUG-005): once a baseline has a real URL, it NEVER
+        // changes automatically — not on navigation, not on session restore.
+        // Only the manual palette actions (update_baseline / set_baseline_url)
+        // may rewrite it. This serves the core invariant: the URL a tab was
+        // pinned/grouped at is the URL it always restores and hibernates to.
+        //
+        // A baseline URL may be seeded/upgraded only when:
         // 1. No baseline exists yet (first registration)
-        // 2. The stored baseline is a chrome:// placeholder (tab was grouped before it navigated)
-        // 3. The tab navigated to the domain root of its baseline (e.g., youtube.com/watch → youtube.com/)
+        // 2. The stored baseline is a chrome:// / chrome-extension:// placeholder
+        //    (the tab was grouped before it navigated to a real page)
+        // The previous isDomainRoot rule (which rewrote the baseline whenever a
+        // pinned tab landed on the hostname root) is intentionally REMOVED: it
+        // silently captured drifted session-restored URLs and self-reinforced
+        // across restarts because processTab runs before safeHibernate.
         const storedIsPlaceholder = data && (data.url?.startsWith('chrome://') || data.url?.startsWith('chrome-extension://'));
-        const isDomainRoot = data && url && !url.startsWith('chrome') && (() => {
-            try {
-                const du = new URL(data.url);
-                const cu = new URL(url);
-                return du.hostname === cu.hostname && (cu.pathname === '/' || cu.pathname === '');
-            } catch { return false; }
-        })();
-        const autoUpdateUrl = !data || storedIsPlaceholder || isDomainRoot;
+        const urlMayChange = !data || storedIsPlaceholder;
+        const finalUrl = urlMayChange ? url : data.url;
 
-        if (!data || (isUrlDiff && autoUpdateUrl) || data.pinned !== tab.pinned || data.groupId !== tab.groupId || data.index !== tab.index || data.windowId !== tab.windowId || data._lastMessagedProtection !== isProtected) {
-            const finalUrl = autoUpdateUrl ? (isDomainRoot ? url.replace(/#.*$/, '') : url) : (data ? data.url : url);
+        // Write when seeding/upgrading the URL, or when any non-URL field changed.
+        if (urlMayChange || data.pinned !== tab.pinned || data.groupId !== tab.groupId || data.index !== tab.index || data.windowId !== tab.windowId || data._lastMessagedProtection !== isProtected) {
             memoryBaselines.set(tab.id, { url: finalUrl, index: tab.index, windowId: tab.windowId, pinned: tab.pinned, groupId: tab.groupId, groupTitle: title, groupColor: color, _lastMessagedProtection: isProtected });
             changed = true;
         }
@@ -365,6 +496,20 @@ export async function applyAutoGrouping(tab, retryCount = 0) {
     } catch (e) { return; }
 
     if (!matchedRule) return;
+
+    // Regrouping: an already-grouped tab that navigated to a new URL. Only
+    // relocate when its current group is a Smart Group of a DIFFERENT category.
+    //   - same category        → no-op (avoids thrash on in-category navigation)
+    //   - manual/custom/unnamed → respect user intent, never fight it
+    //   - different category    → fall through; chrome.tabs.group moves the tab
+    // A tab belongs to exactly one group, so grouping it into the destination
+    // group automatically removes it from the old one.
+    if (tab.groupId !== NONE_GROUP) {
+        const currentTitle = groupCache.get(tab.groupId)?.title;
+        if (!currentTitle || !ruleTitles.has(currentTitle)) return;   // manual group
+        if (currentTitle === matchedRule.title) return;               // same category
+    }
+
     // Clear inheritance suppression — auto-grouping wins
     evictionGraveyard.delete(`inheritance_${tab.id}`);
 

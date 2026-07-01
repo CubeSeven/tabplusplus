@@ -6,15 +6,21 @@ import { startPomoTimer, stopPomoTimer, broadcastPomoState } from './services/po
 import { handleSearchItems, executeAction } from './services/paletteService.js';
 import { cleanupPeekWindow, handleOpenPeek, handlePromotePeek, handleCheckPeekStatus } from './services/peekService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './services/setService.js';
+// permissionService.js exports only FEATURE_PERMISSIONS now; popup.js imports
+// it directly for the request-on-toggle-on flow. No background-side revocation.
 
 // --- INITIALIZATION ---
 chrome.runtime.onStartup.addListener(async () => {
     await initializeState(true);
     updateCleanupAlarms();
 });
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
     await initializeState(false);
     updateCleanupAlarms();
+    // The permission-refactor migration (preserving previously-working features
+    // for updating users) lives inside ensureLoaded()'s critical section in
+    // tabService.js, so it runs before any concurrent message handler can read
+    // a stale globalSettings. See ensureLoaded() for why.
 });
 
 // --- WINDOW LISTENERS ---
@@ -239,10 +245,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             }
         });
     }
-    if (globalSettings.enableAutoGroup && changeInfo.url && !tab.pinned && tab.groupId === NONE_GROUP) {
+    if (globalSettings.enableAutoGroup && changeInfo.url && !tab.pinned) {
         // Skip auto-grouping entirely for windows currently being populated by a Set Launch.
         // This is the core of the Window Launch Lock — deterministic suppression before
         // any tab URL events can race against performLaunchSet's grouping pass.
+        // Grouped tabs also pass through: applyAutoGrouping decides whether to relocate
+        // them to a different-category Smart Group or leave them in place (BUG-007).
         if (!launchingWindowIds.has(tab.windowId) && !evictionGraveyard.has(`inheritance_${tabId}`)) applyAutoGrouping(tab);
     }
     if (changeInfo.discarded === true && tab.groupId !== NONE_GROUP) {
@@ -350,12 +358,14 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 
     await ensureLoaded();
 
-    let data = memoryBaselines.get(tabId);
-    if (!data && evictionGraveyard.has(tabId)) {
-        data = evictionGraveyard.get(tabId).data;
-        clearTimeout(evictionGraveyard.get(tabId).timeout);
-        evictionGraveyard.delete(tabId);
-    }
+    // Baseline lookup. (The evictionGraveyard was previously consulted here as
+    // a fallback for a "tab ungrouped milliseconds before close" race, but that
+    // branch was dead code — every evictionGraveyard write uses the
+    // 'inheritance_<id>' string key, never a numeric tabId holding {data,timeout}.
+    // That race is already handled: processTab's eviction path keeps the baseline
+    // live in memoryBaselines during its 500ms deferred-delete window, so a close
+    // during that window still resolves via the lookup below.)
+    const data = memoryBaselines.get(tabId);
     evictionGraveyard.delete(`inheritance_${tabId}`);
 
     // Group closure detection — count baselines EXCLUDING the closing tab itself,
@@ -519,7 +529,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
 
         case 'execute-browser-action':
-            executeAction(request.commandId, request.args, sender.tab).then(() => sendResponse({ success: true }));
+            executeAction(request.commandId, request.args, sender.tab)
+                .then(() => sendResponse({ success: true }))
+                .catch(e => { console.warn('[Tabs++] execute-browser-action error:', e.message); sendResponse({ success: false }); });
             return true;
 
         case 'capture-viewport':
@@ -530,7 +542,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
 
         case 'download-media':
-            if (request.urls && request.urls.length > 0) {
+            // Authority check: the content script can only reach this point after
+            // the user activated the extract_media action, but it holds no view of
+            // globalSettings. Re-check here so a toggle-off mid-session (or any
+            // stale content-script state) can't trigger downloads behind the user's
+            // back. downloads permission may still be granted post-migration, so
+            // the setting — not the permission — is the reliable gate.
+            if (globalSettings.enableMediaExtractor && request.urls && request.urls.length > 0) {
                 // Stagger downloads 150ms apart — Chrome silently drops rapid-fire concurrent requests
                 (async () => {
                     for (const url of request.urls) {
@@ -543,6 +561,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     }
                 })();
                 sendResponse({ success: true });
+            } else {
+                // Feature disabled or no URLs — still acknowledge so the caller's
+                // message port doesn't hang open until the "port closed" timeout.
+                sendResponse({ success: false });
             }
             return true;
 
@@ -603,7 +625,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     const success = await restoreVault(sessionVault);
                     if (success) { setSessionVault([]); vaultCanonicalUrls.clear(); syncVaultToStorage(); }
                     sendResponse({ success });
-                });
+                }).catch(e => { console.warn('[Tabs++] open-url restore-vault error:', e.message); sendResponse({ success: false }); });
                 return true;
             }
             chrome.tabs.create({ url: request.url, active: true })
@@ -631,37 +653,50 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         case 'get-sets':
-            ensureLoaded().then(() => sendResponse({ sets: tabSets }));
+            ensureLoaded().then(() => sendResponse({ sets: tabSets }))
+                .catch(e => { console.warn('[Tabs++] get-sets error:', e.message); sendResponse({ sets: {} }); });
             return true;
 
         case 'save-set':
-            performSaveSet(request).then(sets => sendResponse({ success: true, sets }));
+            performSaveSet(request)
+                .then(sets => sendResponse({ success: true, sets }))
+                .catch(e => { console.warn('[Tabs++] save-set error:', e.message); sendResponse({ success: false }); });
             return true;
 
         case 'launch-set':
-            if (typeof request.name !== 'string') return;
+            if (typeof request.name !== 'string') { sendResponse({ success: false }); return true; }
             performLaunchSet(request.name)
                 .then(success => sendResponse({ success }))
                 .catch(e => { console.warn('[Tabs++] launch-set error:', e.message); sendResponse({ success: false }); });
             return true;
 
         case 'summon-set':
-            if (typeof request.name !== 'string' || !Number.isFinite(request.windowId)) return;
-            performSummonSet(request.name, request.windowId).then(result => sendResponse({ success: result ? result.success : false }));
+            // windowId is optional — performSummonSet resolves the current window
+            // when omitted (the popup's Summon button never sends one). Only the
+            // name is required, mirroring replace-set.
+            if (typeof request.name !== 'string') { sendResponse({ success: false }); return true; }
+            performSummonSet(request.name, request.windowId)
+                .then(result => sendResponse({ success: result ? result.success : false }))
+                .catch(e => { console.warn('[Tabs++] summon-set error:', e.message); sendResponse({ success: false }); });
             return true;
 
         case 'replace-set':
-            if (typeof request.name !== 'string') return;
-            performReplaceSet(request.name, request.windowId).then(success => sendResponse({ success }));
+            if (typeof request.name !== 'string') { sendResponse({ success: false }); return true; }
+            performReplaceSet(request.name, request.windowId)
+                .then(success => sendResponse({ success }))
+                .catch(e => { console.warn('[Tabs++] replace-set error:', e.message); sendResponse({ success: false }); });
             return true;
 
         case 'delete-set':
-            if (typeof request.name !== 'string') return;
-            performDeleteSet(request.name).then(sets => sendResponse({ success: true, sets }));
+            if (typeof request.name !== 'string') { sendResponse({ success: false }); return true; }
+            performDeleteSet(request.name)
+                .then(sets => sendResponse({ success: true, sets }))
+                .catch(e => { console.warn('[Tabs++] delete-set error:', e.message); sendResponse({ success: false }); });
             return true;
 
         case 'get-prompts':
-            ensureLoaded().then(() => sendResponse({ prompts: savedPrompts }));
+            ensureLoaded().then(() => sendResponse({ prompts: savedPrompts }))
+                .catch(e => { console.warn('[Tabs++] get-prompts error:', e.message); sendResponse({ prompts: [] }); });
             return true;
 
         case 'save-prompt': {
@@ -676,19 +711,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 setSavedPrompts(updated);
                 syncPromptsToStorage();
                 sendResponse({ success: true, prompts: updated });
-            });
+            }).catch(e => { console.warn('[Tabs++] save-prompt error:', e.message); sendResponse({ success: false }); });
             return true;
         }
 
         case 'delete-prompt': {
-            if (typeof request.id !== 'string' || !request.id || request.id.length > 64) return;
+            if (typeof request.id !== 'string' || !request.id || request.id.length > 64) { sendResponse({ success: false }); return true; }
             ensureLoaded().then(() => {
                 const updated = savedPrompts.filter(p => p.id !== request.id);
                 if (updated.length === savedPrompts.length) { sendResponse({ success: false, error: 'not found' }); return; }
                 setSavedPrompts(updated);
                 syncPromptsToStorage();
                 sendResponse({ success: true, prompts: updated });
-            });
+            }).catch(e => { console.warn('[Tabs++] delete-prompt error:', e.message); sendResponse({ success: false }); });
             return true;
         }
 
@@ -702,7 +737,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     syncSetsToStorage();
                     sendResponse({ success: true, sets: tabSets });
                 } else { sendResponse({ success: false }); }
-            });
+            }).catch(e => { console.warn('[Tabs++] import-sets error:', e.message); sendResponse({ success: false }); });
             return true;
 
         case 'restore-vault':
@@ -711,7 +746,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 const success = await restoreVault(sessionVault);
                 if (success) { setSessionVault([]); vaultCanonicalUrls.clear(); syncVaultToStorage(); }
                 sendResponse({ success });
-            });
+            }).catch(e => { console.warn('[Tabs++] restore-vault error:', e.message); sendResponse({ success: false }); });
             return true;
 
         case 'clear-vault':
@@ -720,12 +755,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 vaultCanonicalUrls.clear();
                 syncVaultToStorage();
                 sendResponse({ success: true });
-            });
+            }).catch(e => { console.warn('[Tabs++] clear-vault error:', e.message); sendResponse({ success: false }); });
             return true;
 
         case 'start-pomo-timer': {
             const minutes = Number(request.minutes);
-            if (Number.isFinite(minutes) && minutes > 0) {
+            if (globalSettings.enablePomo && Number.isFinite(minutes) && minutes > 0) {
                 startPomoTimer(minutes, request.type);
             }
             sendResponse({ success: true });

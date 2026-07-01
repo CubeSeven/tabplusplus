@@ -70,7 +70,7 @@ async function resolveOrCreateGroup(title, color, tabId, windowId, allGlobalGrou
  * @param {boolean} [opts.dedupe]    - If true, skip creation for existing matching tabs
  * @returns {Promise<{managedTabIds: Set, groupMap: Object}>}
  */
-async function materializeTabs(tabDefs, windowId, opts = {}) {
+export async function materializeTabs(tabDefs, windowId, opts = {}) {
     const { dedupe = false } = opts;
     const groupMap = {};
     const managedTabIds = new Set();
@@ -78,7 +78,19 @@ async function materializeTabs(tabDefs, windowId, opts = {}) {
 
     // Pre-fetch browser state once
     const allGlobalGroups = chrome.tabGroups ? await chrome.tabGroups.query({}).catch(() => []) : [];
-    const allTabs = dedupe ? await chrome.tabs.query({}) : [];
+    // Index open tabs by canonical URL once, so dedupe lookups are O(matching
+    // candidates) instead of O(all open tabs) per tab-def. With a 100-tab set
+    // landing into a window of 100+ tabs, this turns O(N×M) into ~O(M).
+    let tabsByCanonical = null;
+    if (dedupe) {
+        const allTabs = await chrome.tabs.query({});
+        tabsByCanonical = new Map();
+        for (const t of allTabs) {
+            const c = getCanonicalUrl(t.url);
+            const arr = tabsByCanonical.get(c);
+            if (arr) arr.push(t); else tabsByCanonical.set(c, [t]);
+        }
+    }
 
     // Split into pinned and unpinned. Chrome requires pinned tabs before unpinned.
     const pinnedDefs = tabDefs.filter(d => d.pinned);
@@ -86,14 +98,14 @@ async function materializeTabs(tabDefs, windowId, opts = {}) {
 
     // --- Phase 1: Create pinned tabs sequentially (order matters) ---
     for (const data of pinnedDefs) {
-        const { tab, isNew } = await createOrClaimTab(data, windowId, dedupe, allTabs, allGlobalGroups);
+        const { tab, isNew } = await createOrClaimTab(data, windowId, dedupe, tabsByCanonical, allGlobalGroups);
         managedTabIds.add(tab.id);
         if (isNew && !data.active) tabsToDiscard.push(tab.id);
     }
 
     // --- Phase 2: Create unpinned tabs concurrently (order doesn't matter) ---
     const unpinnedResults = await Promise.all(
-        unpinnedDefs.map(data => createOrClaimTab(data, windowId, dedupe, allTabs, allGlobalGroups))
+        unpinnedDefs.map(data => createOrClaimTab(data, windowId, dedupe, tabsByCanonical, allGlobalGroups))
     );
 
     // --- Phase 3: Apply grouping sequentially (Chrome API limitation) ---
@@ -125,32 +137,38 @@ async function materializeTabs(tabDefs, windowId, opts = {}) {
 
 /**
  * Creates a tab or claims an existing matching one (for deduplication).
+ * `tabsByCanonical` is a Map<canonicalUrl, tab[]> built once in materializeTabs;
+ * claimed tabs are spliced out of their per-URL array so they can't be claimed
+ * twice by duplicate tab-defs in the same set.
  */
-async function createOrClaimTab(data, windowId, dedupe, allTabs, allGlobalGroups) {
+async function createOrClaimTab(data, windowId, dedupe, tabsByCanonical, allGlobalGroups) {
     if (dedupe) {
         const canonicalUrl = getCanonicalUrl(data.url);
+        const candidates = tabsByCanonical?.get(canonicalUrl);
         let match = null;
 
-        if (data.pinned) {
-            match = allTabs.find(t => t.pinned && t.windowId === windowId && getCanonicalUrl(t.url) === canonicalUrl);
-        } else if (data.groupId !== -1) {
-            const targetTitle = (data.groupTitle || '').trim().toLowerCase();
-            match = allTabs.find(t => {
-                if (t.groupId !== NONE_GROUP) {
-                    const g = allGlobalGroups.find(group => group.id === t.groupId);
-                    const gTitle = g ? (g.title || '').trim().toLowerCase() : '';
-                    return gTitle === targetTitle && getCanonicalUrl(t.url) === canonicalUrl;
-                }
-                return false;
-            });
-        } else {
-            match = allTabs.find(t => !t.pinned && t.groupId === NONE_GROUP && t.windowId === windowId && getCanonicalUrl(t.url) === canonicalUrl);
+        if (candidates && candidates.length) {
+            if (data.pinned) {
+                match = candidates.find(t => t.pinned && t.windowId === windowId);
+            } else if (data.groupId !== -1) {
+                const targetTitle = (data.groupTitle || '').trim().toLowerCase();
+                match = candidates.find(t => {
+                    if (t.groupId !== NONE_GROUP) {
+                        const g = allGlobalGroups.find(group => group.id === t.groupId);
+                        const gTitle = g ? (g.title || '').trim().toLowerCase() : '';
+                        return gTitle === targetTitle;
+                    }
+                    return false;
+                });
+            } else {
+                match = candidates.find(t => !t.pinned && t.groupId === NONE_GROUP && t.windowId === windowId);
+            }
         }
 
         if (match) {
             // Remove the matched tab so we don't reuse it for multiple identical duplicate tabs in the set
-            const index = allTabs.indexOf(match);
-            if (index > -1) allTabs.splice(index, 1);
+            const index = candidates.indexOf(match);
+            if (index > -1) candidates.splice(index, 1);
             return { tab: match, isNew: false };
         }
     }
@@ -167,6 +185,59 @@ async function createOrClaimTab(data, windowId, dedupe, allTabs, allGlobalGroups
 // ────────────────────────────────────────────────────────────────────────────
 // PUBLIC API
 // ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Shared new-window launch boilerplate: acquires the window-launch lock,
+ * creates an empty window, materializes the given tab defs into it, then
+ * removes the seed NTP tab. Consumed by performLaunchSet (sets) and
+ * bookmarkService (bookmarks) so the lock/seed-tab dance has exactly one
+ * implementation. Callers are responsible for any tab-count cap beforehand.
+ *
+ * @param {Array} tabDefs - already-prepared (and capped, if needed) tab defs
+ * @returns {Promise<boolean>} success
+ */
+export async function launchInNewWindow(tabDefs) {
+    if (!tabDefs || tabDefs.length === 0) return false;
+
+    // --- WINDOW LAUNCH LOCK ---
+    // Increment BEFORE chrome.windows.create so the windows.onCreated listener
+    // in background.js sees pendingLaunches > 0 and claims the new window ID
+    // into launchingWindowIds. Because onCreated fires strictly before any
+    // onUpdated tab events, the auto-grouping engine will never run inside
+    // this window — regardless of how fast the browser creates the tabs.
+    incrementPendingLaunches();
+
+    let newWin;
+    try {
+        // Create an EMPTY window first to get the Window ID BEFORE any real
+        // tabs exist, closing the race condition completely.
+        newWin = await chrome.windows.create({ focused: true });
+        if (newWin?.id) launchingWindowIds.add(newWin.id);
+
+        const windowId = newWin.id;
+
+        // Track the initial empty NTP tab by ID — not by index position.
+        // Promise.all tab creation means Chrome doesn't guarantee ordering,
+        // so we can't rely on initialTabs[0] being the NTP.
+        const ntpTabId = newWin.tabs?.[0]?.id ?? null;
+
+        await materializeTabs(tabDefs, windowId);
+
+        if (ntpTabId != null) {
+            chrome.tabs.remove(ntpTabId).catch(() => {});
+        }
+
+    } catch (e) {
+        console.warn('[Tabs++] launchInNewWindow error:', e.message);
+        return false;
+    } finally {
+        // Release lock immediately — operation is done (or failed).
+        decrementPendingLaunches();
+        if (newWin?.id) launchingWindowIds.delete(newWin.id);
+    }
+
+    return true;
+}
 
 export async function performSaveSet(request) {
     await ensureLoaded();
@@ -209,50 +280,7 @@ export async function performLaunchSet(name) {
     await ensureLoaded();
     const setObj = tabSets[name];
     if (!setObj?.tabs?.length) return false;
-
-    // --- WINDOW LAUNCH LOCK ---
-    // Increment BEFORE chrome.windows.create so the windows.onCreated listener
-    // in background.js sees pendingLaunches > 0 and claims the new window ID
-    // into launchingWindowIds. Because onCreated fires strictly before any
-    // onUpdated tab events, the auto-grouping engine will never run inside
-    // this window — regardless of how fast the browser creates the tabs.
-    incrementPendingLaunches();
-
-    let newWin;
-    try {
-        // --- STEP 1: Create an EMPTY window first ---
-        // This gives us the Window ID BEFORE any real tabs are created,
-        // closing the race condition completely.
-        newWin = await chrome.windows.create({ focused: true });
-        if (newWin?.id) launchingWindowIds.add(newWin.id);
-
-        const windowId = newWin.id;
-
-        // Track the initial empty NTP tab by ID — not by index position.
-        // Promise.all tab creation means Chrome doesn't guarantee ordering,
-        // so we can't rely on initialTabs[0] being the NTP.
-        const ntpTabId = newWin.tabs?.[0]?.id ?? null;
-
-        // --- STEP 2: Create all tabs via shared pipeline ---
-        await materializeTabs(setObj.tabs, windowId);
-
-        // --- STEP 3: Clean up the initial empty NTP tab by its tracked ID ---
-        if (ntpTabId != null) {
-            chrome.tabs.remove(ntpTabId).catch(() => {});
-        }
-
-    } catch (e) {
-        console.warn('[Tabs++] performLaunchSet error:', e.message);
-        return false;
-    } finally {
-        // Release lock immediately — operation is done (or failed).
-        // No more timer-based guesswork. The lock only needs to live
-        // for the duration of the async operation above.
-        decrementPendingLaunches();
-        if (newWin?.id) launchingWindowIds.delete(newWin.id);
-    }
-
-    return true;
+    return launchInNewWindow(setObj.tabs);
 }
 
 export async function performSummonSet(name, windowId) {

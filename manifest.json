@@ -1,19 +1,20 @@
 {
   "manifest_version": 3,
   "name": "Tabs++",
-  "version": "2.2.3",
+  "version": "2.5.0",
   "description": "Premium tab management with Workspace Switching, Ghost Prevention, and Smart Grouping.",
   "permissions": [
     "tabs",
     "storage",
     "tabGroups",
+    "scripting",
+    "alarms"
+  ],
+  "optional_permissions": [
     "history",
     "bookmarks",
-    "favicon",
     "sessions",
-    "alarms",
     "browsingData",
-    "scripting",
     "notifications",
     "downloads"
   ],
