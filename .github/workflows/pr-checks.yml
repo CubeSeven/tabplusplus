@@ -1,0 +1,18 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate manifest.json
+        run: python3 -m json.tool manifest.json > /dev/null
+      - name: Check for debugging artifacts
+        run: |
+          if grep -n "console\.log" background.js services/*.js content.js popup.js ntp.js 2>/dev/null; then
+            echo "::warning::console.log calls found — remove before merging"
+          fi
