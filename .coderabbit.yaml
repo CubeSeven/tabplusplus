@@ -44,6 +44,5 @@ reviews:
       enabled: true
     github-checks:
       enabled: true
-      only: ["main"]
 chat:
   auto_reply: true
