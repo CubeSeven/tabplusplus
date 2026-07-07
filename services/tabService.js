@@ -412,7 +412,14 @@ export function processTab(tab) {
     if (peekWindows.has(tab.windowId)) return false;
 
     const url = tab.url || tab.pendingUrl;
-    if (url?.startsWith(NTP_URL)) {
+    if (url?.startsWith(NTP_URL) || url === 'chrome://newtab/') {
+        // Treat Chrome's native NTP the same as our custom NTP: never create a
+        // baseline for it. Without this, a tab pinned while showing
+        // chrome://newtab/ becomes unrestorable (onRemoved's restore guard
+        // rejects chrome:// URLs) and Ctrl+Shift+T loops back to our NTP via
+        // the onUpdated redirect. Returning early lets processTab re-seed the
+        // baseline with a real URL once the tab navigates.
+        if (url === 'chrome://newtab/') return false;
         ntpTabCache.set(tab.windowId, tab.id);
         return false;
     }

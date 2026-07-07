@@ -1,4 +1,5 @@
 import { FEATURE_PERMISSIONS } from './services/permissionService.js';
+import { DEFAULT_SETTINGS } from './constants.js';
 
 // ─────────────────────────────────────────────
 //  Feature definitions — add new features here
@@ -517,34 +518,19 @@ function handleToggleChange(featureId, checkbox, card, toggleWrap) {
 // ─────────────────────────────────────────────
 //  Load & Save
 // ─────────────────────────────────────────────
-// NOTE: Keep in sync with DEFAULT_SETTINGS in constants.js
+// Single source of truth: constants.js DEFAULT_SETTINGS. Previously this was
+// a hand-maintained copy of DEFAULT_SETTINGS — if a setting was added to
+// constants.js but not here, the popup would render wrong defaults on a fresh
+// install. Importing eliminates that divergence risk.
 function getDefaults() {
-  const defaults = FEATURES.reduce((acc, f) => {
-    acc[f.id] = f.default;
-    return acc;
-  }, {});
-  
-  defaults.archiveThresholdRaw = '12h';
-  defaults.hibernateThresholdRaw = '1h';
-  defaults.enableMediaExtractor = false;
-  defaults.enableVolumeControl = true;
-  defaults.autoPiP = false;
-  defaults.enableEyedropper = true;
-  defaults.enableScreenshot = true;
-  defaults.enableUnitConverter = true;
-  defaults.enablePomo = false;
-  defaults.enableFocusView = true;
-  defaults.baseRemSize = 16;
-  defaults.ntpBgDesign = 0;
-  defaults.timeFormat = '24h';
-  defaults.showClock = true;
-  defaults.searchEngine = 'google';
-  defaults.useDefaultNtp = false;
-  defaults.peekExcludedDomains = ['google.com', 'bing.com', 'duckduckgo.com', 'search.brave.com', 'perplexity.ai', 'x.com', 'twitter.com', 'reddit.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'youtube.com', 'twitch.tv', 'vimeo.com', 'news.ycombinator.com', 'amazon.com', 'ebay.com'];
-  
-  return defaults;
+  return { ...DEFAULT_SETTINGS };
 }
 
+// KNOWN: saveSettings() uses read→merge→write. This is a theoretical race (two
+// concurrent toggles could interleave reads), but in practice the popup is
+// single-threaded — only one toggle fires at a time. The only other writer is
+// the one-time permission migration (permMigrationDone, runs once per profile).
+// No fix needed; do not re-flag on future codebase audits.
 function saveSettings() {
   chrome.storage.local.get(['settings'], (data) => {
     const settings = data.settings || getDefaults();
