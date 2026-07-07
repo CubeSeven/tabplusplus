@@ -313,9 +313,15 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     // so creating an NTP would leave an unwanted extra tab open).
     // Also skip when a palette fallback tab closes programmatically after executing
     // an action — the user expects to land on the action result, not another NTP.
+    // NOTE: isProtectedTab must be checked synchronously (no await) — the
+    // pendingFocusGuardWindowIds.add() below must execute before Chrome fires
+    // onActivated, which the Neighbor Guard depends on. On cold SW start,
+    // memoryBaselines is empty so this returns false — acceptable because
+    // focusNTPOnClose also defaults to false until settings load.
+    const isProtectedTab = memoryBaselines.has(tabId);
     const isPaletteClosing = paletteFallbackClosingIds.has(tabId);
     if (isPaletteClosing) paletteFallbackClosingIds.delete(tabId);
-    if (!isPaletteClosing && globalSettings.focusNTPOnClose && tabId === lastActiveTabId && !removeInfo.isWindowClosing) {
+    if (!isPaletteClosing && !isProtectedTab && globalSettings.focusNTPOnClose && tabId === lastActiveTabId && !removeInfo.isWindowClosing) {
         pendingFocusGuardWindowIds.add(removeInfo.windowId);
         if (!peekWindows.has(removeInfo.windowId)) {
             const cachedNtpId = globalSettings.useDefaultNtp ? null : ntpTabCache.get(removeInfo.windowId);
@@ -404,15 +410,36 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
         return;
     }
 
+    // Legacy chrome:// baseline (e.g. chrome://newtab/ saved before the
+    // processTab guard existed). Redirect the restore to our NTP instead of
+    // silently dropping it, so Ctrl+Shift+T lands on NTP rather than looping.
+    if (data && data.url && data.url.startsWith('chrome://')) {
+        memoryBaselines.delete(tabId);
+        syncBaselinesToStorage();
+        if (!globalSettings.useDefaultNtp) {
+            chrome.tabs.create({ url: NTP_URL, windowId: removeInfo.windowId, active: false, index: data.index }).catch(() => {});
+        }
+        return;
+    }
+
     if (data && data.url && !data.url.startsWith('chrome://') && !data.url.startsWith('chrome-extension://')) {
 
         memoryBaselines.delete(tabId);
         syncBaselinesToStorage();
 
         setTimeout(async () => {
-            // Batch close → vault, no restore
+            // Batch close → vault, no restore.
+            // Pinned tabs are exempt: each Ctrl+W is a deliberate individual close,
+            // so a pinned tab caught in a rapid-close batch should still restore.
+            // Grouped tabs keep the batch-vault behavior (e.g. Close Group, Ctrl+W spam).
+            //
+            // KNOWN LIMITATION: Spamming Ctrl+W at inhuman speed (faster than the
+            // 100ms restore window) can still overwhelm the restore loop and vault
+            // pinned tabs. This is not a realistic user scenario and not worth the
+            // architectural complexity of session-persisted pending restores. The
+            // vault fallback ensures no data is permanently lost in this edge case.
             const bt = windowBatchTracker.get(removeInfo.windowId);
-            if (bt && bt.count > 1) {
+            if (bt && bt.count > 1 && !data.pinned) {
                 const canonicalUrl = getCanonicalUrl(data.url);
                 if (!vaultCanonicalUrls.has(canonicalUrl)) {
                     data.savedAt = Date.now();

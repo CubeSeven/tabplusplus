@@ -2515,7 +2515,7 @@ document.addEventListener('click', (e) => {
         try {
             e.preventDefault();
             e.stopPropagation();
-            chrome.runtime.sendMessage({ action: 'open-peek', url: link.href });
+            chrome.runtime.sendMessage({ action: 'open-peek', url: link.href }).catch(() => {});
         } catch (err) {
             // Context invalidated, fail silently
         }
