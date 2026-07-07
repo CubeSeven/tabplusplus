@@ -1,5 +1,8 @@
 # Tabs++ Coding Standards
 
+> **Git Workflow:** Never commit directly to `main`. Always create a feature/fix branch,
+> open a PR, wait for CodeRabbit review, address any issues, then merge.
+
 Rules derived from codebase audit. All future additions must follow these.
 
 ---

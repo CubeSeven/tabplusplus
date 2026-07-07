@@ -1,5 +1,3 @@
-# CodeRabbit Configuration for Tabs++
-# https://docs.coderabbit.ai/configuration
 language: "en-US"
 early_access: false
 reviews:
@@ -8,41 +6,44 @@ reviews:
   high_level_summary: true
   poem: false
   review_status: true
-  collapse_walkthrough: false
+  collapse_walkthrough: true
   auto_review:
     enabled: true
     drafts: false
     base_branches:
       - "main"
-      - "develop"
+  path_filters:
+    - "!docs/**"
+    - "!assets/**"
+    - "!.github/**"
+    - "!README.md"
   path_instructions:
     - path: "**/*.js"
       instructions: |
-        Follow strict Tabs++ coding standards from AGENTS.md:
-        - No dead code (every import used, every export consumed)
-        - Use shared listeners (never register chrome API listeners inside functions)
-        - Clean up ALL tracking structures on tab/window remove
-        - Use Set for O(1) lookups, not Array iteration
-        - Pre-build lookup Maps from static data
-        - Batch chrome.storage.local.set calls
-        - Validate message handler inputs
-        - Store timeout/interval IDs and clear on teardown
-        - Event delegation for dynamic lists
-        - Cache DOM queries
-        - Chrome API promises: always error-handle with .catch()
-        - Content script injection guard
-        - Keep state.js minimal
-        - File size boundaries respected
-    - path: "services/**.js"
-      instructions: |
-        These are service modules - keep them focused and single-responsibility.
-        Follow the architecture in AGENTS.md strictly.
-  tools:
-    shellcheck:
-      enabled: false
-    markdownlint:
-      enabled: true
-    github-checks:
-      enabled: true
+        Apply these rules from AGENTS.md:
+        1. No dead code: Every import must be used, every export consumed.
+        2. One shared listener, never per-call: Chrome API listeners (chrome.tabs.onUpdated, etc.)
+           must be registered once at module level, keyed by Map — never inside a function called repeatedly.
+        3. Clean up all tracking structures on remove: When a tab/window is removed, delete its
+           entries from ALL Maps and Sets that index by tabId or windowId.
+        4. Use Set for lookups, not Array iteration: Deduplication checks must be O(1) with Set.has(),
+           never O(n) with .some() or .find().
+        5. Pre-build lookup maps from static data: Build a Map once at module load instead of
+           calling .find() repeatedly.
+        6. Batch chrome.storage.local.set calls: Never make two sequential set() calls when one will do.
+        7. Validate message handler inputs: Check typeof for query (string), settings (object),
+           numeric params (Number.isFinite) before use.
+        8. Track timeouts and clear on teardown: Every setTimeout/setInterval must be tracked
+           and cleared when UI is dismissed.
+        9. Event delegation for dynamic lists: Use single delegated listener on container instead
+           of per-element listeners after innerHTML.
+        10. Cache DOM queries: Never call querySelectorAll on every keystroke.
+        11. Chrome API promises always error-handled: Every chrome.* promise must have .catch()
+            or be inside try/catch.
+        12. Content script injection guard: window.__tabsppInjected check at top of content scripts.
+        13. Keep state.js minimal: No business logic, no Chrome APIs, imports only constants.js.
+        14. Don't grow large files: content.js ~2772 lines, paletteService.js executeAction ~379 lines,
+            handleSearchItems ~305 lines — new code must not make these worse.
+        Flag any violations of the above.
 chat:
   auto_reply: true
