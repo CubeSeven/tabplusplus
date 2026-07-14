@@ -623,21 +623,41 @@ chrome.storage.local.get(['protectedSnapshot'], (data) => {
       }
       // Recreate ungrouped (pinned) tabs → hibernate each
       for (const s of ungrouped) {
-        const t = await new Promise((res) => chrome.tabs.create({ url: s.url, pinned: !!s.pinned, active: false }, res));
-        hibernate(t.id);
+        try {
+          const t = await new Promise((res) => chrome.tabs.create({ url: s.url, pinned: !!s.pinned, active: false }, (t) => {
+            if (chrome.runtime.lastError) return res(null);
+            res(t);
+          }));
+          if (t && t.id) hibernate(t.id);
+        } catch (e) { /* continue on failure */ }
       }
       // Recreate grouped tabs inside their original group → hibernate each
       for (const [, items] of groups) {
-        const created = [];
-        for (const s of items) {
-          const t = await new Promise((res) => chrome.tabs.create({ url: s.url, pinned: false, active: false }, res));
-          created.push(t.id);
-          hibernate(t.id);
-        }
-        if (created.length && chrome.tabGroups) {
-          const gid = await new Promise((res) => chrome.tabs.group({ tabIds: created }, res));
-          await new Promise((res) => chrome.tabGroups.update(gid, { title: items[0].groupTitle, color: items[0].groupColor || 'grey' }, res));
-        }
+        try {
+          const created = [];
+          for (const s of items) {
+            const t = await new Promise((res) => chrome.tabs.create({ url: s.url, pinned: false, active: false }, (t) => {
+              if (chrome.runtime.lastError) return res(null);
+              res(t);
+            }));
+            if (t && t.id) {
+              created.push(t.id);
+              hibernate(t.id);
+            }
+          }
+          if (created.length && chrome.tabGroups) {
+            const gid = await new Promise((res) => chrome.tabs.group({ tabIds: created }, (gid) => {
+              if (chrome.runtime.lastError) return res(null);
+              res(gid);
+            }));
+            if (gid) {
+              await new Promise((res) => chrome.tabGroups.update(gid, { title: items[0].groupTitle, color: items[0].groupColor || 'grey' }, () => {
+                if (chrome.runtime.lastError) { /* ignore */ }
+                res();
+              }));
+            }
+          }
+        } catch (e) { /* continue on failure */ }
       }
       vaultContainer.style.display = 'none';
     });

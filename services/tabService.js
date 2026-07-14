@@ -195,31 +195,33 @@ export function syncBaselinesToStorage(force = false) {
 // Hostname-keyed so it survives SW death and tabId churn. Written automatically
 // by processTab on every baseline change — no manual save button.
 //
-// recentlyPruned: hosts deliberately closed within the last 60s. Ghost Prevention
-// reopens such tabs ~100ms after close, which fires processTab → persistProtectedSnapshot.
-// Without this guard, the reopened tab would write the host right back into the
-// crash snapshot, defeating pruneProtectedHost. We skip re-adding pruned hosts
-// so the crash-snapshot reflects what was open BEFORE the close cascade, not after.
+// recentlyPruned: hosts deliberately closed within the last 60s. Prevents
+// Ghost Prevention auto-reopen from re-adding them to the crash recovery list.
 let protectedSnapshot = {};
-const recentlyPruned = new Map(); // host → timestamp
+const recentlyPruned = new Map();
+let persistTimeout = null;
+
 export function persistProtectedSnapshot() {
-    const snap = {};
-    const now = Date.now();
-    for (const b of memoryBaselines.values()) {
-        if (!b.url || b.url.startsWith('chrome://') || b.url.startsWith('chrome-extension://')) continue;
-        const isProtected = (b.pinned) || (b.groupId !== -1 && b.groupId !== undefined);
-        if (!isProtected) continue;
-        try {
-            const host = new URL(b.url).hostname;
-            // Skip hosts that were just deliberately closed. Ghost Prevention
-            // reopens them moments later, but we must NOT re-persist them.
-            const prunedAt = recentlyPruned.get(host);
-            if (prunedAt && (now - prunedAt) < 60000) continue;
-            snap[host] = { url: b.url, pinned: !!b.pinned, groupId: b.groupId ?? -1, groupTitle: b.groupTitle || '', groupColor: b.groupColor || 'grey' };
-        } catch { /* skip malformed */ }
-    }
-    protectedSnapshot = snap;
-    chrome.storage.local.set({ protectedSnapshot: snap }).catch(() => {});
+    if (persistTimeout) clearTimeout(persistTimeout);
+    persistTimeout = setTimeout(() => {
+        const snap = {};
+        const now = Date.now();
+        for (const b of memoryBaselines.values()) {
+            if (!b.url || b.url.startsWith('chrome://') || b.url.startsWith('chrome-extension://')) continue;
+            const isProtected = (b.pinned) || (b.groupId !== -1 && b.groupId !== undefined);
+            if (!isProtected) continue;
+            try {
+                const host = new URL(b.url).hostname;
+                // Skip hosts that were just deliberately closed. Ghost Prevention
+                // reopens them moments later, but we must NOT re-persist them.
+                const prunedAt = recentlyPruned.get(host);
+                if (prunedAt && (now - prunedAt) < 60000) continue;
+                snap[host] = { url: b.url, pinned: !!b.pinned, groupId: b.groupId ?? -1, groupTitle: b.groupTitle || '', groupColor: b.groupColor || 'grey' };
+            } catch { /* skip malformed */ }
+        }
+        protectedSnapshot = snap;
+        chrome.storage.local.set({ protectedSnapshot: snap }).catch(() => {});
+    }, 500);
 }
 
 // Prune a host from the snapshot on deliberate close. Batch-safe: accumulates

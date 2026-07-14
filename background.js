@@ -487,11 +487,13 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                     windowId: removeInfo.windowId, active: false, index: data.index
                 });
 
+                let resolvedGid = NONE_GROUP;
                 if (data.groupId !== NONE_GROUP && chrome.tabGroups) {
                     const groupKey = `${removeInfo.windowId}|${data.groupId}`;
                     if (recreationRegistry.has(groupKey)) {
                         const existingGid = await recreationRegistry.get(groupKey);
                         await chrome.tabs.group({ tabIds: [newTab.id], groupId: existingGid }).catch(() => {});
+                        resolvedGid = existingGid;
                     } else {
                         const promise = (async () => {
                             try {
@@ -520,14 +522,14 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                         })().catch(e => { console.warn('Tabs++ Group Recreation Error:', e); return null; });
                         recreationRegistry.set(groupKey, promise);
                         setTimeout(() => recreationRegistry.delete(groupKey), 3000);
-                        await promise;
+                        resolvedGid = await promise;
                     }
                 }
 
                 memoryBaselines.set(newTab.id, { ...data, _restoredAt: Date.now() });
                 syncBaselinesToStorage();
-                const collapseAfter = data._collapseAfterRestore && data.groupId !== NONE_GROUP
-                    ? () => applyAutoCollapse(data.groupId, removeInfo.windowId)
+                const collapseAfter = data._collapseAfterRestore && resolvedGid !== NONE_GROUP
+                    ? () => applyAutoCollapse(resolvedGid, removeInfo.windowId)
                     : null;
                 safeDiscard(newTab.id, collapseAfter, data.url);
 
