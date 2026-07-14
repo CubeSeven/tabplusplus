@@ -1,11 +1,18 @@
 import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, blurredSourceTabs, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds, savedPrompts, setSavedPrompts } from './state.js';
 import { NONE_GROUP, NTP_URL, SEARCH_ENGINES } from './constants.js';
 import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard } from './utils.js';
-import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, saveSnapshot, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines } from './services/tabService.js';
-import { startPomoTimer, stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
+import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines, persistProtectedSnapshot, pruneProtectedHost } from './services/tabService.js';
+import { stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
 import { handleSearchItems, executeAction } from './services/paletteService.js';
 import { cleanupPeekWindow, handleOpenPeek, handlePromotePeek, handleCheckPeekStatus } from './services/peekService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './services/setService.js';
+
+// Marks a tab as having just inherited a group so the onUpdated inheritance
+// guard can suppress Chrome re-assigning it. Auto-expires after 3s.
+function markInherited(tabId) {
+    evictionGraveyard.set(`inheritance_${tabId}`, true);
+    setTimeout(() => evictionGraveyard.delete(`inheritance_${tabId}`), 3000);
+}
 // permissionService.js exports only FEATURE_PERMISSIONS now; popup.js imports
 // it directly for the request-on-toggle-on flow. No background-side revocation.
 
@@ -43,7 +50,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
     ntpTabCache.delete(windowId);
     pendingFocusGuardWindowIds.delete(windowId);
     chrome.windows.getAll({ windowTypes: ['normal'] }).then(remaining => {
-        if (remaining.length === 0) { syncBaselinesToStorage(true); saveSnapshot(); }
+        if (remaining.length === 0) { syncBaselinesToStorage(true); }
     }).catch(() => {});
 });
 
@@ -140,8 +147,7 @@ chrome.tabs.onCreated.addListener(async (tab) => {
                 await chrome.tabs.ungroup(tab.id).catch(() => {});
             }
             // Set guard so onUpdated catches Chrome assigning the group later
-            evictionGraveyard.set(`inheritance_${tab.id}`, true);
-            setTimeout(() => evictionGraveyard.delete(`inheritance_${tab.id}`), 3000);
+            markInherited(tab.id);
         }
 
         if (tab.groupId !== NONE_GROUP) {
@@ -155,8 +161,7 @@ chrome.tabs.onCreated.addListener(async (tab) => {
                             const openerHost = getBaseDomain(new URL(opener.url).hostname);
                             if (newHost !== openerHost) {
                                 await chrome.tabs.ungroup(tab.id).catch(() => {});
-                                evictionGraveyard.set(`inheritance_${tab.id}`, true);
-                                setTimeout(() => evictionGraveyard.delete(`inheritance_${tab.id}`), 3000);
+                                markInherited(tab.id);
                             }
                         }
                     } catch (e) {}
@@ -195,8 +200,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             if (!globalSettings.enableAutoGroup && !tab.pinned) {
                 await chrome.tabs.ungroup(tabId).catch(() => {});
                 tab.groupId = NONE_GROUP;
-                evictionGraveyard.set(`inheritance_${tabId}`, true);
-                setTimeout(() => evictionGraveyard.delete(`inheritance_${tabId}`), 3000);
+                markInherited(tabId);
             } else {
                 try {
                     const opener = await chrome.tabs.get(tab.openerTabId);
@@ -206,8 +210,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
                         if (newHost !== openerHost) {
                             await chrome.tabs.ungroup(tabId).catch(() => {});
                             tab.groupId = NONE_GROUP;
-                            evictionGraveyard.set(`inheritance_${tabId}`, true);
-                            setTimeout(() => evictionGraveyard.delete(`inheritance_${tabId}`), 3000);
+                            markInherited(tabId);
                         }
                     }
                 } catch (e) {}
@@ -364,15 +367,22 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 
     await ensureLoaded();
 
-    // Baseline lookup. (The evictionGraveyard was previously consulted here as
-    // a fallback for a "tab ungrouped milliseconds before close" race, but that
-    // branch was dead code — every evictionGraveyard write uses the
-    // 'inheritance_<id>' string key, never a numeric tabId holding {data,timeout}.
-    // That race is already handled: processTab's eviction path keeps the baseline
-    // live in memoryBaselines during its 500ms deferred-delete window, so a close
-    // during that window still resolves via the lookup below.)
+    // Baseline lookup.
     const data = memoryBaselines.get(tabId);
-    evictionGraveyard.delete(`inheritance_${tabId}`);
+    evictionGraveyard.delete(`inheritance_${tabId}`); // eager cleanup (3s auto-delete timer is backup)
+
+    // Prune durable crash-recovery snapshot (protectedSnapshot) on a DELIBERATE
+    // close of a pinned/grouped tab. A force-kill (real crash) does NOT fire
+    // onRemoved, so those hosts survive in storage and the popup Restore button
+    // still recovers them. Any normal close — deleting a pinned tab, a grouped
+    // tab, or a whole group — is deliberate and must not be resurrected.
+    // Uses pruneProtectedHost (batch-safe: coalesces Close-Group bursts).
+    if (data && (data.pinned || data.groupId !== NONE_GROUP)) {
+        try {
+            const host = new URL(data.url).hostname;
+            pruneProtectedHost(host);
+        } catch { /* ignore malformed urls */ }
+    }
 
     // Group closure detection — count baselines EXCLUDING the closing tab itself,
     // so that closing the ONLY tab in a group (baselineCount=0 after exclusion)
@@ -432,12 +442,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             // Pinned tabs are exempt: each Ctrl+W is a deliberate individual close,
             // so a pinned tab caught in a rapid-close batch should still restore.
             // Grouped tabs keep the batch-vault behavior (e.g. Close Group, Ctrl+W spam).
-            //
-            // KNOWN LIMITATION: Spamming Ctrl+W at inhuman speed (faster than the
-            // 100ms restore window) can still overwhelm the restore loop and vault
-            // pinned tabs. This is not a realistic user scenario and not worth the
-            // architectural complexity of session-persisted pending restores. The
-            // vault fallback ensures no data is permanently lost in this edge case.
             const bt = windowBatchTracker.get(removeInfo.windowId);
             if (bt && bt.count > 1 && !data.pinned) {
                 const canonicalUrl = getCanonicalUrl(data.url);
@@ -467,15 +471,10 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 
             // Last active tab in group closed, all remaining are hibernated
             // → restore the tab as a hibernated member of the group, then collapse.
-            // We must NOT skip restoration here — that would permanently remove the
-            // tab from the group, which is the bug we're fixing.
             if (data.groupId !== NONE_GROUP && globalSettings.autoCollapseGroups && chrome.tabGroups) {
                 try {
                     const remaining = await chrome.tabs.query({ groupId: data.groupId });
                     if (remaining.length > 0 && remaining.every(t => t.discarded)) {
-                        // Fall through to the RESTORE block below, then after
-                        // the tab is recreated & discarded, collapse the group.
-                        // We signal this with a flag so the restore block can collapse afterwards.
                         data._collapseAfterRestore = true;
                     }
                 } catch (e) {}
@@ -489,14 +488,12 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                 });
 
                 if (data.groupId !== NONE_GROUP && chrome.tabGroups) {
-                    // Use groupId as primary key (avoids unnamed-group collisions)
                     const groupKey = `${removeInfo.windowId}|${data.groupId}`;
                     if (recreationRegistry.has(groupKey)) {
                         const existingGid = await recreationRegistry.get(groupKey);
                         await chrome.tabs.group({ tabIds: [newTab.id], groupId: existingGid }).catch(() => {});
                     } else {
                         const promise = (async () => {
-                            // 1. First try to find the EXACT group by its original ID (still alive?)
                             try {
                                 const byId = await chrome.tabGroups.get(data.groupId);
                                 if (byId) {
@@ -505,7 +502,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                                 }
                             } catch (e) { /* group no longer exists */ }
 
-                            // 2. Named group: search by title in this window
                             if (data.groupTitle && data.groupTitle.trim() !== '') {
                                 const existing = await chrome.tabGroups.query({ windowId: removeInfo.windowId, title: data.groupTitle });
                                 if (existing.length > 0) {
@@ -514,7 +510,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                                 }
                             }
 
-                            // 3. Group is gone (closed or unnamed) — create a fresh one
                             const gid = await chrome.tabs.group({ tabIds: [newTab.id] });
                             if (data.groupTitle && data.groupTitle.trim() !== '') {
                                 await chrome.tabGroups.update(gid, { title: data.groupTitle, color: data.groupColor || 'grey' }).catch(() => {});
@@ -531,16 +526,10 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 
                 memoryBaselines.set(newTab.id, { ...data, _restoredAt: Date.now() });
                 syncBaselinesToStorage();
-                // safeDiscard waits for status:complete before discarding so the
-                // URL is committed to Chrome's session store. Immediate discard
-                // on an unloaded tab causes about:blank.
-                // If flagged, collapse the group immediately after the tab is discarded
-                // so applyAutoCollapse's "all discarded" guard passes correctly.
                 const collapseAfter = data._collapseAfterRestore && data.groupId !== NONE_GROUP
                     ? () => applyAutoCollapse(data.groupId, removeInfo.windowId)
                     : null;
                 safeDiscard(newTab.id, collapseAfter, data.url);
-
 
             } catch (e) { /* Tab restore failed silently */ }
         }, 100);
@@ -632,10 +621,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 }
             }
             sendResponse({ success: true });
-            return true;
-
-        case 'get-settings':
-            sendResponse({ settings: globalSettings });
             return true;
 
         case 'switch-to-tab':
@@ -766,33 +751,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 } else { sendResponse({ success: false }); }
             }).catch(e => { console.warn('[Tabs++] import-sets error:', e.message); sendResponse({ success: false }); });
             return true;
-
-        case 'restore-vault':
-            ensureLoaded().then(async () => {
-                if (!sessionVault?.length) { sendResponse({ success: false }); return; }
-                const success = await restoreVault(sessionVault);
-                if (success) { setSessionVault([]); vaultCanonicalUrls.clear(); syncVaultToStorage(); }
-                sendResponse({ success });
-            }).catch(e => { console.warn('[Tabs++] restore-vault error:', e.message); sendResponse({ success: false }); });
-            return true;
-
-        case 'clear-vault':
-            ensureLoaded().then(() => {
-                setSessionVault([]);
-                vaultCanonicalUrls.clear();
-                syncVaultToStorage();
-                sendResponse({ success: true });
-            }).catch(e => { console.warn('[Tabs++] clear-vault error:', e.message); sendResponse({ success: false }); });
-            return true;
-
-        case 'start-pomo-timer': {
-            const minutes = Number(request.minutes);
-            if (globalSettings.enablePomo && Number.isFinite(minutes) && minutes > 0) {
-                startPomoTimer(minutes, request.type);
-            }
-            sendResponse({ success: true });
-            return true;
-        }
 
         case 'stop-pomo-timer': {
             stopPomoTimer();
