@@ -566,24 +566,110 @@ chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data
   }
 });
 
-// Vault restore footer
-chrome.storage.local.get(['vault'], (data) => {
-  if (data.vault && data.vault.length > 0) {
-    document.getElementById('vault-container').style.display = 'flex';
-    const vaultText = document.getElementById('vault-text');
-    if (vaultText) vaultText.textContent = `${data.vault.length} protected tabs saved`;
+// Protected tabs restore — reads the auto-persisted protectedSnapshot
+// (hostname-keyed) written by the SW on every baseline change. No manual save.
+chrome.storage.local.get(['protectedSnapshot'], (data) => {
+  const snap = data.protectedSnapshot || {};
+  const snapKeys = Object.keys(snap);
+  if (snapKeys.length === 0) return; // nothing to restore
 
-    document.getElementById('restore-vault-btn').addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'restore-vault' }, () => {
-        document.getElementById('vault-container').style.display = 'none';
-      });
+  chrome.tabs.query({}, (tabs) => {
+    const liveHosts = new Set();
+    for (const t of tabs) {
+      try { if (t.url) liveHosts.add(new URL(t.url).hostname); } catch {}
+    }
+    const missing = snapKeys.filter(h => !liveHosts.has(h));
+    if (missing.length === 0) return; // all protected tabs already open
+
+    const vaultContainer = document.getElementById('vault-container');
+    vaultContainer.style.display = 'flex';
+    const vaultText = document.getElementById('vault-text');
+    if (vaultText) vaultText.textContent = `${missing.length} protected tab${missing.length > 1 ? 's' : ''} ready to restore`;
+
+    document.getElementById('restore-vault-btn').addEventListener('click', async () => {
+      // Hibernates a restored tab once its page has finished loading,
+      // mirroring the SW's safeDiscard (wait for complete → discard).
+      const hibernate = (tabId) => {
+        const check = () => {
+          chrome.tabs.get(tabId, (t) => {
+            if (chrome.runtime.lastError || !t) return;
+            if (t.active) return; // never hibernate the active tab
+            if (t.status === 'complete') {
+              chrome.tabs.discard(tabId, () => {
+                if (chrome.runtime.lastError) {
+                  // Tab may have navigated away or been activated; ignore.
+                }
+              });
+            } else {
+              setTimeout(check, 1500);
+            }
+          });
+        };
+        setTimeout(check, 1500); // initial wait for the page to start loading
+      };
+
+      // Group missing tabs by their original group title so we recreate groups.
+      const ungrouped = [];
+      const groups = new Map(); // groupTitle|color -> [{url, pinned}]
+      for (const host of missing) {
+        const s = snap[host];
+        if (s.groupId && s.groupId !== -1 && s.groupTitle) {
+          const key = `${s.groupTitle}|${s.groupColor}`;
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(s);
+        } else {
+          ungrouped.push(s);
+        }
+      }
+      // Recreate ungrouped (pinned) tabs → hibernate each
+      for (const s of ungrouped) {
+        try {
+          const t = await new Promise((res) => chrome.tabs.create({ url: s.url, pinned: !!s.pinned, active: false }, (t) => {
+            if (chrome.runtime.lastError) return res(null);
+            res(t);
+          }));
+          if (t && t.id) hibernate(t.id);
+        } catch (e) { /* continue on failure */ }
+      }
+      // Recreate grouped tabs inside their original group → hibernate each
+      for (const [, items] of groups) {
+        try {
+          const created = [];
+          for (const s of items) {
+            const t = await new Promise((res) => chrome.tabs.create({ url: s.url, pinned: false, active: false }, (t) => {
+              if (chrome.runtime.lastError) return res(null);
+              res(t);
+            }));
+            if (t && t.id) {
+              created.push(t.id);
+              hibernate(t.id);
+            }
+          }
+          if (created.length && chrome.tabGroups) {
+            const gid = await new Promise((res) => chrome.tabs.group({ tabIds: created }, (gid) => {
+              if (chrome.runtime.lastError) return res(null);
+              res(gid);
+            }));
+            if (gid) {
+              await new Promise((res) => chrome.tabGroups.update(gid, { title: items[0].groupTitle, color: items[0].groupColor || 'grey' }, () => {
+                if (chrome.runtime.lastError) { /* ignore */ }
+                res();
+              }));
+            }
+          }
+        } catch (e) { /* continue on failure */ }
+      }
+      vaultContainer.style.display = 'none';
     });
     document.getElementById('clear-vault-btn').addEventListener('click', () => {
-      chrome.runtime.sendMessage({ action: 'clear-vault' }, () => {
-        document.getElementById('vault-container').style.display = 'none';
+      // Remove missing entries from protectedSnapshot
+      const updated = { ...snap };
+      for (const h of missing) delete updated[h];
+      chrome.storage.local.set({ protectedSnapshot: updated }, () => {
+        vaultContainer.style.display = 'none';
       });
     });
-  }
+  });
 });
 
 // Tip footer buttons

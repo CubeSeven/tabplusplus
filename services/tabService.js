@@ -179,22 +179,66 @@ export function syncBaselinesToStorage(force = false) {
     if (force) {
         if (syncTimeout) clearTimeout(syncTimeout);
         chrome.storage.local.set({
-            baselines: Object.fromEntries(memoryBaselines),
-            lastSession: Array.from(memoryBaselines.values())
+            baselines: Object.fromEntries(memoryBaselines)
         }).catch(() => {});
         return;
     }
     if (syncTimeout) clearTimeout(syncTimeout);
     syncTimeout = setTimeout(() => {
         chrome.storage.local.set({
-            baselines: Object.fromEntries(memoryBaselines),
-            lastSession: Array.from(memoryBaselines.values())
+            baselines: Object.fromEntries(memoryBaselines)
         }).catch(() => {});
     }, 2000);
 }
 
-export function saveSnapshot() {
-    chrome.storage.local.set({ lastSession: Array.from(memoryBaselines.values()) }).catch(() => {});
+// Durable crash-recovery snapshot of protected (pinned/grouped) tabs.
+// Hostname-keyed so it survives SW death and tabId churn. Written automatically
+// by processTab on every baseline change — no manual save button.
+//
+// recentlyPruned: hosts deliberately closed within the last 60s. Prevents
+// Ghost Prevention auto-reopen from re-adding them to the crash recovery list.
+let protectedSnapshot = {};
+const recentlyPruned = new Map();
+let persistTimeout = null;
+
+export function persistProtectedSnapshot() {
+    if (persistTimeout) clearTimeout(persistTimeout);
+    persistTimeout = setTimeout(() => {
+        const snap = {};
+        const now = Date.now();
+        for (const b of memoryBaselines.values()) {
+            if (!b.url || b.url.startsWith('chrome://') || b.url.startsWith('chrome-extension://')) continue;
+            const isProtected = (b.pinned) || (b.groupId !== NONE_GROUP && b.groupId !== undefined);
+            if (!isProtected) continue;
+            try {
+                const host = new URL(b.url).hostname;
+                // Skip hosts that were just deliberately closed. Ghost Prevention
+                // reopens them moments later, but we must NOT re-persist them.
+                const prunedAt = recentlyPruned.get(host);
+                if (prunedAt && (now - prunedAt) < 60000) continue;
+                snap[host] = { url: b.url, pinned: !!b.pinned, groupId: b.groupId ?? -1, groupTitle: b.groupTitle || '', groupColor: b.groupColor || 'grey' };
+            } catch { /* skip malformed */ }
+        }
+        protectedSnapshot = snap;
+        chrome.storage.local.set({ protectedSnapshot: snap }).catch(() => {});
+    }, 500);
+}
+
+// Prune a host from the snapshot on deliberate close. Batch-safe: accumulates
+// deletions across a synchronous burst of onRemoved events (e.g. Close Group)
+// and writes once after the event loop settles, so racing get/set pairs don't
+// let last-write-wins resurrect already-deleted hosts.
+// Also marks the host recentlyPruned so persistProtectedSnapshot doesn't re-add
+// it when Ghost Prevention reopens the tab ~100ms later.
+let pruneTimer = null;
+export function pruneProtectedHost(host) {
+    delete protectedSnapshot[host];
+    recentlyPruned.set(host, Date.now());
+    if (pruneTimer) clearTimeout(pruneTimer);
+    pruneTimer = setTimeout(() => {
+        pruneTimer = null;
+        chrome.storage.local.set({ protectedSnapshot }).catch(() => {});
+    }, 150);
 }
 
 chrome.runtime.onSuspend.addListener(() => {
@@ -202,8 +246,7 @@ chrome.runtime.onSuspend.addListener(() => {
         clearTimeout(syncTimeout);
         syncTimeout = null;
         chrome.storage.local.set({
-            baselines: Object.fromEntries(memoryBaselines),
-            lastSession: Array.from(memoryBaselines.values())
+            baselines: Object.fromEntries(memoryBaselines)
         }).catch(() => {});
     }
 });
@@ -212,7 +255,7 @@ let loadPromise = null;
 export async function ensureLoaded() {
     if (isInitialized) return;
     if (!loadPromise) {
-        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'tabSets', 'savedPrompts', 'permMigrationDone']).then(async (data) => {
+        loadPromise = chrome.storage.local.get(['baselines', 'settings', 'vault', 'tabSets', 'savedPrompts', 'permMigrationDone', 'protectedSnapshot']).then(async (data) => {
             // Permission-refactor migration — runs inside the load critical
             // section so in-memory settings are correct BEFORE isInitialized
             // flips true. Without this, a concurrent palette search during SW
@@ -250,6 +293,7 @@ export async function ensureLoaded() {
             for (const [key, value] of Object.entries(stored)) {
                 memoryBaselines.set(parseInt(key, 10), value);
             }
+            if (data.protectedSnapshot) protectedSnapshot = data.protectedSnapshot;
             setInitialized(true);
         });
     }
@@ -373,8 +417,7 @@ export async function initializeState(isFreshStartup = false) {
     if (changed) {
         chrome.storage.local.set({
             vault: sessionVault,
-            baselines: Object.fromEntries(memoryBaselines),
-            lastSession: Array.from(memoryBaselines.values())
+            baselines: Object.fromEntries(memoryBaselines)
         }).catch(() => {});
     }
 
@@ -431,6 +474,13 @@ export function processTab(tab) {
     const data = memoryBaselines.get(tab.id);
 
     if (isProtected) {
+        // If user manually re-pins/re-groups a tab whose host was recently pruned
+        // (within the 60s Ghost Prevention quarantine), clear the quarantine so
+        // the tab is properly persisted. Ghost Prevention tabs carry _restoredAt.
+        if (url && !data?._restoredAt) {
+            try { recentlyPruned.delete(new URL(url).hostname); } catch (e) {}
+        }
+
         const title = (tab.groupId !== NONE_GROUP && groupCache.has(tab.groupId)) ? groupCache.get(tab.groupId).title : '';
         const color = (tab.groupId !== NONE_GROUP && groupCache.has(tab.groupId)) ? groupCache.get(tab.groupId).color : 'grey';
 
@@ -456,6 +506,9 @@ export function processTab(tab) {
         if (urlMayChange || data.pinned !== tab.pinned || data.groupId !== tab.groupId || data.index !== tab.index || data.windowId !== tab.windowId || data._lastMessagedProtection !== isProtected) {
             memoryBaselines.set(tab.id, { url: finalUrl, index: tab.index, windowId: tab.windowId, pinned: tab.pinned, groupId: tab.groupId, groupTitle: title, groupColor: color, _lastMessagedProtection: isProtected });
             changed = true;
+            // Auto-persist to durable storage so a force-kill can be recovered
+            // (memoryBaselines vanishes when the SW dies). No manual save needed.
+            if (changed) persistProtectedSnapshot();
         }
     } else if (data) {
         const restoredAge = data._restoredAt ? (Date.now() - data._restoredAt) : Infinity;
@@ -570,6 +623,8 @@ export function applyAutoCollapse(groupId, windowId) {
     });
 }
 
+// NOTE: also invoked via the command palette ("Restore N protected tabs" →
+// virtual:restore-vault routed through the open-url handler), so this stays live.
 export async function restoreVault(vaultData) {
     if (!vaultData?.length) return false;
     for (const data of vaultData) {

@@ -2,7 +2,7 @@ import { globalSettings, updateSettings, tabSets, memoryBaselines, sessionVault 
 import { startPomoTimer, stopPomoTimer } from './pomoService.js';
 import { BANGS, NONE_GROUP, SEARCH_ENGINES } from '../constants.js';
 import { getBaseDomain } from '../utils.js';
-import { syncBaselinesToStorage, saveSnapshot, ensureLoaded, safeHibernate, hibernateActiveTab, updateCleanupAlarms } from './tabService.js';
+import { syncBaselinesToStorage, ensureLoaded, safeHibernate, hibernateActiveTab, updateCleanupAlarms } from './tabService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './setService.js';
 import { performLaunchBookmarkFolder, performLaunchAllBookmarks } from './bookmarkService.js';
 
@@ -1021,7 +1021,7 @@ export async function executeAction(commandId, args, senderTab = null) {
                 chrome.windows.update(currentWinId, { state: 'fullscreen' }).catch(() => {});
                 break;
             case 'snapshot_session':
-                syncBaselinesToStorage(); saveSnapshot();
+                syncBaselinesToStorage(true);
                 break;
             case 'clear_cache_hour':
                 chrome.browsingData.remove({ since: Date.now() - 3600000 }, { cache: true, cookies: false, history: true }).catch(() => {});
