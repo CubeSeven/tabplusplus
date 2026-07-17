@@ -208,7 +208,7 @@ export function persistProtectedSnapshot() {
         const now = Date.now();
         for (const b of memoryBaselines.values()) {
             if (!b.url || b.url.startsWith('chrome://') || b.url.startsWith('chrome-extension://')) continue;
-            const isProtected = (b.pinned) || (b.groupId !== -1 && b.groupId !== undefined);
+            const isProtected = (b.pinned) || (b.groupId !== NONE_GROUP && b.groupId !== undefined);
             if (!isProtected) continue;
             try {
                 const host = new URL(b.url).hostname;
@@ -474,6 +474,13 @@ export function processTab(tab) {
     const data = memoryBaselines.get(tab.id);
 
     if (isProtected) {
+        // If user manually re-pins/re-groups a tab whose host was recently pruned
+        // (within the 60s Ghost Prevention quarantine), clear the quarantine so
+        // the tab is properly persisted. Ghost Prevention tabs carry _restoredAt.
+        if (url && !data?._restoredAt) {
+            try { recentlyPruned.delete(new URL(url).hostname); } catch (e) {}
+        }
+
         const title = (tab.groupId !== NONE_GROUP && groupCache.has(tab.groupId)) ? groupCache.get(tab.groupId).title : '';
         const color = (tab.groupId !== NONE_GROUP && groupCache.has(tab.groupId)) ? groupCache.get(tab.groupId).color : 'grey';
 
