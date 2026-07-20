@@ -83,11 +83,11 @@ export async function performLaunchBookmarkFolder(folderId) {
 
 /**
  * Opens EVERY bookmark in one window. Walks the whole bookmark tree and treats
- * each top-level root folder (Bookmarks Bar, Other Bookmarks, Mobile) as a tab
- * group, so "Insert All Bookmarks" yields a single window whose groups mirror the
- * user's top-level bookmark organization. Hard-capped at BOOKMARK_TAB_CAP in
- * tree order (Bookmarks Bar first) to stay within what Chrome can open without
- * freezing.
+ * each user-created folder as a tab group, so "Insert All Bookmarks" yields a
+ * single window whose groups mirror the user's folder organization.
+ * Loose bookmarks (not in any folder) are grouped under their parent root
+ * ("Bookmarks Bar", etc.). Hard-capped at BOOKMARK_TAB_CAP in tree order
+ * to stay within what Chrome can open without freezing.
  *
  * @returns {Promise<boolean>} success
  */
@@ -99,14 +99,27 @@ export async function performLaunchAllBookmarks() {
     if (!root) return false;
 
     // The bookmark tree's root node is virtual; its children are the real roots
-    // (Bookmarks Bar, Other Bookmarks, Mobile). Treat each as a group so every
-    // top-level root becomes one group in the new window.
+    // (Bookmarks Bar, Other Bookmarks, Mobile). Walk into each root's children
+    // so every user-created folder becomes its own tab group.
     const tabDefs = [];
     for (const topRoot of root.children || []) {
-        const groupTitle = (topRoot.title || '').trim() || 'Bookmarks';
-        const groupColor = colorForTitle(groupTitle);
-        for (const url of collectLeafUrls(topRoot)) {
-            tabDefs.push({ url, pinned: false, groupId: PENDING_GROUP, groupTitle, groupColor });
+        const rootTitle = (topRoot.title || '').trim() || 'Bookmarks';
+        const rootColor = colorForTitle(rootTitle);
+
+        for (const child of topRoot.children || []) {
+            if (child.url) {
+                // Loose bookmark (not in a folder) — group under the parent root
+                if (/^https?:/i.test(child.url)) {
+                    tabDefs.push({ url: child.url, pinned: false, groupId: PENDING_GROUP, groupTitle: rootTitle, groupColor: rootColor });
+                }
+            } else if (child.children) {
+                // User-created folder — each becomes its own group
+                const groupTitle = (child.title || '').trim() || 'Bookmarks';
+                const groupColor = colorForTitle(groupTitle);
+                for (const url of collectLeafUrls(child)) {
+                    tabDefs.push({ url, pinned: false, groupId: PENDING_GROUP, groupTitle, groupColor });
+                }
+            }
         }
     }
 

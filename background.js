@@ -304,6 +304,12 @@ if (chrome.tabGroups) {
 }
 
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
+    // Load state first so isProtectedTab is accurate. On cold SW start this
+    // is the first event that needs memoryBaselines; without it, protected
+    // tabs are misidentified as unprotected and Focus Guard creates a stray
+    // NTP alongside the restored tab (Issue #10, bug 2).
+    await ensureLoaded();
+
     const now = Date.now();
     let batchTracker = windowBatchTracker.get(removeInfo.windowId);
     if (!batchTracker || now - batchTracker.timestamp > 400) {
@@ -316,11 +322,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     // so creating an NTP would leave an unwanted extra tab open).
     // Also skip when a palette fallback tab closes programmatically after executing
     // an action — the user expects to land on the action result, not another NTP.
-    // NOTE: isProtectedTab must be checked synchronously (no await) — the
-    // pendingFocusGuardWindowIds.add() below must execute before Chrome fires
-    // onActivated, which the Neighbor Guard depends on. On cold SW start,
-    // memoryBaselines is empty so this returns false — acceptable because
-    // focusNTPOnClose also defaults to false until settings load.
     const isProtectedTab = memoryBaselines.has(tabId);
     const isPaletteClosing = paletteFallbackClosingIds.has(tabId);
     if (isPaletteClosing) paletteFallbackClosingIds.delete(tabId);
@@ -364,8 +365,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     clearPendingDiscard(tabId);
     pendingInheritanceCheck.delete(tabId);
     blurredSourceTabs.delete(tabId);
-
-    await ensureLoaded();
 
     // Baseline lookup.
     const data = memoryBaselines.get(tabId);
@@ -532,6 +531,27 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                     ? () => applyAutoCollapse(resolvedGid, removeInfo.windowId)
                     : null;
                 safeDiscard(newTab.id, collapseAfter, data.url);
+
+                // Re-hibernate any neighbor that Chrome auto-activated when the
+                // protected tab was closed. We use a transient new-tab page
+                // as a focus sink because Chrome won't discard the active tab
+                // directly (Issue #10, bug 1).
+                try {
+                    const activeTabs = await chrome.tabs.query({ active: true, windowId: removeInfo.windowId });
+                    for (const at of activeTabs) {
+                        if (at.id === newTab.id) continue;
+                        const awakenedTime = recentlyAwakened.get(at.id);
+                        if (!awakenedTime || (Date.now() - awakenedTime > 500)) continue;
+                        const isNeighborProtected = (globalSettings.protectPinned && at.pinned) ||
+                            (globalSettings.protectGrouped && at.groupId !== NONE_GROUP);
+                        if (isNeighborProtected) continue;
+                        const sink = await chrome.tabs.create({ active: true, windowId: removeInfo.windowId, index: at.index + 1 }).catch(() => null);
+                        if (sink) {
+                            chrome.tabs.discard(at.id).catch(() => {});
+                            chrome.tabs.remove(sink.id).catch(() => {});
+                        }
+                    }
+                } catch (e) { /* best-effort */ }
 
             } catch (e) { /* Tab restore failed silently */ }
         }, 100);
