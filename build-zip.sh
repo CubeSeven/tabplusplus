@@ -11,9 +11,12 @@ rm -f "$OUTPUT"
   -xr'!.github' \
   -xr'!node_modules' \
   -xr'!.opencode' \
+  -xr'!.hermes' \
+  -xr'!.codebuddy' \
   -xr'!*.zip' \
   -xr'!assets/store' \
   -xr'!build-zip.sh' \
+  -xr'!docs' \
   -xr'!tabs-plus-plus-*'
 
 echo "Created $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"
