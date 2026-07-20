@@ -394,6 +394,19 @@ export async function initializeState(isFreshStartup = false) {
                         claimedNewIds.add(matchTab.id);
                         changed = true;
                         domainMatched = true;
+                    } else if (candidates.length > 1 && data.pinned) {
+                        // Multiple pinned tabs on the same domain (e.g. two
+                        // YouTube pins at different URLs).  Pick the first
+                        // unmatched candidate so the baseline isn't orphaned.
+                        // claimedNewIds prevents double-binding (Issue #10 bug 3).
+                        const matchTab = candidates[0];
+                        memoryBaselines.delete(oldId);
+                        if (!memoryBaselines.has(matchTab.id)) {
+                            memoryBaselines.set(matchTab.id, { ...data, windowId: matchTab.windowId, index: matchTab.index });
+                        }
+                        claimedNewIds.add(matchTab.id);
+                        changed = true;
+                        domainMatched = true;
                     }
                 }
             } catch {}
