@@ -1,4 +1,17 @@
-Latest Update: v2.5.0 (Under-the-Hood Maintenance & Stability)
+Latest Update: v2.6.0 (Bug fixes + bookmark folders)
+
+**What changed in v2.6.0:**
+
+- **Crash recovery hardening.** If the browser crashes or is force-quit, pinned and grouped tabs are saved automatically. Baselines wait in a pending-rebind state through Chrome's "Restore tabs?" prompt and re-bind by URL/domain after restart — nothing is vaulted or abandoned prematurely.
+- **Pinned tabs always come back.** Closing a pinned tab restores it right where it was, at the URL it was pinned at — even after browsing away and restarting. No extra empty tabs, no stray blank tabs on batch close.
+- **No more waking the neighbor.** Closing a pinned or grouped tab no longer wakes up a hibernated neighbor tab.
+- **Bookmark folders become tab groups.** "Insert All Bookmarks in New Window" creates one tab group per user-created folder (name + color), not one big group per Chrome section. Use `> open folder <name>` to insert a folder into the current window (capped at 100 tabs). **New in this polish pass:** a bookmark whose title starts with `!` (e.g. `!Gmail`) opens as a pinned tab instead of joining the group.
+- **Grouped tabs are never batch-archived.** A burst of rapid individual closes on a protected grouped tab restores it instead of vaulting it.
+- **Grouped-close guard cleanup.** The group-closure tracker was simplified from a Map to a Set (dead fields removed).
+
+---
+
+## v2.5.0 (Under-the-Hood Maintenance & Stability)
 
 > ⚠️ **This version contains a major codebase change and needs good testing.**
 > No new features — this is a deep internal cleanup that touches the core
