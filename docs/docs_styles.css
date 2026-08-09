@@ -171,6 +171,23 @@ body {
 
 .btn-primary:hover { transform: translateY(-2px); }
 
+.btn-secondary {
+    background: var(--glass-surface);
+    color: var(--text-primary);
+    padding: 14px 28px;
+    border-radius: 12px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 16px;
+    border: 1px solid var(--surface-border);
+    transition: transform 0.2s, border-color 0.2s;
+}
+
+.btn-secondary:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-color);
+}
+
 .shortcut-pill {
     background: var(--glass-surface);
     border: 1px solid var(--surface-border);

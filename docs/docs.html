@@ -4,198 +4,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Documentation | Tabs++</title>
+    <link rel="icon" type="image/svg+xml" href="../assets/logo.svg">
+    <meta name="description" content="Tabs++ documentation — tab protection, workspace persistence, command palette, media tools, and more.">
+    <meta property="og:title" content="Documentation | Tabs++">
+    <meta property="og:description" content="Tabs++ documentation — tab protection, workspace persistence, command palette, media tools, and more.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://cubeseven.github.io/tabplusplus/docs.html">
+    <meta property="og:image" content="https://cubeseven.github.io/tabplusplus/assets/logo.svg">
+    <meta name="twitter:card" content="summary">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="docs_styles.css">
-    <style>
-        body { display: block; overflow-y: auto; }
-        .docs-page { display: flex; min-height: 100vh; }
-        .docs-sidebar-fixed {
-            width: 310px;
-            height: 100vh;
-            position: fixed;
-            left: 0;
-            top: 0;
-            background: rgba(15, 15, 18, 0.7);
-            backdrop-filter: blur(30px) saturate(180%);
-            border-right: 1px solid var(--surface-border);
-            padding: 40px 20px;
-            overflow-y: auto;
-            z-index: 1001;
-            box-shadow: 20px 0 50px rgba(0,0,0,0.3);
-        }
-        .docs-main {
-            margin-left: 310px;
-            flex: 1;
-            padding: 80px 60px;
-            max-width: 960px;
-            transition: background-color 0.4s ease, color 0.4s ease;
-        }
-        .sidebar-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 40px;
-        }
-        .sidebar-logo {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-size: 20px;
-            font-weight: 700;
-            text-decoration: none;
-            color: var(--text-primary);
-        }
-        .sidebar-logo span span { color: var(--text-secondary); font-weight: 400; }
-        .sidebar-logo img { width: 28px; height: auto; }
-
-        #theme-toggle {
-            background: var(--glass-surface);
-            border: 1px solid var(--surface-border);
-            color: var(--text-primary);
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        #theme-toggle:hover {
-            background: var(--surface-hover);
-            border-color: var(--accent-color);
-        }
-
-        .sidebar-nav { display: flex; flex-direction: column; gap: 4px; }
-        .sidebar-link {
-            padding: 9px 16px;
-            border-radius: 8px;
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-size: 14px;
-            transition: all 0.2s;
-        }
-        .sidebar-link:hover { background: var(--surface-hover); color: var(--text-primary); }
-        .sidebar-link.active { background: var(--accent-color); color: var(--bg-page); font-weight: 600; }
-        .sidebar-group { margin-top: 28px; margin-bottom: 6px; font-size: 10px; text-transform: uppercase; color: var(--text-secondary); opacity: 0.4; letter-spacing: 1.5px; padding-left: 16px; }
-
-        .feature-block { margin-bottom: 100px; scroll-margin-top: 100px; }
-        .feature-block h2 { font-size: 36px; margin-bottom: 24px; color: var(--text-primary); }
-        .feature-block h3 { font-size: 22px; margin: 40px 0 16px; color: var(--text-primary); }
-        .feature-block p { font-size: 17px; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.7; }
-        .feature-block ul, .feature-block ol { font-size: 16px; color: var(--text-secondary); margin: 16px 0 16px 24px; line-height: 1.8; }
-        .feature-block li { margin-bottom: 8px; }
-        .feature-block pre {
-            background: rgba(0, 0, 0, 0.25);
-            border: 1px solid var(--surface-border);
-            padding: 24px;
-            border-radius: 16px;
-            color: var(--text-primary);
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-            margin: 24px 0;
-            overflow-x: auto;
-            box-shadow: inset 0 1px 1px rgba(255,255,255,0.02);
-        }
-        .feature-block code {
-            background: rgba(255, 255, 255, 0.08);
-            padding: 3px 8px;
-            border-radius: 6px;
-            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-            font-weight: 500;
-            font-size: 14px;
-            color: var(--text-primary);
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-        .feature-block strong { color: var(--text-primary); }
-
-        .command-table { width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 15px; }
-        .command-table th { text-align: left; padding: 12px; border-bottom: 2px solid var(--surface-border); color: var(--text-primary); font-weight: 600; }
-        .command-table td { padding: 12px; border-bottom: 1px solid var(--surface-border); color: var(--text-secondary); }
-        .command-table tr:hover td { color: var(--text-primary); }
-
-        .info-box {
-            padding: 24px;
-            border-radius: 12px;
-            margin: 24px 0;
-            background: var(--glass-surface);
-            border: 1px solid var(--surface-border);
-        }
-        .info-box.warn {
-            background: rgba(255, 69, 58, 0.05);
-            border: 1px solid rgba(255, 69, 58, 0.1);
-        }
-        .info-box.tip {
-            background: rgba(76, 217, 100, 0.05);
-            border: 1px solid rgba(76, 217, 100, 0.1);
-        }
-
-        /* Light theme sidebar fix */
-        .light-theme .docs-sidebar-fixed {
-            background: rgba(248, 248, 252, 0.88);
-            box-shadow: 10px 0 30px rgba(0,0,0,0.06);
-        }
-        .light-theme .feature-block pre {
-            background: rgba(0, 0, 0, 0.04);
-            box-shadow: inset 0 1px 1px rgba(0,0,0,0.04);
-        }
-        .light-theme .feature-block code {
-            background: rgba(0, 0, 0, 0.05);
-            border: 1px solid rgba(0,0,0,0.08);
-        }
-
-        /* Sidebar search */
-        .sidebar-search {
-            margin-bottom: 20px;
-        }
-        .sidebar-search input {
-            width: 100%;
-            padding: 10px 14px;
-            border-radius: 10px;
-            border: 1px solid var(--surface-border);
-            background: var(--glass-surface);
-            color: var(--text-primary);
-            font-family: inherit;
-            font-size: 14px;
-            outline: none;
-            transition: all 0.2s;
-        }
-        .sidebar-search input:focus {
-            border-color: var(--accent-color);
-            background: var(--surface-hover);
-        }
-        .sidebar-search input::placeholder {
-            color: var(--text-secondary);
-            opacity: 0.4;
-        }
-        .sidebar-link.hidden,
-        .sidebar-group.hidden {
-            display: none !important;
-        }
-
-        /* Search result highlighting */
-        mark.search-hl {
-            background: #ff3b30;
-            color: #fff;
-            border-radius: 3px;
-            padding: 0 2px;
-            font-weight: 600;
-        }
-        .light-theme mark.search-hl {
-            background: #ff3b30;
-            color: #fff;
-        }
-
-        @media (max-width: 768px) {
-            .docs-sidebar-fixed { display: none; }
-            .docs-main { margin-left: 0; padding: 40px 20px; }
-        }
-    </style>
+    <link rel="stylesheet" href="docs.css">
 </head>
 <body class="dark-theme">
+    <div class="docs-mobile-bar">
+        <a href="index.html" class="mobile-logo">
+            <img src="../assets/logo.svg" alt="Tabs++ Logo">
+            <span>Tabs<span>++</span></span>
+        </a>
+        <button id="docs-menu-toggle" class="docs-menu-btn" aria-label="Open navigation" aria-expanded="false">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+    </div>
+    <div class="docs-overlay" id="docs-overlay" hidden></div>
     <div class="docs-page">
-        <aside class="docs-sidebar-fixed">
+        <aside class="docs-sidebar-fixed" id="docs-sidebar">
             <div class="sidebar-header">
                 <a href="index.html" class="sidebar-logo">
                     <img src="../assets/logo.svg" alt="">
@@ -219,6 +54,7 @@
                 <div class="sidebar-group">Organization</div>
                 <a href="#auto-grouping" class="sidebar-link">Auto-Grouping</a>
                 <a href="#auto-collapse" class="sidebar-link">Auto-Collapse</a>
+                <a href="#bookmark-launch" class="sidebar-link">Bookmark Launch</a>
                 <a href="#org-commands" class="sidebar-link">Organization Commands</a>
 
                 <div class="sidebar-group">Command Palette</div>
@@ -335,6 +171,14 @@
                     <strong>Atomic Restoration:</strong> Position integrity is maintained even during complex batch-move operations. The engine uses an <em>Eviction Graveyard</em> to track tabs in the process of being restored, preventing ghost tabs and infinite restoration loops.
                 </div>
 
+                <h3>Crash Recovery</h3>
+                <p>When Chrome crashes (or is force-quit), protected tabs are never lost:</p>
+                <ul>
+                    <li>Baselines are held in a <strong>pending-rebind</strong> state while Chrome's own "Restore tabs?" prompt is on screen — nothing is vaulted or abandoned while you decide.</li>
+                    <li>After restart, the engine re-binds baselines to the restored tabs by matching canonical URLs and domain, so pinned tabs land back in their pin area and groups are re-formed.</li>
+                    <li>If a matching tab never appears, the baseline stays pending until one does — no premature timeout, no silent loss.</li>
+                </ul>
+
                 <h3>Inheritance Protection</h3>
                 <p>New tabs opened from protected (pinned/grouped) tabs are automatically ungrouped when they navigate to a different domain. This prevents your organized groups from being polluted by temporary navigation tabs.</p>
             </section>
@@ -347,8 +191,8 @@
                     <li>Tabs++ takes periodic snapshots of your workspace state to <code>chrome.storage.local</code>.</li>
                     <li>If Chrome fails to restore your sessions on startup, you can summon the Vault to revive everything.</li>
                     <li>When closing an entire window, all its protected tabs are bulk-saved to the vault.</li>
-                    <li>When closing multiple tabs at once (batch close), they are archived to the vault instead of being individually restored.</li>
-                    <li>When an entire group is deliberately closed, its tabs go to the vault.</li>
+                    <li>When closing multiple <em>ungrouped</em> tabs at once (batch close), they are archived to the vault instead of being individually restored.</li>
+                    <li>Protected tabs — pinned or grouped — are <strong>never</strong> archived by a burst of rapid individual closes; each one is restored to its baseline instead.</li>
                 </ul>
                 <pre>> Restore Vault</pre>
                 <p>You can also restore or clear the vault from the extension popup <strong>Settings</strong> tab.</p>
@@ -407,6 +251,30 @@
                         <tr><td><code>> Duplicate Tab</code></td><td>Clone the current tab.</td></tr>
                     </tbody>
                 </table>
+            </section>
+
+            <!-- BOOKMARK LAUNCH -->
+            <section id="bookmark-launch" class="feature-block">
+                <h2>Bookmark Launch</h2>
+                <p>Turn your bookmark folders into instant workspaces. Launching a folder opens every bookmark in it as a tab group named after the folder — no manual grouping required.</p>
+
+                <h3>Launch Commands</h3>
+                <table class="command-table">
+                    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>> open folder &lt;name&gt;</code></td><td>Insert a bookmark folder's tabs into the current window, grouped under a single tab group named after the folder. Dedupes against already-open tabs.</td></tr>
+                        <tr><td><code>> Open All Bookmarks</code></td><td>Open every bookmark in a new window. Each user-created folder becomes its own tab group, mirroring your bookmark structure.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3>The <code>!</code> Pin Convention</h3>
+                <p>Any bookmark whose title <strong>starts with <code>!</code></strong> (e.g. <code>!Gmail</code>) is opened as a <strong>pinned tab</strong> instead of joining the group. Pinned tabs live in the pin area at the top of the tab strip, outside the tab group, and are always protected.</p>
+                <div class="info-box tip">
+                    <strong>Tip:</strong> Prefix frequently-used bookmarks with <code>!</code> to have them pinned automatically on every launch. Only a <em>leading</em> <code>!</code> counts — <code>Breaking News!</code> stays in the group.
+                </div>
+                <div class="info-box">
+                    <strong>Safety cap:</strong> Large folders are capped at <code>BOOKMARK_TAB_CAP</code> (100 tabs) per insert so the browser stays responsive.
+                </div>
             </section>
 
             <!-- COMMAND PALETTE -->
@@ -1041,7 +909,7 @@
                         <tr><td><strong>New Tab Page</strong></td><td>Overrides Chrome NTP (<code>ntp.html</code>, <code>ntp.js</code>, <code>ntp.css</code>)</td></tr>
                         <tr><td><strong>Popup</strong></td><td>Extension toolbar popup (<code>popup.html</code>, <code>popup.js</code>)</td></tr>
                         <tr><td><strong>State</strong></td><td>Central reactive state module (<code>state.js</code>) — Maps, Sets, and sync helpers</td></tr>
-                        <tr><td><strong>Services</strong></td><td><code>tabService</code>, <code>paletteService</code>, <code>setService</code>, <code>peekService</code>, <code>pomoService</code></td></tr>
+                        <tr><td><strong>Services</strong></td><td><code>tabService</code>, <code>paletteService</code>, <code>setService</code>, <code>bookmarkService</code>, <code>peekService</code>, <code>pomoService</code></td></tr>
                         <tr><td><strong>Storage</strong></td><td><code>chrome.storage.local</code> — baselines, settings, vault, tab sets, NTP preferences</td></tr>
                         <tr><td><strong>Sync Strategy</strong></td><td>Debounced writes (2-second buffer) to avoid storage thrashing</td></tr>
                         <tr><td><strong>Threading</strong></td><td>Event-driven triggers for <code>chrome.tabs.onCreated</code>, <code>onUpdated</code>, <code>onRemoved</code></td></tr>
