@@ -38,7 +38,7 @@ function colorForTitle(title) {
 function collectLeafUrls(node, out = []) {
     for (const child of node.children || []) {
         if (child.url) {
-            if (/^https?:/i.test(child.url)) out.push(child.url);
+            if (/^https?:/i.test(child.url)) out.push({ url: child.url, title: child.title || '' });
         } else if (child.children) {
             collectLeafUrls(child, out);
         }
@@ -50,14 +50,23 @@ function collectLeafUrls(node, out = []) {
  * Converts a bookmark folder node into the tabDef shape consumed by
  * materializeTabs. Every bookmark in the folder (loose or nested in any
  * subfolder) becomes a tab grouped under a single Chrome tab group named after
- * the folder itself.
+ * the folder itself, UNLESS its title contains "!", in which case it is pinned.
  */
 function folderToTabDefs(folderNode) {
-    const urls = collectLeafUrls(folderNode);
-    if (urls.length === 0) return [];
+    const leaves = collectLeafUrls(folderNode);
+    if (leaves.length === 0) return [];
     const groupTitle = (folderNode.title || '').trim() || 'Bookmarks';
     const groupColor = colorForTitle(groupTitle);
-    return urls.map(url => ({ url, pinned: false, groupId: PENDING_GROUP, groupTitle, groupColor }));
+    return leaves.map(leaf => {
+        const isPinned = leaf.title.includes('!');
+        return {
+            url: leaf.url,
+            pinned: isPinned,
+            groupId: isPinned ? -1 : PENDING_GROUP,
+            groupTitle: isPinned ? '' : groupTitle,
+            groupColor: isPinned ? '' : groupColor
+        };
+    });
 }
 
 /**
@@ -110,14 +119,28 @@ export async function performLaunchAllBookmarks() {
             if (child.url) {
                 // Loose bookmark (not in a folder) — group under the parent root
                 if (/^https?:/i.test(child.url)) {
-                    tabDefs.push({ url: child.url, pinned: false, groupId: PENDING_GROUP, groupTitle: rootTitle, groupColor: rootColor });
+                    const isPinned = (child.title || '').includes('!');
+                    tabDefs.push({ 
+                        url: child.url, 
+                        pinned: isPinned, 
+                        groupId: isPinned ? -1 : PENDING_GROUP, 
+                        groupTitle: isPinned ? '' : rootTitle, 
+                        groupColor: isPinned ? '' : rootColor 
+                    });
                 }
             } else if (child.children) {
                 // User-created folder — each becomes its own group
                 const groupTitle = (child.title || '').trim() || 'Bookmarks';
                 const groupColor = colorForTitle(groupTitle);
-                for (const url of collectLeafUrls(child)) {
-                    tabDefs.push({ url, pinned: false, groupId: PENDING_GROUP, groupTitle, groupColor });
+                for (const leaf of collectLeafUrls(child)) {
+                    const isPinned = leaf.title.includes('!');
+                    tabDefs.push({ 
+                        url: leaf.url, 
+                        pinned: isPinned, 
+                        groupId: isPinned ? -1 : PENDING_GROUP, 
+                        groupTitle: isPinned ? '' : groupTitle, 
+                        groupColor: isPinned ? '' : groupColor 
+                    });
                 }
             }
         }

@@ -10,3 +10,6 @@ Thumbs.db
 
 # Old version snapshots
 tabs-plus-*/
+
+# Local agent tooling
+.hermes/

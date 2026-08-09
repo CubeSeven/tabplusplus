@@ -383,21 +383,12 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
         } catch { /* ignore malformed urls */ }
     }
 
-    // Group closure detection — count baselines EXCLUDING the closing tab itself,
-    // so that closing the ONLY tab in a group (baselineCount=0 after exclusion)
-    // does NOT look like a "full group close" and instead falls through to restore.
+    // Group closure detection — mark the group as closing so the Auto-Collapse
+    // sibling guard can redirect focus away from its tabs. A 250ms timeout
+    // clears the marker so a group that survives the close window is unflagged.
     if (data && data.url && data.groupId !== NONE_GROUP) {
-        let tracker = groupClosureTracker.get(data.groupId);
-        if (!tracker) {
-            let baselineCount = 0;
-            for (const [bid, b] of memoryBaselines.entries()) {
-                if (b.groupId === data.groupId) baselineCount++;
-            }
-            tracker = { closedIds: new Set(), baselineCount };
-            groupClosureTracker.set(data.groupId, tracker);
-            setTimeout(() => groupClosureTracker.delete(data.groupId), 250);
-        }
-        tracker.closedIds.add(tabId);
+        groupClosureTracker.add(data.groupId);
+        setTimeout(() => groupClosureTracker.delete(data.groupId), 250);
     }
 
     // Window closing: bulk-save entire window's baselines to vault
@@ -440,9 +431,12 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             // Batch close → vault, no restore.
             // Pinned tabs are exempt: each Ctrl+W is a deliberate individual close,
             // so a pinned tab caught in a rapid-close batch should still restore.
-            // Grouped tabs keep the batch-vault behavior (e.g. Close Group, Ctrl+W spam).
+            // Grouped tabs are exempt too: a burst of individual X-closes must
+            // never archive a protected tab — each X resets it back to its
+            // baseline URL. The batch check below only applies to the rare
+            // ungrouped tab holding a transient baseline.
             const bt = windowBatchTracker.get(removeInfo.windowId);
-            if (bt && bt.count > 1 && !data.pinned) {
+            if (bt && bt.count > 1 && !data.pinned && data.groupId === NONE_GROUP) {
                 const canonicalUrl = getCanonicalUrl(data.url);
                 if (!vaultCanonicalUrls.has(canonicalUrl)) {
                     data.savedAt = Date.now();
@@ -451,21 +445,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                     syncVaultToStorage();
                 }
                 return;
-            }
-
-            // Entire group deliberately closed → vault, no restore
-            if (data.groupId !== NONE_GROUP) {
-                const tracker = groupClosureTracker.get(data.groupId);
-                if (tracker && tracker.baselineCount > 1 && tracker.closedIds.size >= tracker.baselineCount) {
-                    const canonicalUrl = getCanonicalUrl(data.url);
-                    if (!vaultCanonicalUrls.has(canonicalUrl)) {
-                        data.savedAt = Date.now();
-                        sessionVault.push(data);
-                        vaultCanonicalUrls.add(canonicalUrl);
-                        syncVaultToStorage();
-                    }
-                    return;
-                }
             }
 
             // Last active tab in group closed, all remaining are hibernated
