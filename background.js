@@ -440,9 +440,12 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             // Batch close → vault, no restore.
             // Pinned tabs are exempt: each Ctrl+W is a deliberate individual close,
             // so a pinned tab caught in a rapid-close batch should still restore.
-            // Grouped tabs keep the batch-vault behavior (e.g. Close Group, Ctrl+W spam).
+            // Grouped tabs are exempt too: a burst of individual X-closes must
+            // never archive a protected tab — each X resets it back to its
+            // baseline URL. The batch check below only applies to the rare
+            // ungrouped tab holding a transient baseline.
             const bt = windowBatchTracker.get(removeInfo.windowId);
-            if (bt && bt.count > 1 && !data.pinned) {
+            if (bt && bt.count > 1 && !data.pinned && data.groupId === NONE_GROUP) {
                 const canonicalUrl = getCanonicalUrl(data.url);
                 if (!vaultCanonicalUrls.has(canonicalUrl)) {
                     data.savedAt = Date.now();
@@ -451,21 +454,6 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
                     syncVaultToStorage();
                 }
                 return;
-            }
-
-            // Entire group deliberately closed → vault, no restore
-            if (data.groupId !== NONE_GROUP) {
-                const tracker = groupClosureTracker.get(data.groupId);
-                if (tracker && tracker.baselineCount > 1 && tracker.closedIds.size >= tracker.baselineCount) {
-                    const canonicalUrl = getCanonicalUrl(data.url);
-                    if (!vaultCanonicalUrls.has(canonicalUrl)) {
-                        data.savedAt = Date.now();
-                        sessionVault.push(data);
-                        vaultCanonicalUrls.add(canonicalUrl);
-                        syncVaultToStorage();
-                    }
-                    return;
-                }
             }
 
             // Last active tab in group closed, all remaining are hibernated
