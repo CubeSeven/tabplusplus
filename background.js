@@ -383,21 +383,12 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
         } catch { /* ignore malformed urls */ }
     }
 
-    // Group closure detection — count baselines EXCLUDING the closing tab itself,
-    // so that closing the ONLY tab in a group (baselineCount=0 after exclusion)
-    // does NOT look like a "full group close" and instead falls through to restore.
+    // Group closure detection — mark the group as closing so the Auto-Collapse
+    // sibling guard can redirect focus away from its tabs. A 250ms timeout
+    // clears the marker so a group that survives the close window is unflagged.
     if (data && data.url && data.groupId !== NONE_GROUP) {
-        let tracker = groupClosureTracker.get(data.groupId);
-        if (!tracker) {
-            let baselineCount = 0;
-            for (const [bid, b] of memoryBaselines.entries()) {
-                if (b.groupId === data.groupId) baselineCount++;
-            }
-            tracker = { closedIds: new Set(), baselineCount };
-            groupClosureTracker.set(data.groupId, tracker);
-            setTimeout(() => groupClosureTracker.delete(data.groupId), 250);
-        }
-        tracker.closedIds.add(tabId);
+        groupClosureTracker.add(data.groupId);
+        setTimeout(() => groupClosureTracker.delete(data.groupId), 250);
     }
 
     // Window closing: bulk-save entire window's baselines to vault
