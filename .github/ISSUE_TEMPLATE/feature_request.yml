@@ -1,0 +1,38 @@
+name: ✨ Feature request
+description: Suggest an idea for Tabs++
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem are you trying to solve? Describe the pain point, not the feature.
+      placeholder: "I often lose track of my research tabs across windows..."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How do you imagine this working?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you try or consider?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Tab protection / persistence
+        - Tab groups / organization
+        - Tab Sets / workspace
+        - Hibernation / performance
+        - Command palette
+        - New tab page
+        - Other

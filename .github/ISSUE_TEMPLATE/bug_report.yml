@@ -1,0 +1,64 @@
+name: 🐛 Bug report
+description: Report a problem with Tabs++
+title: "bug: "
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      description: Version shown on chrome://extensions
+      placeholder: "2.6.0"
+    validations:
+      required: true
+  - type: input
+    id: chrome-version
+    attributes:
+      label: Chrome version
+      description: Version shown in chrome://version
+      placeholder: "126.0.6478.127"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - ChromeOS
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps that trigger the bug
+      placeholder: |
+        1. Open two tabs from the same domain
+        2. Group them
+        3. Close one with Ctrl+W
+        4. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What actually happened
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console / service worker logs
+      description: Any errors from chrome://extensions service worker or the page console
+      render: shell

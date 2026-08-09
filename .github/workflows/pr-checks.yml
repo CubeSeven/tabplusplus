@@ -4,15 +4,37 @@ on:
   pull_request:
     branches: ["main"]
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Validate manifest.json
         run: python3 -m json.tool manifest.json > /dev/null
+
+      - name: Syntax check all JavaScript
+        run: |
+          set -e
+          mapfile -t files < <(git ls-files '*.js')
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No JavaScript files found to check"; exit 1
+          fi
+          for f in "${files[@]}"; do
+            node --check "$f" || { echo "::error::Syntax error in $f"; exit 1; }
+          done
+          echo "✓ Syntax OK for ${#files[@]} JS files"
+
       - name: Check for debugging artifacts
         run: |
-          if grep -n "console\.log" background.js services/*.js content.js popup.js ntp.js 2>/dev/null; then
-            echo "::warning::console.log calls found — remove before merging"
+          set -e
+          if grep -rn "console\.log\|debugger;" background.js content.js popup.js ntp.js state.js utils.js constants.js services/ 2>/dev/null; then
+            echo "::error::console.log/debugger found — remove before merging"
+            exit 1
           fi
+
+      - name: Check for whitespace errors
+        run: git diff --check HEAD^ HEAD 2>/dev/null || git diff --check
