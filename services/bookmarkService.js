@@ -50,7 +50,7 @@ function collectLeafUrls(node, out = []) {
  * Converts a bookmark folder node into the tabDef shape consumed by
  * materializeTabs. Every bookmark in the folder (loose or nested in any
  * subfolder) becomes a tab grouped under a single Chrome tab group named after
- * the folder itself, UNLESS its title contains "!", in which case it is pinned.
+ * the folder itself, UNLESS its title starts with "!", in which case it is pinned.
  */
 function folderToTabDefs(folderNode) {
     const leaves = collectLeafUrls(folderNode);
@@ -58,7 +58,7 @@ function folderToTabDefs(folderNode) {
     const groupTitle = (folderNode.title || '').trim() || 'Bookmarks';
     const groupColor = colorForTitle(groupTitle);
     return leaves.map(leaf => {
-        const isPinned = leaf.title.includes('!');
+        const isPinned = leaf.title.startsWith('!');
         return {
             url: leaf.url,
             pinned: isPinned,
@@ -119,7 +119,7 @@ export async function performLaunchAllBookmarks() {
             if (child.url) {
                 // Loose bookmark (not in a folder) — group under the parent root
                 if (/^https?:/i.test(child.url)) {
-                    const isPinned = (child.title || '').includes('!');
+                    const isPinned = (child.title || '').startsWith('!');
                     tabDefs.push({ 
                         url: child.url, 
                         pinned: isPinned, 
@@ -133,7 +133,7 @@ export async function performLaunchAllBookmarks() {
                 const groupTitle = (child.title || '').trim() || 'Bookmarks';
                 const groupColor = colorForTitle(groupTitle);
                 for (const leaf of collectLeafUrls(child)) {
-                    const isPinned = leaf.title.includes('!');
+                    const isPinned = leaf.title.startsWith('!');
                     tabDefs.push({ 
                         url: leaf.url, 
                         pinned: isPinned, 
