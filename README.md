@@ -1,4 +1,4 @@
-# Tabs++ — v2.0.0: The Power Suite
+# Tabs++ — v2.6.0
 
 [**Live Demo & Docs**](https://cubeseven.github.io/tabplusplus/)
 
