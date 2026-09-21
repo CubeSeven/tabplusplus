@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS = {
     enableAutoGroup: false,
     focusNTPOnClose: false,
     autoCollapseGroups: false,
+    pinGroupsToTop: false,
     enableAutoArchive: false,
     autoPiP: false,
     enableEyedropper: true,

@@ -6,6 +6,7 @@ import { stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
 import { handleSearchItems, executeAction } from './services/paletteService.js';
 import { cleanupPeekWindow, handleOpenPeek, handlePromotePeek, handleCheckPeekStatus } from './services/peekService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './services/setService.js';
+import { refreshGroupOrder } from './services/groupOrderService.js';
 
 // Marks a tab as having just inherited a group so the onUpdated inheritance
 // guard can suppress Chrome re-assigning it. Auto-expires after 3s.
@@ -19,10 +20,12 @@ function markInherited(tabId) {
 // --- INITIALIZATION ---
 chrome.runtime.onStartup.addListener(async () => {
     await initializeState(true);
+    refreshGroupOrder();
     updateCleanupAlarms();
 });
 chrome.runtime.onInstalled.addListener(async (details) => {
     await initializeState(false);
+    refreshGroupOrder();
     updateCleanupAlarms();
     // The permission-refactor migration (preserving previously-working features
     // for updating users) lives inside ensureLoaded()'s critical section in
@@ -600,10 +603,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
             
         case 'update-settings':
-            if (request.settings && typeof request.settings === 'object') {
+            if (request.settings && typeof request.settings === 'object' && !Array.isArray(request.settings)) {
                 const oldProtectPinned = globalSettings.protectPinned;
                 const oldProtectGrouped = globalSettings.protectGrouped;
                 updateSettings(request.settings);
+                refreshGroupOrder();
                 chrome.storage.local.set({ settings: globalSettings }).catch(() => {});
                 // When a protection toggle is switched off, evict baselines for
                 // tabs that are no longer protected so they close normally

@@ -60,6 +60,15 @@ const FEATURES = [
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="3"></circle></svg>`
   },
   {
+    id: 'pinGroupsToTop',
+    title: 'Pin Groups to Top',
+    description: 'Keep all groups above ungrouped tabs, after pinned tabs.',
+    default: false,
+    badge: null,
+    category: 'Tools',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16M12 20V8m-5 5 5-5 5 5"/></svg>`
+  },
+  {
     id: 'autoCollapseGroups',
     title: 'Auto-Collapse',
     description: 'Collapse groups when inactive to save space.',
