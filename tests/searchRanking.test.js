@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isStrongMatch } from '../services/searchRanking.js';
+import { isStrongMatch, applyLocalFirst } from '../services/searchRanking.js';
 
 test('matches the start of a path segment', () => {
     assert.equal(isStrongMatch('pulls', 'https://github.com/pulls/'), true);
@@ -51,4 +51,58 @@ test('returns false for invalid input instead of throwing', () => {
     assert.equal(isStrongMatch('pulls', 'not a url'), false);
     assert.equal(isStrongMatch('pulls', undefined), false);
     assert.equal(isStrongMatch(['pulls'], 'https://github.com/pulls/'), false);
+});
+
+const searchRow = { type: 'search', title: 'Search Google for "pulls"', url: 'https://www.google.com/search?q=pulls' };
+const suggestion = (title) => ({ type: 'search', title, url: `https://www.google.com/search?q=${encodeURIComponent(title)}`, _suggestion: true });
+const tab = (url) => ({ type: 'tab', id: 1, title: 'Tab', url });
+const bookmark = (url) => ({ type: 'bookmark', title: 'Bookmark', url });
+const history = (url) => ({ type: 'history', title: 'History', url });
+const sectionsOf = (results) => results.map(r => r._section);
+
+test('promotes a strong-matching local result to Top Hit', () => {
+    const results = [searchRow, suggestion('pulls up'), history('https://github.com/pulls/')];
+    assert.deepEqual(sectionsOf(applyLocalFirst(results, 'pulls')), [undefined, 'suggestion', 'tophit']);
+});
+
+test('prefers an open tab, then a bookmark, then history, whatever the list order', () => {
+    const pullsHistory = history('https://github.com/pulls/');
+    const pullsBookmark = bookmark('https://github.com/pulls/review-requested');
+    const pullsTab = tab('https://github.com/pulls/inbox');
+    assert.deepEqual(sectionsOf(applyLocalFirst([pullsHistory, pullsBookmark, pullsTab], 'pulls')), [undefined, undefined, 'tophit']);
+    assert.deepEqual(sectionsOf(applyLocalFirst([pullsHistory, pullsBookmark], 'pulls')), [undefined, 'tophit']);
+});
+
+test('keeps the existing order among results of the same type', () => {
+    const results = [history('https://github.com/pulls/'), history('https://github.com/pulls/assigned')];
+    assert.deepEqual(sectionsOf(applyLocalFirst(results, 'pulls')), ['tophit', undefined]);
+});
+
+test('promotes nothing without a strong match or with a query under 3 characters', () => {
+    const results = [searchRow, tab('https://github.com/notifications'), history('https://www.google.com/search?q=pulls')];
+    assert.deepEqual(sectionsOf(applyLocalFirst(results, 'pulls')), [undefined, undefined, undefined]);
+    assert.deepEqual(sectionsOf(applyLocalFirst([history('https://github.com/pulls/')], 'pu')), [undefined]);
+});
+
+test('moves engine suggestions to the Suggestions section, but not the explicit search row', () => {
+    const results = [searchRow, suggestion('pulls up'), suggestion('pullshop')];
+    assert.deepEqual(sectionsOf(applyLocalFirst(results, 'pulls')), [undefined, 'suggestion', 'suggestion']);
+});
+
+test('does not promote over a bang, a URL to open, or an action', () => {
+    const firstRows = [
+        { type: 'bang', bang: '!gh', title: 'GitHub', url: 'https://github.com/search?q=' },
+        { type: 'navigate', title: 'Go to github.com', url: 'https://github.com' },
+        { type: 'action', id: 'summon_set_palette|pulls', title: 'Summon Set: "pulls"' }
+    ];
+    for (const first of firstRows) {
+        const results = [first, suggestion('pulls up'), tab('https://github.com/pulls/inbox')];
+        assert.deepEqual(sectionsOf(applyLocalFirst(results, 'pulls')), [undefined, 'suggestion', undefined], first.type);
+    }
+});
+
+test('does not mutate the input results', () => {
+    const results = [suggestion('pulls up'), tab('https://github.com/pulls/inbox')];
+    applyLocalFirst(results, 'pulls');
+    assert.deepEqual(sectionsOf(results), [undefined, undefined]);
 });

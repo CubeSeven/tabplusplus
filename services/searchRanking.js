@@ -23,3 +23,31 @@ export function isStrongMatch(query, url) {
     const segments = parsed.pathname.toLowerCase().split('/');
     return [...labels, ...segments].some(part => part.startsWith(q));
 }
+
+// Result types that already outrank the plain web search today. When any of
+// them is present, nothing is promoted above it.
+const PRIORITY_TYPES = new Set(['action', 'bang', 'navigate']);
+// Top Hit candidates, in order of precedence.
+const LOCAL_TYPES = ['tab', 'bookmark', 'history'];
+
+function findTopHit(results, query) {
+    if (results.some(r => PRIORITY_TYPES.has(r.type))) return null;
+    for (const type of LOCAL_TYPES) {
+        const hit = results.find(r => r.type === type && isStrongMatch(query, r.url));
+        if (hit) return hit;
+    }
+    return null;
+}
+
+// Local-First Search: tags the strong local match (if any) with
+// _section 'tophit' and engine suggestions with _section 'suggestion', so the
+// palette renderers can show them first and last respectively. Returns a new
+// array; the input results are not modified.
+export function applyLocalFirst(results, query) {
+    const topHit = findTopHit(results, query);
+    return results.map(r => {
+        if (r === topHit) return { ...r, _section: 'tophit' };
+        if (r._suggestion) return { ...r, _section: 'suggestion' };
+        return r;
+    });
+}
