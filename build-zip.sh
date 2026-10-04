@@ -19,6 +19,7 @@ rm -f "$OUTPUT"
   -xr'!assets/tabsplusplus logo v2.svg' \
   -xr'!build-zip.sh' \
   -xr'!docs' \
+  -xr'!tests' \
   -xr'!.gitignore' \
   -xr'!AGENTS.md' \
   -xr'!README.md' \
