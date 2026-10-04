@@ -711,7 +711,7 @@ export async function handleSearchItems(request, sender, sendResponse) {
 
         const seen = new Set();
         const deduped = results.filter(r => !r.url || (seen.has(r.url) ? false : seen.add(r.url)));
-        sendResponse({ results: globalSettings.preferLocalResults ? applyLocalFirst(deduped, query) : deduped });
+        sendResponse({ results: globalSettings.preferLocalResults ? applyLocalFirst(deduped, query, sender?.tab?.id) : deduped });
     }).catch(() => sendResponse({ results: [] }));
 }
 

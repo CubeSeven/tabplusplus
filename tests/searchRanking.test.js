@@ -55,7 +55,7 @@ test('returns false for invalid input instead of throwing', () => {
 
 const searchRow = { type: 'search', title: 'Search Google for "pulls"', url: 'https://www.google.com/search?q=pulls' };
 const suggestion = (title) => ({ type: 'search', title, url: `https://www.google.com/search?q=${encodeURIComponent(title)}`, _suggestion: true });
-const tab = (url) => ({ type: 'tab', id: 1, title: 'Tab', url });
+const tab = (url, id = 1) => ({ type: 'tab', id, title: 'Tab', url });
 const bookmark = (url) => ({ type: 'bookmark', title: 'Bookmark', url });
 const history = (url) => ({ type: 'history', title: 'History', url });
 const sectionsOf = (results) => results.map(r => r._section);
@@ -82,6 +82,14 @@ test('prefers the shortest matching URL within the winning type, e.g. a homepage
 test('keeps the existing order between equally short URLs', () => {
     const results = [history('https://github.com/pulls/aaaa'), history('https://github.com/pulls/bbbb')];
     assert.deepEqual(sectionsOf(applyLocalFirst(results, 'pulls')), ['tophit', undefined]);
+});
+
+test('never promotes the tab the search comes from, since switching to it would do nothing', () => {
+    const currentTab = tab('https://github.com/pulls/', 7);
+    const otherTab = tab('https://github.com/pulls/inbox', 8);
+    const pullsHistory = history('https://github.com/pulls/assigned');
+    assert.deepEqual(sectionsOf(applyLocalFirst([currentTab, otherTab, pullsHistory], 'pulls', 7)), [undefined, 'tophit', undefined]);
+    assert.deepEqual(sectionsOf(applyLocalFirst([currentTab, pullsHistory], 'pulls', 7)), [undefined, 'tophit']);
 });
 
 test('promotes nothing without a strong match or with a query under 3 characters', () => {

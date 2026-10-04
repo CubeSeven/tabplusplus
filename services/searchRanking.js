@@ -32,10 +32,12 @@ const LOCAL_TYPES = ['tab', 'bookmark', 'history'];
 
 // Within the first type that has strong matches, the shortest URL wins, so a
 // site's homepage beats its articles; equally short URLs keep their order.
-function findTopHit(results, query) {
+// The tab the search comes from is skipped: switching to it would do nothing.
+function findTopHit(results, query, currentTabId) {
     if (results.some(r => PRIORITY_TYPES.has(r.type))) return null;
+    const isCurrentTab = r => r.type === 'tab' && r.id === currentTabId;
     for (const type of LOCAL_TYPES) {
-        const hits = results.filter(r => r.type === type && isStrongMatch(query, r.url));
+        const hits = results.filter(r => r.type === type && !isCurrentTab(r) && isStrongMatch(query, r.url));
         if (hits.length > 0) return hits.reduce((best, r) => (r.url.length < best.url.length ? r : best));
     }
     return null;
@@ -44,9 +46,10 @@ function findTopHit(results, query) {
 // Local-First Search: tags the strong local match (if any) with
 // _section 'tophit' and engine suggestions with _section 'suggestion', so the
 // palette renderers can show them first and last respectively. Returns a new
-// array; the input results are not modified.
-export function applyLocalFirst(results, query) {
-    const topHit = findTopHit(results, query);
+// array; the input results are not modified. currentTabId is the tab the
+// search comes from (optional).
+export function applyLocalFirst(results, query, currentTabId) {
+    const topHit = findTopHit(results, query, currentTabId);
     return results.map(r => {
         if (r === topHit) return { ...r, _section: 'tophit' };
         if (r._suggestion) return { ...r, _section: 'suggestion' };
