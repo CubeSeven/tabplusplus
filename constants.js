@@ -25,6 +25,7 @@ export const DEFAULT_SETTINGS = {
     showClock: true,
     autoPeekCrossDomain: false,
     searchEngine: 'google',
+    preferLocalResults: false,
     useDefaultNtp: false,
     peekExcludedDomains: ['google.com', 'bing.com', 'duckduckgo.com', 'search.brave.com', 'perplexity.ai', 'x.com', 'twitter.com', 'reddit.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'youtube.com', 'twitch.tv', 'vimeo.com', 'news.ycombinator.com', 'amazon.com', 'ebay.com'],
     // Optional-permission-gated features (off by default; toggled on in popup,
