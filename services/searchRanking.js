@@ -30,11 +30,13 @@ const PRIORITY_TYPES = new Set(['action', 'bang', 'navigate']);
 // Top Hit candidates, in order of precedence.
 const LOCAL_TYPES = ['tab', 'bookmark', 'history'];
 
+// Within the first type that has strong matches, the shortest URL wins, so a
+// site's homepage beats its articles; equally short URLs keep their order.
 function findTopHit(results, query) {
     if (results.some(r => PRIORITY_TYPES.has(r.type))) return null;
     for (const type of LOCAL_TYPES) {
-        const hit = results.find(r => r.type === type && isStrongMatch(query, r.url));
-        if (hit) return hit;
+        const hits = results.filter(r => r.type === type && isStrongMatch(query, r.url));
+        if (hits.length > 0) return hits.reduce((best, r) => (r.url.length < best.url.length ? r : best));
     }
     return null;
 }

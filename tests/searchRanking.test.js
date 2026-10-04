@@ -73,8 +73,14 @@ test('prefers an open tab, then a bookmark, then history, whatever the list orde
     assert.deepEqual(sectionsOf(applyLocalFirst([pullsHistory, pullsBookmark], 'pulls')), [undefined, 'tophit']);
 });
 
-test('keeps the existing order among results of the same type', () => {
-    const results = [history('https://github.com/pulls/'), history('https://github.com/pulls/assigned')];
+test('prefers the shortest matching URL within the winning type, e.g. a homepage over its articles', () => {
+    const article = history('https://www.corriere.it/salute/26_ottobre_04/trump-aspirina.shtml');
+    const homepage = history('https://www.corriere.it/');
+    assert.deepEqual(sectionsOf(applyLocalFirst([article, homepage], 'corr')), [undefined, 'tophit']);
+});
+
+test('keeps the existing order between equally short URLs', () => {
+    const results = [history('https://github.com/pulls/aaaa'), history('https://github.com/pulls/bbbb')];
     assert.deepEqual(sectionsOf(applyLocalFirst(results, 'pulls')), ['tophit', undefined]);
 });
 
