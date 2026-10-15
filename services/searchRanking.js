@@ -22,6 +22,9 @@ export function isStrongMatch(query, url) {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
 
     const labels = parsed.hostname.toLowerCase().replace(/^www\d*\./, '').split('.');
+    // shortcut: this drops only the TLD, so docs.google.co.uk keeps "co". The
+    // 3-character minimum makes 2-letter labels like "co" unmatchable, but a
+    // 3-letter one still matches its exact query: "com" for bbc.com.au.
     if (labels.length > 1) labels.pop();
     const segments = parsed.pathname.toLowerCase().split('/');
     return [...labels, ...segments].some(part => part.startsWith(q));
