@@ -25,6 +25,12 @@ test('ignores the scheme and a leading www.', () => {
     assert.equal(isStrongMatch('goo', 'https://www.google.com/'), true);
 });
 
+test('ignores a numbered www prefix such as www2.', () => {
+    assert.equal(isStrongMatch('www', 'https://www2.example.com/'), false);
+    assert.equal(isStrongMatch('www2', 'https://www2.example.com/'), false);
+    assert.equal(isStrongMatch('exa', 'https://www2.example.com/'), true);
+});
+
 test('ignores the top-level domain so "com" does not match every site', () => {
     assert.equal(isStrongMatch('com', 'https://github.com/'), false);
     assert.equal(isStrongMatch('dev', 'https://web.dev/'), false);
