@@ -53,6 +53,14 @@ test('returns false for invalid input instead of throwing', () => {
     assert.equal(isStrongMatch(['pulls'], 'https://github.com/pulls/'), false);
 });
 
+test('only matches web pages (http and https)', () => {
+    assert.equal(isStrongMatch('doc', 'javascript:document.title'), false);
+    assert.equal(isStrongMatch('set', 'chrome://settings/'), false);
+    assert.equal(isStrongMatch('users', 'file:///Users/me/notes.html'), false);
+    assert.equal(isStrongMatch('doc', 'https://docs.google.com/'), true);
+    assert.equal(isStrongMatch('exa', 'http://example.com/'), true);
+});
+
 const searchRow = { type: 'search', title: 'Search Google for "pulls"', url: 'https://www.google.com/search?q=pulls' };
 const suggestion = (title) => ({ type: 'search', title, url: `https://www.google.com/search?q=${encodeURIComponent(title)}`, _suggestion: true });
 const tab = (url, id = 1) => ({ type: 'tab', id, title: 'Tab', url });
