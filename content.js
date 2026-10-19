@@ -2857,8 +2857,16 @@ function startCustomEyedropper(dataUrl) {
     const halfSize = size / 2;
 
     let eyedropperTimerId = null;
+    const handleEscape = (e) => {
+        if (e.key === 'Escape') {
+            window.removeEventListener('keydown', handleEscape);
+            host.remove();
+        }
+    };
+    window.addEventListener('keydown', handleEscape);
     const img = new Image();
     img.src = dataUrl;
+    img.onerror = () => { host.remove(); }; // bad/missing screenshot — never trap the page
     img.onload = () => {
         const canvas = document.createElement('canvas');
         canvas.width = img.width;
@@ -2889,14 +2897,6 @@ function startCustomEyedropper(dataUrl) {
             magnifier.style.backgroundPosition = `${bgX}px ${bgY}px`;
         };
 
-        const handleEscape = (e) => {
-            if (e.key === 'Escape') {
-                window.removeEventListener('keydown', handleEscape);
-                host.remove();
-            }
-        };
-
-        window.addEventListener('keydown', handleEscape);
         overlay.addEventListener('mousemove', updateMagnifier);
 
         overlay.addEventListener('click', (e) => {
