@@ -1077,8 +1077,9 @@ export async function executeAction(commandId, args, senderTab = null) {
                 break;
             }
             case 'close_other_tabs': {
+                if (!tab) break; // no resolvable active tab — abort rather than close everything
                 const tabs = await chrome.tabs.query({ windowId: currentWinId });
-                const toClose = tabs.filter(t => t.id !== tab?.id).map(t => t.id);
+                const toClose = tabs.filter(t => t.id !== tab.id).map(t => t.id);
                 if (toClose.length > 0) chrome.tabs.remove(toClose).catch(() => {});
                 break;
             }
