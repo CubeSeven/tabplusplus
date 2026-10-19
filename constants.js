@@ -111,3 +111,6 @@ for (const key of Object.keys(TYPE_FALLBACK)) {
     else if (key === 'search') TYPE_FALLBACK[key] = PALETTE_ICONS.search;
     else if (key === 'navigate') TYPE_FALLBACK[key] = PALETTE_ICONS.link;
 }
+
+// Hard cap for the session vault (crash-recovery restore list).
+export const SESSION_VAULT_MAX = 200;

@@ -1,6 +1,6 @@
 import { memoryBaselines, globalSettings, sessionVault, vaultCanonicalUrls, tabSets, groupCache, setInitialized, setSessionVault, setTabSets, isInitialized, ntpTabCache, evictionGraveyard, peekWindows, autoGroupRegistry, discardedTabs, savedPrompts, setSavedPrompts } from '../state.js';
 import { getCanonicalUrl, safeDiscard } from '../utils.js';
-import { NONE_GROUP, GROUPING_RULES, NTP_URL } from '../constants.js';
+import { NONE_GROUP, GROUPING_RULES, NTP_URL, SESSION_VAULT_MAX } from '../constants.js';
 
 const domainRuleMap = new Map();
 for (const rule of GROUPING_RULES) {
@@ -283,7 +283,16 @@ export async function ensureLoaded() {
                 }
             }
             Object.assign(globalSettings, settings);
-            setSessionVault(data.vault || []);
+            // Prune to 24h + cap on EVERY load — previously only onStartup,
+            // so long-running browsers grew the vault unboundedly.
+            const vaultCutoff = Date.now() - 24 * 60 * 60 * 1000;
+            const prunedVault = (data.vault || [])
+                .filter(t => t.savedAt && t.savedAt > vaultCutoff)
+                .slice(-SESSION_VAULT_MAX);
+            if (prunedVault.length !== (data.vault || []).length) {
+                chrome.storage.local.set({ vault: prunedVault }).catch(() => {});
+            }
+            setSessionVault(prunedVault);
             vaultCanonicalUrls.clear();
             for (const t of sessionVault) { vaultCanonicalUrls.add(getCanonicalUrl(t.url)); }
             setTabSets(data.tabSets || {});
