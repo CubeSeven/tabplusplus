@@ -259,7 +259,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.discarded === true && tab.groupId !== NONE_GROUP) {
         applyAutoCollapse(tab.groupId, tab.windowId);
     }
-});
+}, { properties: ['url', 'status', 'pinned', 'groupId', 'discarded'] });
 
 // Tab ID replacement on hibernation restore
 chrome.tabs.onReplaced.addListener(async (addedTabId, removedTabId) => {
