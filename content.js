@@ -1203,10 +1203,22 @@ function showVolumeSlider() {
     _volSliderTimer = setTimeout(dismissVolumeSlider, 2500);
 }
 
+let _volMediaCache = null;
+let _volMediaCacheAt = 0;
+function getMediaElements() {
+    // 1s TTL — wheel/drag ticks used to re-query the whole DOM every event
+    const now = Date.now();
+    if (!_volMediaCache || now - _volMediaCacheAt > 1000) {
+        _volMediaCache = Array.from(document.querySelectorAll('video, audio'));
+        _volMediaCacheAt = now;
+    }
+    return _volMediaCache;
+}
+
 function setVolume(pct) {
     _volSliderValue = pct;
     if (_volSliderFill) _volSliderFill.style.width = pct + '%';
-    document.querySelectorAll('video, audio').forEach(el => {
+    getMediaElements().forEach(el => {
         try { el.volume = pct / 100; el.muted = false; } catch (e) {}
     });
 }
