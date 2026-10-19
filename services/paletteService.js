@@ -681,7 +681,7 @@ export async function handleSearchItems(request, sender, sendResponse) {
         const tabUrlSet = new Set(tabs.map(t => t.url));
         results.push(...history.filter(h => h.url && !tabUrlSet.has(h.url)).slice(0, 10).map(h => ({ type: 'history', title: h.title || h.url, url: h.url })));
         if (!query && closedSessions) results.push(...closedSessions.filter(s => s.tab && s.tab.url && !s.tab.url.startsWith('chrome')).slice(0, 5).map(s => ({ type: 'closed', title: s.tab.title || s.tab.url, url: s.tab.url, favIconUrl: s.tab.favIconUrl || null })));
-        if (sessionVault.length > 0 && (!query || "restore".includes(lowerQuery))) {
+        if (sessionVault.length > 0 && (!query || "restore".startsWith(lowerQuery))) {
             results.unshift({ type: 'vault', title: `Restore ${sessionVault.length} protected tabs`, url: 'virtual:restore-vault' });
         }
 
