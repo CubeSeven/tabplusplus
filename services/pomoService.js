@@ -24,6 +24,9 @@ export function stopPomoTimer() {
 export function broadcastPomoState() {
     chrome.tabs.query({ discarded: false }, (tabs) => {
         for (const t of tabs) {
+            // Only real web pages run the content script — skip devtools,
+            // popups, and chrome:// pages (each miss = wasted round-trip).
+            if (!t.url || !/^https?:/.test(t.url)) continue;
             chrome.tabs.sendMessage(t.id, { action: 'update-pomo-timer', pomoTimer }).catch(() => {});
         }
     });
