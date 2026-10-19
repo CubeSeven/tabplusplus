@@ -3069,11 +3069,14 @@ async function startScreenshotCapture() {
     const viewportHeight = window.innerHeight;
     const viewportWidth = window.innerWidth;
 
-    // 3. Set up canvas
-    const dpr = window.devicePixelRatio || 1;
+    // 3. Set up canvas — cap total pixels so huge pages don't OOM the tab
+    const MAX_CANVAS_PIXELS = 32 * 1024 * 1024; // ~32MP
+    const deviceDpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(deviceDpr, Math.sqrt(MAX_CANVAS_PIXELS / Math.max(1, pageWidth * pageHeight)));
+    const captureScale = dpr / deviceDpr;
     const canvas = document.createElement('canvas');
-    canvas.width = pageWidth * dpr;
-    canvas.height = pageHeight * dpr;
+    canvas.width = Math.round(pageWidth * dpr);
+    canvas.height = Math.round(pageHeight * dpr);
     const ctx = canvas.getContext('2d');
 
     const numSteps = Math.ceil(pageHeight / viewportHeight);
@@ -3098,7 +3101,7 @@ async function startScreenshotCapture() {
             await new Promise(resolve => {
                 const img = new Image();
                 img.onload = () => {
-                    ctx.drawImage(img, 0, targetY * dpr, img.width, img.height);
+                    ctx.drawImage(img, 0, targetY * dpr, img.width * captureScale, img.height * captureScale);
                     resolve();
                 };
                 img.onerror = resolve;
