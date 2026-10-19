@@ -1,5 +1,5 @@
 import { memoryBaselines, globalSettings, sessionVault, vaultCanonicalUrls, tabSets, groupCache, setInitialized, setSessionVault, setTabSets, isInitialized, ntpTabCache, evictionGraveyard, peekWindows, autoGroupRegistry, discardedTabs, savedPrompts, setSavedPrompts } from '../state.js';
-import { getCanonicalUrl, safeDiscard } from '../utils.js';
+import { getCanonicalUrl, safeDiscard, parseThresholdToMs } from '../utils.js';
 import { restoreSessionState, persistSessionState } from './sessionState.js';
 import { NONE_GROUP, GROUPING_RULES, NTP_URL, SESSION_VAULT_MAX } from '../constants.js';
 
@@ -144,18 +144,10 @@ export function updateCleanupAlarms() {
 
     alarms.forEach(alarmInfo => {
         let period = 15;
-        const match = alarmInfo.raw.match(/^(\d+(?:\.\d+)?)\s*(m|h)$/i);
-        if (match) {
-            const val = parseFloat(match[1]);
-            const unit = match[2].toLowerCase();
-            let ms = 0;
-            if (unit === 'm') ms = val * 60 * 1000;
-            if (unit === 'h') ms = val * 60 * 60 * 1000;
-
-            if (ms <= 15 * 60 * 1000) period = 1;      // <= 15m -> check every minute
-            else if (ms <= 60 * 60 * 1000) period = 5; // <= 1h -> check every 5 minutes
-            else period = 15;                          // > 1h -> check every 15 minutes
-        }
+        const ms = parseThresholdToMs(alarmInfo.raw, 60 * 60 * 1000);
+        if (ms <= 15 * 60 * 1000) period = 1;      // <= 15m -> check every minute
+        else if (ms <= 60 * 60 * 1000) period = 5; // <= 1h -> check every 5 minutes
+        else period = 15;                          // > 1h -> check every 15 minutes
         chrome.alarms.clear(alarmInfo.name, () => {
             chrome.alarms.create(alarmInfo.name, { periodInMinutes: period });
         });

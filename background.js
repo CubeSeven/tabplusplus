@@ -1,6 +1,6 @@
 import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, blurredSourceTabs, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds, savedPrompts, setSavedPrompts } from './state.js';
 import { NONE_GROUP, NTP_URL, SEARCH_ENGINES } from './constants.js';
-import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard, isLikelyUrl } from './utils.js';
+import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard, isLikelyUrl, parseThresholdToMs } from './utils.js';
 import { persistSessionState } from './services/sessionState.js';
 import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines, pruneProtectedHost } from './services/tabService.js';
 import { stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
@@ -891,14 +891,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         await ensureLoaded();
         if (!globalSettings.enableAutoHibernate) return;
 
-        let ms = 60 * 60 * 1000; // default 1h
-        const raw = globalSettings.hibernateThresholdRaw || '1h';
-        const match = raw.match(/^(\d+(?:\.\d+)?)\s*(m|h)$/i);
-        if (match) {
-            const val = parseFloat(match[1]);
-            if (match[2].toLowerCase() === 'm') ms = val * 60 * 1000;
-            if (match[2].toLowerCase() === 'h') ms = val * 60 * 60 * 1000;
-        }
+        const ms = parseThresholdToMs(globalSettings.hibernateThresholdRaw, 60 * 60 * 1000);
         const cutoff = Date.now() - ms;
         const tabs = await chrome.tabs.query({});
         const targets = tabs.filter(t =>
@@ -923,14 +916,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         await ensureLoaded();
         if (!globalSettings.enableAutoArchive) return;
 
-        let ms = 12 * 60 * 60 * 1000; // default 12h
-        const raw = globalSettings.archiveThresholdRaw || '12h';
-        const match = raw.match(/^(\d+(?:\.\d+)?)\s*(m|h)$/i);
-        if (match) {
-            const val = parseFloat(match[1]);
-            if (match[2].toLowerCase() === 'm') ms = val * 60 * 1000;
-            if (match[2].toLowerCase() === 'h') ms = val * 60 * 60 * 1000;
-        }
+        const ms = parseThresholdToMs(globalSettings.archiveThresholdRaw, 12 * 60 * 60 * 1000);
         const cutoff = Date.now() - ms;
         const tabs = await chrome.tabs.query({});
         const toClose = [];

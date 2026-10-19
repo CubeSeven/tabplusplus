@@ -123,3 +123,11 @@ export function isLikelyUrl(q) {
         return false;
     }
 }
+
+// Parse '90m' / '1.5h' style thresholds. Returns fallbackMs for anything else.
+export function parseThresholdToMs(raw, fallbackMs) {
+    const match = /^(\d+(?:\.\d+)?)\s*(m|h)$/i.exec(String(raw || ''));
+    if (!match) return fallbackMs;
+    const val = parseFloat(match[1]);
+    return match[2].toLowerCase() === 'h' ? val * 3600000 : val * 60000;
+}
