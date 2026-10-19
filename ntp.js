@@ -340,6 +340,15 @@ function applyBgColor(primaryColor) {
     }
 }
 
+const clockFormatters = {};
+function getClockFormatter(hour12) {
+    const key = hour12 ? '12' : '24';
+    if (!clockFormatters[key]) {
+        clockFormatters[key] = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', hour12 });
+    }
+    return clockFormatters[key];
+}
+
 function updateClock() {
     const now = new Date();
     const hour12 = timeFormat === '12h';
@@ -347,12 +356,12 @@ function updateClock() {
     const dateEl = document.getElementById('date');
 
     if (hour12) {
-        const parts = new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit', hour12: true }).formatToParts(now);
+        const parts = getClockFormatter(true).formatToParts(now);
         const timeStr = parts.filter(p => p.type === 'hour' || p.type === 'minute' || p.type === 'literal').map(p => p.value).join('');
         const periodStr = parts.find(p => p.type === 'dayPeriod')?.value || '';
         clockEl.innerHTML = `${timeStr} <span class="clock-period">${periodStr}</span>`;
     } else {
-        clockEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        clockEl.textContent = getClockFormatter(false).format(now);
     }
 
     dateEl.textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
