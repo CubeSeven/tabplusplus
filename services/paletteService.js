@@ -954,12 +954,11 @@ export async function executeAction(commandId, args, senderTab = null) {
                 performLaunchAllBookmarks().catch(() => {});
                 break;
             case 'export_sets':
-                ensureLoaded().then(() => {
-                    const res = { sets: tabSets };
-                    if (!res?.sets) return;
-                    const url = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(res.sets, null, 2));
-                    chrome.downloads.download({ url, filename: 'tabs_plus_plus_sets.json' }).catch(() => {});
-                });
+                // executeAction already awaited ensureLoaded() at entry
+                chrome.downloads.download({
+                    url: 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(tabSets, null, 2)),
+                    filename: 'tabs_plus_plus_sets.json'
+                }).catch(() => {});
                 break;
             case 'hibernate_all': {
                 const tabs = await chrome.tabs.query({ active: false });

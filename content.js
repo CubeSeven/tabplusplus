@@ -1311,10 +1311,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ success: true });
         return true;
     }
-    if (request.action === 'open-eyedropper-ui') {
-        // Fallback or old command support
-        return true;
-    }
     if (request.action === 'start-custom-eyedropper') {
         startCustomEyedropper(request.dataUrl);
         sendResponse({ success: true });
