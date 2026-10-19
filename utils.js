@@ -75,7 +75,7 @@ chrome.tabs.onUpdated.addListener(async (tId, changeInfo) => {
         persistPendingDiscards();
         attemptDiscard(tId, entry.onDiscarded, entry.targetUrl);
     }
-}, { properties: ['status'] });
+});
 
 export function safeDiscard(tabId, onDiscarded = null, targetUrl = null) {
     chrome.tabs.get(tabId, (tab) => {

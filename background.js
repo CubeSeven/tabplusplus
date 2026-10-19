@@ -177,6 +177,16 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    // Chrome's tabs.onUpdated does NOT support event filters (Firefox-only
+    // API shape). Gate synchronously instead so irrelevant property changes
+    // (title, favIconUrl, audible, muted…) never reach the async cascade.
+    const relevant =
+        changeInfo.url !== undefined ||
+        changeInfo.status !== undefined ||
+        changeInfo.pinned !== undefined ||
+        changeInfo.groupId !== undefined ||
+        changeInfo.discarded !== undefined;
+    if (!relevant) return;
     await ensureLoaded();
 
     // Redirect Chrome's native NTP to Tabs++ NTP when user wants it.
@@ -263,7 +273,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         applyAutoCollapse(tab.groupId, tab.windowId);
     }
     persistSessionState();
-}, { properties: ['url', 'status', 'pinned', 'groupId', 'discarded'] });
+});
 
 // Tab ID replacement on hibernation restore
 chrome.tabs.onReplaced.addListener(async (addedTabId, removedTabId) => {
