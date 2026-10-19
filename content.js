@@ -1542,7 +1542,7 @@ const TYPE_FALLBACK = {
 function getFaviconHtml(result) {
     const fallback = TYPE_FALLBACK[result.type] || TYPE_FALLBACK.default;
     if (result.favIconUrl && result.favIconUrl.startsWith('http')) {
-        return `<img src="${result.favIconUrl}" data-type="${result.type}" loading="lazy" />`;
+        return `<img src="${escapeHTML(result.favIconUrl)}" data-type="${result.type}" loading="lazy" />`;
     }
     if (result.url) {
         let domain = hostnameCache.get(result.url);

@@ -405,7 +405,7 @@ async function handleSearch() {
 
 function getFaviconHtml(result) {
     if (result.favIconUrl && result.favIconUrl.startsWith('http')) {
-        return `<img src="${result.favIconUrl}" data-type="${result.type}" />`;
+        return `<img src="${escapeHTML(result.favIconUrl)}" data-type="${result.type}" />`;
     }
     if (result.url) {
         try {
