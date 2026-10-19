@@ -1,7 +1,7 @@
 import { globalSettings, updateSettings, tabSets, memoryBaselines, sessionVault } from '../state.js';
 import { startPomoTimer, stopPomoTimer } from './pomoService.js';
 import { BANGS, NONE_GROUP, SEARCH_ENGINES } from '../constants.js';
-import { getBaseDomain } from '../utils.js';
+import { getBaseDomain, isLikelyUrl } from '../utils.js';
 import { syncBaselinesToStorage, ensureLoaded, safeHibernate, hibernateActiveTab, updateCleanupAlarms } from './tabService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './setService.js';
 import { performLaunchBookmarkFolder, performLaunchAllBookmarks } from './bookmarkService.js';
@@ -668,7 +668,7 @@ export async function handleSearchItems(request, sender, sendResponse) {
         if (query) {
             const bang = resolveBang(query);
             if (bang) results.push(bang);
-            else if (/^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/.test(lowerQuery)) results.push({ type: 'navigate', title: `Go to ${query}`, url: lowerQuery.startsWith('http') ? lowerQuery : 'https://' + lowerQuery });
+            else if (isLikelyUrl(lowerQuery)) results.push({ type: 'navigate', title: `Go to ${query}`, url: query.startsWith('http') ? query : 'https://' + query });
             else results.push({ type: 'search', title: `Search ${SEARCH_ENGINES[globalSettings.searchEngine]?.label || 'Google'} for "${query}"`, url: getSearchUrl(query) });
         }
         suggestions.slice(0, 5).forEach(s => results.push({ type: 'search', title: s, url: getSearchUrl(s) }));

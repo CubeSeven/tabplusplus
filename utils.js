@@ -81,3 +81,15 @@ export function clearPendingDiscard(tabId) {
     }
 }
 
+// Linear-time URL check — replaces a nested-quantifier regex that could
+// backtrack catastrophically on long non-matching palette queries.
+export function isLikelyUrl(q) {
+    if (typeof q !== 'string' || !q) return false;
+    try {
+        const u = new URL(q.includes('://') ? q : 'https://' + q);
+        if (!u.hostname.includes('.') && !u.hostname.startsWith('localhost')) return false;
+        return /^https?:$/.test(u.protocol) || !q.includes('://');
+    } catch {
+        return false;
+    }
+}

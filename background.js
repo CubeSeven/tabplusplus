@@ -1,6 +1,6 @@
 import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, blurredSourceTabs, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds, savedPrompts, setSavedPrompts } from './state.js';
 import { NONE_GROUP, NTP_URL, SEARCH_ENGINES } from './constants.js';
-import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard } from './utils.js';
+import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard, isLikelyUrl } from './utils.js';
 import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines, persistProtectedSnapshot, pruneProtectedHost } from './services/tabService.js';
 import { stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
 import { handleSearchItems, executeAction } from './services/paletteService.js';
@@ -652,7 +652,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case 'open-query': {
             if (typeof request.query !== 'string') return;
             const q = request.query.trim();
-            const isUrl = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\\/\w \.-]*)*\/?$/.test(q.toLowerCase()) || q.startsWith('localhost');
+const isUrl = isLikelyUrl(q.toLowerCase()) || q.startsWith('localhost');
             const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
             let url = engine.url + encodeURIComponent(q);
             if (isUrl) url = q.startsWith('http://') || q.startsWith('https://') ? q : 'https://' + q;
