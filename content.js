@@ -3336,6 +3336,21 @@ function toggleReaderView() {
         el.removeAttribute('id');
         // Remove data-* attrs that often carry layout/visibility hints
         [...el.attributes].filter(a => a.name.startsWith('data-')).forEach(a => el.removeAttribute(a.name));
+        // Strip inline event handlers (onerror=, onclick=...) — they execute in reader shadow DOM
+        for (const a of [...el.attributes]) {
+            if (/^on/i.test(a.name)) el.removeAttribute(a.name);
+        }
+    });
+
+    // Neutralize dangerous link hrefs; open everything else in a new tab
+    body.querySelectorAll('a[href]').forEach(a => {
+        const href = a.getAttribute('href') || '';
+        if (/^\s*javascript:/i.test(href)) {
+            a.removeAttribute('href');
+        } else {
+            a.setAttribute('target', '_blank');
+            a.setAttribute('rel', 'noopener noreferrer');
+        }
     });
 
     // Remove completely empty block elements (leftover wrappers with no text)
