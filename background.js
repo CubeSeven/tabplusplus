@@ -2,7 +2,7 @@ import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, g
 import { NONE_GROUP, NTP_URL, SEARCH_ENGINES } from './constants.js';
 import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard, isLikelyUrl, parseThresholdToMs } from './utils.js';
 import { persistSessionState } from './services/sessionState.js';
-import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines, pruneProtectedHost } from './services/tabService.js';
+import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines, pruneProtectedHost, focusNtpTab } from './services/tabService.js';
 import { stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
 import { handleSearchItems, executeAction } from './services/paletteService.js';
 import { cleanupPeekWindow, handleOpenPeek, handlePromotePeek, handleCheckPeekStatus } from './services/peekService.js';
@@ -90,23 +90,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
             if (!groupClosureTracker.has(tab.groupId)) return;
             // Move focus away so the sibling can be discarded
             try {
-                const cachedNtpId = globalSettings.useDefaultNtp ? null : ntpTabCache.get(tab.windowId);
-                if (cachedNtpId) {
-                    await chrome.tabs.update(cachedNtpId, { active: true });
-                } else {
-                    const existing = await chrome.tabs.query({ url: NTP_URL, windowId: tab.windowId });
-                    if (existing && existing.length > 0) {
-                        ntpTabCache.set(tab.windowId, existing[0].id);
-                        await chrome.tabs.update(existing[0].id, { active: true });
-                    } else {
-                        const createOpts = globalSettings.useDefaultNtp
-                            ? { active: true, windowId: tab.windowId, index: 9999 }
-                            : { url: NTP_URL, active: true, windowId: tab.windowId, index: 9999 };
-                        const c = await chrome.tabs.create(createOpts);
-                        if (!globalSettings.useDefaultNtp) ntpTabCache.set(tab.windowId, c.id);
-                        if (c.groupId !== NONE_GROUP) chrome.tabs.ungroup(c.id).catch(() => {});
-                    }
-                }
+                await focusNtpTab(tab.windowId);
             } catch (e) {}
             safeDiscard(tab.id);
         });
@@ -342,30 +326,9 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     if (!isPaletteClosing && !isProtectedTab && globalSettings.focusNTPOnClose && tabId === lastActiveTabId && !removeInfo.isWindowClosing) {
         pendingFocusGuardWindowIds.add(removeInfo.windowId);
         if (!peekWindows.has(removeInfo.windowId)) {
-            const cachedNtpId = globalSettings.useDefaultNtp ? null : ntpTabCache.get(removeInfo.windowId);
-            if (cachedNtpId) {
-                chrome.tabs.update(cachedNtpId, { active: true }).catch(() => ntpTabCache.delete(removeInfo.windowId));
-            } else {
-                // Cache miss: query for any existing NTP tab in this window before
-                // creating a new one, to avoid spawning duplicate NTP tabs when the
-                // cache is stale (e.g. user manually closed the cached NTP tab).
-                chrome.tabs.query({ url: NTP_URL, windowId: removeInfo.windowId }, (existing) => {
-                    if (existing && existing.length > 0) {
-                        ntpTabCache.set(removeInfo.windowId, existing[0].id);
-                        chrome.tabs.update(existing[0].id, { active: true }).catch(() => {});
-                    } else {
-                        const createOpts = globalSettings.useDefaultNtp
-                            ? { active: true, windowId: removeInfo.windowId, index: 9999 }
-                            : { url: NTP_URL, active: true, windowId: removeInfo.windowId, index: 9999 };
-                        chrome.tabs.create(createOpts)
-                            .then(c => {
-                                if (!globalSettings.useDefaultNtp) ntpTabCache.set(removeInfo.windowId, c.id);
-                                if (c.groupId !== NONE_GROUP && chrome.tabGroups) chrome.tabs.ungroup(c.id).catch(() => {});
-                            })
-                            .catch(() => {});
-                    }
-                });
-            }
+            // Shared resolver: cached -> query -> create (was a callback cascade
+            // duplicated from two other sites with drifting edge handling).
+            await focusNtpTab(removeInfo.windowId).catch(() => {});
         }
     }
 

@@ -89,42 +89,8 @@ export async function hibernateActiveTab(tab) {
     const windowId = tab.windowId;
 
     // 1. Resolve + activate an NTP to receive focus.
-    let activated = false;
     try {
-        if (globalSettings.useDefaultNtp) {
-            // Native NTP: always create fresh (no canonical NTP URL to reuse).
-            await chrome.tabs.create({ active: true, windowId, index: 9999 });
-            activated = true;
-        } else {
-            // Tabs++ NTP: reuse cached → query existing → create.
-            const cachedNtpId = ntpTabCache.get(windowId);
-            if (cachedNtpId) {
-                try {
-                    await chrome.tabs.update(cachedNtpId, { active: true });
-                    activated = true;
-                } catch (e) {
-                    // Cached NTP is gone — fall through to query/create.
-                    ntpTabCache.delete(windowId);
-                }
-            }
-            if (!activated) {
-                const existing = await chrome.tabs.query({ url: NTP_URL, windowId });
-                if (existing && existing.length > 0) {
-                    ntpTabCache.set(windowId, existing[0].id);
-                    persistSessionState();
-                    await chrome.tabs.update(existing[0].id, { active: true });
-                    activated = true;
-                } else {
-                    const c = await chrome.tabs.create({ url: NTP_URL, active: true, windowId, index: 9999 });
-                    ntpTabCache.set(windowId, c.id);
-                    persistSessionState();
-                    if (c.groupId !== NONE_GROUP && chrome.tabGroups) {
-                        chrome.tabs.ungroup(c.id).catch(() => {});
-                    }
-                    activated = true;
-                }
-            }
-        }
+        await focusNtpTab(windowId);
     } catch (e) {
         // NTP activation failed — abort rather than risk throwing on discard.
         return;
@@ -133,6 +99,42 @@ export async function hibernateActiveTab(tab) {
     // 2. By now the target tab is no longer active. safeHibernate re-checks
     //    tab.active via safeDiscard, so a timing race degrades to a safe no-op.
     await safeHibernate(tab);
+}
+
+// Shared NTP resolver: cached -> query -> create. Previously this exact
+// pattern (with drifting edge handling) was duplicated in hibernateActiveTab,
+// the group-closure guard, and the Focus Guard. Returns true if an NTP tab
+// was activated or created.
+export async function focusNtpTab(windowId) {
+    if (globalSettings.useDefaultNtp) {
+        // Native NTP: always create fresh (no canonical NTP URL to reuse).
+        await chrome.tabs.create({ active: true, windowId, index: 9999 });
+        return true;
+    }
+    const cachedNtpId = ntpTabCache.get(windowId);
+    if (cachedNtpId) {
+        try {
+            await chrome.tabs.update(cachedNtpId, { active: true });
+            return true;
+        } catch (e) {
+            // Cached NTP is gone — fall through to query/create.
+            ntpTabCache.delete(windowId);
+        }
+    }
+    const existing = await chrome.tabs.query({ url: NTP_URL, windowId });
+    if (existing && existing.length > 0) {
+        ntpTabCache.set(windowId, existing[0].id);
+        persistSessionState();
+        await chrome.tabs.update(existing[0].id, { active: true });
+        return true;
+    }
+    const c = await chrome.tabs.create({ url: NTP_URL, active: true, windowId, index: 9999 });
+    ntpTabCache.set(windowId, c.id);
+    persistSessionState();
+    if (c.groupId !== NONE_GROUP && chrome.tabGroups) {
+        chrome.tabs.ungroup(c.id).catch(() => {});
+    }
+    return true;
 }
 
 // Helper to dynamically update the auto-cleanup alarms based on timeout settings
