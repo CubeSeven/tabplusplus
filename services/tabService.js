@@ -1,5 +1,6 @@
 import { memoryBaselines, globalSettings, sessionVault, vaultCanonicalUrls, tabSets, groupCache, setInitialized, setSessionVault, setTabSets, isInitialized, ntpTabCache, evictionGraveyard, peekWindows, autoGroupRegistry, discardedTabs, savedPrompts, setSavedPrompts } from '../state.js';
 import { getCanonicalUrl, safeDiscard } from '../utils.js';
+import { restoreSessionState, persistSessionState } from './sessionState.js';
 import { NONE_GROUP, GROUPING_RULES, NTP_URL, SESSION_VAULT_MAX } from '../constants.js';
 
 const domainRuleMap = new Map();
@@ -110,11 +111,13 @@ export async function hibernateActiveTab(tab) {
                 const existing = await chrome.tabs.query({ url: NTP_URL, windowId });
                 if (existing && existing.length > 0) {
                     ntpTabCache.set(windowId, existing[0].id);
+                    persistSessionState();
                     await chrome.tabs.update(existing[0].id, { active: true });
                     activated = true;
                 } else {
                     const c = await chrome.tabs.create({ url: NTP_URL, active: true, windowId, index: 9999 });
                     ntpTabCache.set(windowId, c.id);
+                    persistSessionState();
                     if (c.groupId !== NONE_GROUP && chrome.tabGroups) {
                         chrome.tabs.ungroup(c.id).catch(() => {});
                     }
@@ -303,6 +306,9 @@ export async function ensureLoaded() {
                 memoryBaselines.set(parseInt(key, 10), value);
             }
             if (data.protectedSnapshot) protectedSnapshot = data.protectedSnapshot;
+            // Restore session-mirrored state (peek/NTP/pomo/discards) inside the
+            // load critical section — concurrent handlers must see it.
+            await restoreSessionState();
             setInitialized(true);
         });
     }
@@ -438,6 +444,7 @@ export async function initializeState(isFreshStartup = false) {
         if (tab.discarded) discardedTabs.add(tab.id);
         if (processTab(tab)) changed = true;
     }
+    persistSessionState();
     if (changed) {
         chrome.storage.local.set({
             vault: sessionVault,
@@ -488,6 +495,7 @@ export function processTab(tab) {
         // baseline with a real URL once the tab navigates.
         if (url === 'chrome://newtab/') return false;
         ntpTabCache.set(tab.windowId, tab.id);
+        persistSessionState();
         return false;
     }
 

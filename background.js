@@ -1,6 +1,7 @@
 import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, blurredSourceTabs, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds, savedPrompts, setSavedPrompts } from './state.js';
 import { NONE_GROUP, NTP_URL, SEARCH_ENGINES } from './constants.js';
 import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard, isLikelyUrl } from './utils.js';
+import { persistSessionState } from './services/sessionState.js';
 import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines, persistProtectedSnapshot, pruneProtectedHost } from './services/tabService.js';
 import { stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
 import { handleSearchItems, executeAction } from './services/paletteService.js';
@@ -52,6 +53,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
     chrome.windows.getAll({ windowTypes: ['normal'] }).then(remaining => {
         if (remaining.length === 0) { syncBaselinesToStorage(true); }
     }).catch(() => {});
+    persistSessionState();
 });
 
 // --- TAB LISTENERS (CONSOLIDATED) ---
@@ -124,6 +126,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
             blurredSourceTabs.delete(activeInfo.tabId);
         }
     }
+    persistSessionState();
 });
 
 const pendingInheritanceCheck = new Set();
@@ -259,6 +262,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.discarded === true && tab.groupId !== NONE_GROUP) {
         applyAutoCollapse(tab.groupId, tab.windowId);
     }
+    persistSessionState();
 }, { properties: ['url', 'status', 'pinned', 'groupId', 'discarded'] });
 
 // Tab ID replacement on hibernation restore
@@ -365,6 +369,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     clearPendingDiscard(tabId);
     pendingInheritanceCheck.delete(tabId);
     blurredSourceTabs.delete(tabId);
+    persistSessionState();
 
     // Baseline lookup.
     const data = memoryBaselines.get(tabId);
@@ -760,7 +765,7 @@ const isUrl = isLikelyUrl(q.toLowerCase()) || q.startsWith('localhost');
         }
 
         case 'get-pomo-status':
-            sendResponse({ pomoTimer });
+            ensureLoaded().then(() => sendResponse({ pomoTimer }));
             return true;
     }
 });
@@ -842,21 +847,25 @@ async function queryOrCreateNtpWithPalette(windowId) {
     const existing = await chrome.tabs.query({ url: NTP_URL, windowId });
     if (existing && existing.length > 0) {
         ntpTabCache.set(windowId, existing[0].id);
+        persistSessionState();
         await chrome.tabs.update(existing[0].id, { active: true }).catch(() => {});
         await chrome.tabs.sendMessage(existing[0].id, { action: 'toggle-palette' }).catch(() => {});
     } else {
         const created = await chrome.tabs.create({ url: NTP_URL + '?action=palette', active: true }).catch(() => null);
         if (created) ntpTabCache.set(windowId, created.id);
+        persistSessionState();
     }
 }
 
 // --- ALARMS ---
 chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name === 'pomo-timer') {
+        await ensureLoaded(); // SW may have died since the timer started — restore pomoTimer first
         // Capture type BEFORE clearing state, as notification reads it
         const completedType = pomoTimer.type;
         setPomoTimer({ endTime: null, type: null, isActive: false, minutes: null });
         broadcastPomoState();
+        persistSessionState();
         chrome.notifications.create('pomo-done', {
             type: 'basic',
             iconUrl: 'assets/icon128.png',

@@ -1,14 +1,17 @@
 import { pomoTimer, setPomoTimer } from '../state.js';
+import { persistSessionState } from './sessionState.js';
 
 export function startPomoTimer(minutes, type = 'work') {
     const endTime = Date.now() + (minutes * 60 * 1000);
     setPomoTimer({ endTime, type, isActive: true, minutes });
+    persistSessionState();
     chrome.alarms.create('pomo-timer', { when: endTime });
     broadcastPomoState();
 }
 
 export function stopPomoTimer() {
     setPomoTimer({ endTime: null, type: null, isActive: false, minutes: null });
+    persistSessionState();
     chrome.alarms.clear('pomo-timer');
     broadcastPomoState();
 }
