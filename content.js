@@ -68,11 +68,11 @@ let pomoInterval = null;
 function syncPomoState() {
     if (chrome.runtime?.id) {
         chrome.runtime.sendMessage({ action: 'get-pomo-status' }, (response) => {
+            if (chrome.runtime.lastError) return; // SW asleep — push updates will sync later
             if (response && response.pomoTimer) updatePomoUI(response.pomoTimer);
         });
     }
 }
-syncPomoState();
 
 
 // Initialize settings and listen for changes
@@ -82,6 +82,9 @@ chrome.storage.local.get({ settings: settings }, (data) => {
         settings = { ...settings, ...data.settings };
         isPaletteEnabled = settings.enablePalette;
     }
+    // Sync the timer only when the feature is on — every page load in every
+    // tab used to fire this message unconditionally. Push updates cover the rest.
+    if (settings.enablePomo) syncPomoState();
 });
 
 chrome.storage.onChanged.addListener((changes, namespace) => {
