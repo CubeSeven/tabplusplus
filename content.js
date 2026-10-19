@@ -1514,9 +1514,10 @@ const GROUP_COLORS = {
     pink: '#ff6d9f', purple: '#a142f4', cyan: '#24c1e0', orange: '#fa7b17', grey: '#9e9e9e'
 };
 
-const SECTION_ORDER = ['action', 'bang', 'navigate', 'search', 'tab', 'closed', 'bookmark', 'history'];
+const SECTION_ORDER = ['action', 'bang', 'navigate', 'search', 'tab', 'closed', 'bookmark', 'history', 'vault'];
 const SECTION_LABELS = {
     action: 'Actions',
+    vault: 'Protected Tabs',
     tab: 'Open Tabs',
     closed: 'Recently Closed',
     bookmark: 'Bookmarks',
