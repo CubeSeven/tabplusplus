@@ -2150,6 +2150,7 @@ function handleKeydown(e) {
                 const savedQuery = input.value;
                 const deletedIdx = selectedIndex;
                 chrome.runtime.sendMessage({ action: 'delete-prompt', id: target.id }, (response) => {
+                    if (!isPromptsMode) return; // user escaped + reopened before response arrived
                     if (chrome.runtime.lastError || !response?.success) {
                         showPromptsFeedback('Delete failed', '#ff3b30', savedQuery);
                         return;
