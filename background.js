@@ -880,12 +880,21 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         }
         const cutoff = Date.now() - ms;
         const tabs = await chrome.tabs.query({});
-        for (const tab of tabs) {
-            if (tab.active || tab.pinned || tab.groupId !== NONE_GROUP || memoryBaselines.has(tab.id) || peekWindows.has(tab.windowId)) continue;
-            if (tab.lastAccessed && tab.lastAccessed < cutoff) {
-                await safeHibernate(tab);
+        const targets = tabs.filter(t =>
+            !t.active && !t.pinned && t.groupId === NONE_GROUP &&
+            !memoryBaselines.has(t.id) && !peekWindows.has(t.windowId) &&
+            t.lastAccessed && t.lastAccessed < cutoff
+        );
+        // Bounded concurrency — sequential 8s-per-tab awaits exceeded the SW
+        // lifetime on many stale tabs and the pass died mid-way.
+        let idx = 0;
+        const worker = async () => {
+            while (idx < targets.length) {
+                const t = targets[idx++];
+                await safeHibernate(t).catch(() => {});
             }
-        }
+        };
+        await Promise.all(Array.from({ length: Math.min(5, targets.length) }, worker));
         return;
     }
 
