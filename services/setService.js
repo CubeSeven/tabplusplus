@@ -351,6 +351,9 @@ export async function performReplaceSet(name, windowId) {
         // 2. Summon the set into this window (it inherits our lock)
         const summonResult = await performSummonSet(name, targetWinId);
         if (!summonResult?.success) return false;
+        // Re-acquire: performSummonSet's finally released the lock while this
+        // operation is still mid-flight (phases 3-4 must stay suppressed).
+        launchingWindowIds.add(targetWinId);
 
         const claimedGroupIds = new Set(summonResult.claimedGroupIds);
         const claimedTabIds = new Set(summonResult.claimedTabIds || []);
