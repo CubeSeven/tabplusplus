@@ -19,6 +19,7 @@ chrome.storage.local.get({ settings: { enablePalette: true, showClock: true } },
     if (data.settings.timeFormat) timeFormat = data.settings.timeFormat;
     enablePalette = data.settings.enablePalette !== false;
     showClock = data.settings.showClock !== false;
+    document.body.classList.toggle('fx-off', data.settings.reduceEffects === true);
     initDashboard();
 });
 
@@ -45,6 +46,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
             if (clock) clock.classList.toggle('hidden', !showClock);
             const date = document.getElementById('date');
             if (date) date.classList.toggle('hidden', !showClock);
+        }
+
+        const newReduce = changes.settings.newValue?.reduceEffects;
+        if (newReduce !== undefined) {
+            document.body.classList.toggle('fx-off', newReduce === true);
         }
     }
 });

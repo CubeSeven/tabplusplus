@@ -21,6 +21,8 @@ export const DEFAULT_SETTINGS = {
     enableAutoHibernate: false,
     enableMediaExtractor: false,
     enableVolumeControl: true,
+    reduceEffects: false,
+    reduceEffects: false,
     timeFormat: '24h',
     showClock: true,
     autoPeekCrossDomain: false,

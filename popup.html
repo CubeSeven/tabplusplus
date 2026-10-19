@@ -379,6 +379,11 @@
       from { opacity: 0.6; transform: scale(1); }
       to { opacity: 1; transform: scale(1.2); }
     }
+
+    /* Reduce Visual Effects mode — freeze the per-card blur animation */
+    body.fx-off .feature-card.is-on::before {
+      animation: none;
+    }
     
     .feature-card.is-on .card-icon {
       background: rgba(255, 255, 255, 0.12);

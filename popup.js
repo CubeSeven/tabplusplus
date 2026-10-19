@@ -130,6 +130,15 @@ const FEATURES = [
     badge: 'Opt-in',
     category: 'Guard',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`
+  },
+  {
+    id: 'reduceEffects',
+    title: 'Reduce Visual Effects',
+    description: 'Freeze blur animations on the New Tab page and popup. Lower GPU usage.',
+    default: false,
+    badge: 'Perf',
+    category: 'Performance',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`
   }
 ];
 
@@ -546,6 +555,7 @@ function saveSettings() {
       }
     });
     chrome.storage.local.set({ settings }).catch(() => {});
+    document.body.classList.toggle('fx-off', settings.reduceEffects === true);
     chrome.runtime.sendMessage({ action: 'update-settings', settings }).catch(() => {});
   });
 }
@@ -558,6 +568,7 @@ if (versionDisplay) versionDisplay.textContent = `v${manifest.version}`;
 chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data) => {
   const merged = { ...getDefaults(), ...data.settings };
   cachedPopupSettings = merged;
+  document.body.classList.toggle('fx-off', merged.reduceEffects === true);
   renderFeatures(merged);
   renderTools(merged);
 
