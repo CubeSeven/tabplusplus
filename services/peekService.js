@@ -13,6 +13,11 @@ function isSourceStillPeeking(sourceTabId) {
 export function handleOpenPeek(request, sender, sendResponse) {
     const refWinId = sender.tab ? sender.tab.windowId : chrome.windows.WINDOW_ID_CURRENT;
     chrome.windows.get(refWinId, (currentWin) => {
+        if (chrome.runtime.lastError || !currentWin) {
+            // Source window gone — bail instead of popping a fallback-sized window
+            sendResponse({ success: false });
+            return;
+        }
         const w = (currentWin && currentWin.width) || 1200;
         const h = (currentWin && currentWin.height) || 800;
         const width = Math.round(w * 0.85);
