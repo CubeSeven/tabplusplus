@@ -2907,8 +2907,8 @@ function startCustomEyedropper(dataUrl) {
         overlay.addEventListener('mousemove', updateMagnifier);
 
         overlay.addEventListener('click', (e) => {
-            window.removeEventListener('keydown', handleEscape);
-            
+            // NOTE: Escape listener stays armed — it must still close the
+            // post-pick toast, not just abort before picking.
             const x = Math.round(e.clientX * ratioX);
             const y = Math.round(e.clientY * ratioY);
             
@@ -2938,6 +2938,7 @@ function startCustomEyedropper(dataUrl) {
             magnifier.style.display = 'none';
             overlay.style.pointerEvents = 'none';
             host.style.cursor = 'default';
+            host.style.pointerEvents = 'none'; // page interactive immediately; toast keeps pointer-events:auto
             
             // Save History & Render Toast
             chrome.storage.local.get(['colorHistory'], (data) => {
