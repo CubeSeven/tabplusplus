@@ -41,14 +41,41 @@ function attemptDiscard(tabId, onDiscarded, targetUrl) {
     });
 }
 
-chrome.tabs.onUpdated.addListener((tId, changeInfo) => {
-    if (changeInfo.status === 'complete' && pendingDiscards.has(tId)) {
+function persistPendingDiscards() {
+    if (!chrome.storage.session) return;
+    const saved = [...pendingDiscards.entries()].map(([id, e]) => [id, e.targetUrl]);
+    chrome.storage.session.set({ pendingDiscards: saved }).catch(() => {});
+}
+
+// SW death loses the in-memory map AND the 30s fallback timer. On the first
+// 'complete' event after a restart, rebuild pendings from storage.session.
+let pendingDiscardsRestored = false;
+async function restorePendingDiscardsOnce() {
+    if (pendingDiscardsRestored) return;
+    pendingDiscardsRestored = true;
+    if (!chrome.storage.session) return;
+    const { pendingDiscards: saved } = await chrome.storage.session.get('pendingDiscards').catch(() => ({}));
+    if (!Array.isArray(saved)) return;
+    for (const [tabId, targetUrl] of saved) {
+        if (pendingDiscards.has(tabId)) continue;
+        const tab = await chrome.tabs.get(tabId).catch(() => null);
+        if (!tab) continue; // tab gone — drop the pending discard
+        if (tab.status === 'complete') attemptDiscard(tabId, null, targetUrl);
+        else safeDiscard(tabId, null, targetUrl); // re-arms listener + fallback timer
+    }
+}
+
+chrome.tabs.onUpdated.addListener(async (tId, changeInfo) => {
+    if (changeInfo.status !== 'complete') return;
+    await restorePendingDiscardsOnce();
+    if (pendingDiscards.has(tId)) {
         const entry = pendingDiscards.get(tId);
         pendingDiscards.delete(tId);
         clearTimeout(entry.timeout);
+        persistPendingDiscards();
         attemptDiscard(tId, entry.onDiscarded, entry.targetUrl);
     }
-});
+}, { properties: ['status'] });
 
 export function safeDiscard(tabId, onDiscarded = null, targetUrl = null) {
     chrome.tabs.get(tabId, (tab) => {
@@ -66,9 +93,11 @@ export function safeDiscard(tabId, onDiscarded = null, targetUrl = null) {
             }
             const timeout = setTimeout(() => {
                 pendingDiscards.delete(tabId);
+                persistPendingDiscards();
                 attemptDiscard(tabId, onDiscarded, targetUrl);
             }, 30000);
             pendingDiscards.set(tabId, { timeout, onDiscarded, targetUrl });
+            persistPendingDiscards();
         }
     });
 }
@@ -78,6 +107,7 @@ export function clearPendingDiscard(tabId) {
     if (entry) {
         clearTimeout(entry.timeout);
         pendingDiscards.delete(tabId);
+        persistPendingDiscards();
     }
 }
 
