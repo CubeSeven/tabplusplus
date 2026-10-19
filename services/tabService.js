@@ -297,7 +297,9 @@ export async function ensureLoaded() {
             setInitialized(true);
         });
     }
-    return loadPromise;
+    // A rejected load must not poison the SW for its whole lifetime —
+    // reset so the next event retries instead of caching the failure.
+    return loadPromise.catch(e => { loadPromise = null; throw e; });
 }
 
 export async function initializeState(isFreshStartup = false) {
