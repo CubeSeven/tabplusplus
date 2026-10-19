@@ -279,7 +279,14 @@ function initBgPicker() {
     const switcher = document.getElementById('bg-design-switcher');
     if (!trigger || !picker) return;
 
+    const keyActivate = (el, fn) => {
+        el.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
+        });
+    };
+
     trigger.addEventListener('click', () => picker.click());
+    keyActivate(trigger, () => picker.click());
 
     picker.addEventListener('input', (e) => {
         currentColor = e.target.value;
@@ -289,6 +296,7 @@ function initBgPicker() {
 
     if (switcher) {
         switcher.addEventListener('click', cycleBgDesign);
+        keyActivate(switcher, cycleBgDesign);
     }
 
     // Load saved settings
