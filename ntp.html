@@ -202,9 +202,10 @@
     
     <div class="container visible" id="palette-container">
       <div class="input-wrapper">
-        <input type="text" id="search-input" placeholder="Search tabs, history, bookmarks... try !yt, !gh, or > for tools" spellcheck="false" autocomplete="off">
+        <input type="text" id="search-input" placeholder="Search tabs, history, bookmarks... try !yt, !gh, or > for tools" spellcheck="false" autocomplete="off"
+          aria-label="Search tabs, history and bookmarks" role="combobox" aria-expanded="true" aria-controls="results-container" aria-autocomplete="list">
       </div>
-      <div class="results" id="results-container"></div>
+      <div class="results" id="results-container" role="listbox" aria-label="Search results"></div>
     </div>
   </div>
   

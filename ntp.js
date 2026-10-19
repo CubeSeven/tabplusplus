@@ -479,7 +479,8 @@ function renderResults(results, query) {
         const badge = result.type === 'navigate' ? 'link' : result.type === 'bang' ? result.bang : result.type === 'closed' ? 'closed' : result.type;
 
         const sel = domIdx === 0 ? ' selected' : '';
-        const itemHtml = `<div class="result-item${sel}" data-idx="${domIdx}">
+        const ariaSel = domIdx === 0 ? 'true' : 'false';
+        const itemHtml = `<div class="result-item${sel}" role="option" aria-selected="${ariaSel}" id="ntp-result-${domIdx}" data-idx="${domIdx}">
             ${iconHtml}
             <div class="details">
                 <div class="title">${highlight(result.title, queryRegex)}</div>
@@ -545,11 +546,17 @@ function updateSelection(index) {
         }
         return;
     }
-    if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) cachedResultItems[selectedIndex].classList.remove('selected');
+    if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) {
+        cachedResultItems[selectedIndex].classList.remove('selected');
+        cachedResultItems[selectedIndex].setAttribute('aria-selected', 'false');
+    }
     selectedIndex = index;
     if (selectedIndex >= 0 && selectedIndex < cachedResultItems.length) {
         cachedResultItems[selectedIndex].classList.add('selected');
+        cachedResultItems[selectedIndex].setAttribute('aria-selected', 'true');
         cachedResultItems[selectedIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        const inputEl = document.getElementById('search-input');
+        if (inputEl) inputEl.setAttribute('aria-activedescendant', cachedResultItems[selectedIndex].id);
     }
 }
 
