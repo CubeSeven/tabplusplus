@@ -96,9 +96,10 @@ function getSuggestions(query) {
     const suggestUrl = getSuggestUrl(query);
     if (!suggestUrl) return Promise.resolve([]);
     if (pendingFetchController) pendingFetchController.abort();
-    pendingFetchController = new AbortController();
-    const timer = setTimeout(() => pendingFetchController.abort(), 3000);
-    return fetch(suggestUrl, { signal: pendingFetchController.signal })
+    const controller = new AbortController();
+    pendingFetchController = controller;
+    const timer = setTimeout(() => controller.abort(), 3000); // abort only OUR request
+    return fetch(suggestUrl, { signal: controller.signal })
         .then(r => r.json())
         .then(data => {
             clearTimeout(timer);
@@ -107,7 +108,8 @@ function getSuggestions(query) {
             }
             return Array.isArray(data) ? data[1] || [] : [];
         })
-        .catch(() => []);
+        .catch(() => [])
+        .finally(() => clearTimeout(timer));
 }
 
 function withTimeout(promise, ms, fallback) {
