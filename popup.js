@@ -465,17 +465,18 @@ searchTrigger.addEventListener('click', () => {
   }
 });
 
+let searchDebounceTimer = null;
 globalSearchInput.addEventListener('input', (e) => {
-  triggerSearch(e.target.value);
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => triggerSearch(e.target.value), 120);
 });
 
+// Cached settings — the popup can't change them mid-search, and a storage
+// read per keystroke was pure waste.
+let cachedPopupSettings = getDefaults();
 function triggerSearch(query) {
-  chrome.storage.local.get({ settings: getDefaults() }, (data) => {
-    // Always render both or detect active tab? 
-    // Let's render both to keep it simple, or only active if performance is an issue.
-    renderFeatures(data.settings, query);
-    renderTools(data.settings, query);
-  });
+  renderFeatures(cachedPopupSettings, query);
+  renderTools(cachedPopupSettings, query);
 }
 
 // ─────────────────────────────────────────────
@@ -556,6 +557,7 @@ if (versionDisplay) versionDisplay.textContent = `v${manifest.version}`;
 
 chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data) => {
   const merged = { ...getDefaults(), ...data.settings };
+  cachedPopupSettings = merged;
   renderFeatures(merged);
   renderTools(merged);
 
