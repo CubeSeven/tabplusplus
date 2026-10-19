@@ -255,6 +255,7 @@ function renderFeatures(settings, filter = '') {
     checkbox.type = 'checkbox';
     checkbox.id = `toggle-${feature.id}`;
     checkbox.checked = isEnabled;
+    checkbox.setAttribute('aria-label', feature.title);
 
     const track = document.createElement('div');
     track.className = 'toggle-track';
@@ -392,6 +393,7 @@ function renderTools(settings, filter = '') {
       checkbox.type = 'checkbox';
       checkbox.id = `toggle-${tool.settingId}`;
       checkbox.checked = isEnabled;
+      checkbox.setAttribute('aria-label', tool.title);
 
       const track = document.createElement('div');
       track.className = 'toggle-track';
