@@ -698,6 +698,11 @@ const READER_STYLES = `
     }
 
     .reader-body p { margin-bottom: 32px; }
+    .reader-body ul, .reader-body ol { margin: 0 0 32px; padding-left: 28px; }
+    .reader-body li { margin-bottom: 12px; }
+    .reader-body hr { border: none; border-top: 1px solid currentColor; opacity: 0.25; width: 120px; margin: 48px auto; }
+    .reader-body strong { font-weight: 700; }
+    .reader-body a:hover { text-decoration: underline; }
     .reader-body h2 { font-family: var(--font-sans); font-size: 30px; margin: 60px 0 24px; font-weight: 700; letter-spacing: -0.01em; }
     .reader-body h3 { font-family: var(--font-sans); font-size: 24px; margin: 40px 0 20px; font-weight: 700; }
     .reader-body img { max-width: 100%; height: auto; border-radius: 16px; margin: 40px 0; }
@@ -3404,14 +3409,24 @@ function extractArticleContent() {
         'main',
     ];
 
-    let bestElem = null;
+    // Collect ALL elements of the first productive tier (DOM order, nested
+    // duplicates skipped) — pages with several <article> sections previously
+    // lost everything after the first match.
+    let candidates = [];
     for (const sel of SELECTORS) {
-        const el = document.querySelector(sel);
-        if (el && el.innerText.length > 200) {
-            bestElem = el;
+        const matches = [];
+        for (const el of document.querySelectorAll(sel)) {
+            if (el.innerText.trim().length < 40) continue;
+            if (matches.some(m => m.contains(el))) continue;
+            matches.push(el);
+        }
+        if (matches.reduce((n, el) => n + el.innerText.length, 0) > 200) {
+            candidates = matches;
             break;
         }
     }
+
+    let bestElem = null;
 
     // 3. Scored fallback — look for the div/section with the best content density
     // Penalise very large containers (likely wrappers) and known junk containers
@@ -3451,10 +3466,13 @@ function extractArticleContent() {
         }
     }
 
-    if (!bestElem || bestElem.innerText.length < 200) return null;
+    if (bestElem) candidates = [bestElem];
+    const totalTextLen = candidates.reduce((n, el) => n + el.innerText.length, 0);
+    if (!candidates.length || totalTextLen < 200) return null;
 
-    // 4. Clone and clean
-    const clone = bestElem.cloneNode(true);
+    // 4. Clone and clean — merge every candidate in DOM order
+    const clone = document.createElement('div');
+    for (const el of candidates) clone.appendChild(el.cloneNode(true));
 
     // Remove junk/structural elements
     clone.querySelectorAll('script, style, iframe, nav, footer, aside, form, button, input, select, textarea, [aria-hidden="true"]').forEach(el => el.remove());
@@ -3483,7 +3501,16 @@ function extractArticleContent() {
         const tag = el.tagName;
         if (['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'LI'].includes(tag)) return;
         const text = el.textContent.trim();
-        if (text.length < 40) { el.remove(); return; }
+        if (text.length < 40) {
+            // Unwrap wrappers holding real structural content — removing them
+            // outright deleted short paragraphs inside layout divs.
+            if (el.querySelector('p, h1, h2, h3, h4, h5, h6, blockquote, pre, li')) {
+                el.replaceWith(...[...el.children]);
+            } else {
+                el.remove();
+            }
+            return;
+        }
         const links = el.querySelectorAll('a');
         let linkText = 0;
         links.forEach(a => linkText += a.textContent.trim().length);
@@ -3493,7 +3520,7 @@ function extractArticleContent() {
     // 5. Meta info
     const byline = document.querySelector('[itemprop="author"] [itemprop="name"], [rel="author"], .author-name, .byline')?.innerText?.trim() || "";
     const siteName = document.querySelector('[property="og:site_name"]')?.content || "";
-    const wordCount = bestElem.innerText.split(/\s+/).length;
+    const wordCount = candidates.map(el => el.innerText).join(' ').split(/\s+/).length;
     const readingTime = Math.max(1, Math.ceil(wordCount / 200));
 
     return {
