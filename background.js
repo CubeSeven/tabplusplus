@@ -606,12 +606,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         case 'close-peek':
             if (sender.tab?.windowId) chrome.windows.remove(sender.tab.windowId).catch(() => {});
+            sendResponse({ success: true });
             return true;
 
         case 'palette-closing':
             if (sender.tab?.id) {
                 paletteFallbackClosingIds.add(sender.tab.id);
             }
+            sendResponse({ success: true });
             return true;
             
         case 'update-settings':
@@ -640,14 +642,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
 
         case 'switch-to-tab':
-            if (!Number.isFinite(request.tabId) || !Number.isFinite(request.windowId)) return;
+            if (!Number.isFinite(request.tabId) || !Number.isFinite(request.windowId)) { sendResponse({ success: false }); return; }
             chrome.tabs.update(request.tabId, { active: true }).catch(() => {});
             chrome.windows.update(request.windowId, { focused: true }).catch(() => {});
             sendResponse({ success: true });
             return true;
 
         case 'open-url':
-            if (typeof request.url !== 'string') return;
+            if (typeof request.url !== 'string') { sendResponse({ success: false }); return; }
             if (request.url === 'virtual:restore-vault') {
                 ensureLoaded().then(async () => {
                     const success = await restoreVault(sessionVault);
@@ -665,7 +667,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
 
         case 'open-query': {
-            if (typeof request.query !== 'string') return;
+            if (typeof request.query !== 'string') { sendResponse({ success: false }); return; }
             const q = request.query.trim();
 const isUrl = isLikelyUrl(q.toLowerCase()) || q.startsWith('localhost');
             const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
