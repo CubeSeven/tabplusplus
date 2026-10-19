@@ -114,7 +114,11 @@ function getSuggestions(query) {
 
 function withTimeout(promise, ms, fallback) {
     if (!promise) return Promise.resolve(fallback);
-    return Promise.race([promise, new Promise(r => setTimeout(() => r(fallback), ms))]);
+    let timer;
+    return Promise.race([
+        promise,
+        new Promise(r => { timer = setTimeout(() => r(fallback), ms); })
+    ]).finally(() => clearTimeout(timer));
 }
 
 // Helper for Color Conversion
