@@ -63,6 +63,7 @@ let cachedSelectionAtOpen = '';
 // Pomodoro Timer State
 let pomoHost = null;
 let pomoInterval = null;
+let pomoEls = null; // { timeEl, labelEl, card } — cached once at UI creation
 
 // Sync state once on load — after that pomo is push-only via 'update-pomo-timer' messages.
 function syncPomoState() {
@@ -1345,6 +1346,7 @@ function updatePomoUI(pomo) {
             clearInterval(pomoInterval);
             pomoInterval = null;
         }
+        pomoEls = null;
         return;
     }
 
@@ -1356,24 +1358,17 @@ function updatePomoUI(pomo) {
         const remaining = Math.max(0, pomo.endTime - Date.now());
         if (remaining <= 0) {
             clearInterval(pomoInterval);
+            pomoInterval = null;
             // Don't remove immediately, let the background handle completion
             return;
         }
         const mins = Math.floor(remaining / 60000);
         const secs = Math.floor((remaining % 60000) / 1000);
-        const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`;
-        
-        const shadow = pomoHost.shadowRoot;
-        const timeEl = shadow.querySelector('.time');
-        const labelEl = shadow.querySelector('.label');
-        if (timeEl) timeEl.textContent = timeStr;
-        if (labelEl) labelEl.textContent = pomo.type === 'work' ? 'Focus' : 'Break';
-        
-        const card = shadow.querySelector('.card');
-        if (card) {
-            if (pomo.type === 'work') card.classList.add('work');
-            else card.classList.remove('work');
-        }
+        // Cached refs — no per-tick shadowRoot.querySelector round-trips
+        pomoEls.timeEl.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+        pomoEls.labelEl.textContent = pomo.type === 'work' ? 'Focus' : 'Break';
+        if (pomo.type === 'work') pomoEls.card.classList.add('work');
+        else pomoEls.card.classList.remove('work');
     };
     
     update();
@@ -1428,6 +1423,11 @@ function createPomoUI() {
     shadow.appendChild(style);
     shadow.appendChild(card);
     document.documentElement.appendChild(pomoHost);
+    pomoEls = {
+        timeEl: card.querySelector('.time'),
+        labelEl: card.querySelector('.label'),
+        card
+    };
 }
 
 function toggleParentBlur(active) {
