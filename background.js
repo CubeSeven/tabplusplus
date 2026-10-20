@@ -44,6 +44,9 @@ function scheduleBookmarkReconcile() {
     }, 2000);
 }
 function registerBookmarkWatchers() {
+    // The chrome.bookmarks namespace does not exist until the optional
+    // permission is granted — touching it unguarded kills the SW.
+    if (!chrome.bookmarks?.onCreated) return;
     chrome.bookmarks.onCreated.addListener(scheduleBookmarkReconcile);
     chrome.bookmarks.onChanged.addListener((id, info) => { if (info.url) scheduleBookmarkReconcile(); });
 }
