@@ -18,6 +18,49 @@ let focusTimeouts = [];
 let isActionMode = false;
 let suppressActionModeToggle = false;
 let actionModeIndicator = null;
+
+// ── Search-engine cycling (Tab in the palette input) ──────────────────
+const ENGINE_ORDER = ['google', 'chatgpt', 'perplexity', 'duckduckgo', 'bing', 'brave'];
+const ENGINE_LABELS = { google: 'Google', chatgpt: 'ChatGPT', perplexity: 'Perplexity', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave' };
+let engineOverride = null;
+let engineBase = 'google';
+let engineChip = null;
+
+function updateEngineChip() {
+    if (!engineChip) return;
+    if (engineOverride) {
+        engineChip.textContent = ENGINE_LABELS[engineOverride] || engineOverride;
+        engineChip.classList.add('visible');
+    } else {
+        engineChip.classList.remove('visible');
+    }
+}
+
+function cycleEngine(dir) {
+    const cur = engineOverride || engineBase;
+    let i = ENGINE_ORDER.indexOf(cur);
+    if (i === -1) i = 0;
+    engineOverride = ENGINE_ORDER[(i + dir + ENGINE_ORDER.length) % ENGINE_ORDER.length];
+    updateEngineChip();
+    handleSearch();
+}
+
+function createEngineChip(inputWrapper) {
+    inputWrapper.style.position = 'relative';
+    const style = document.createElement('style');
+    style.textContent = `.engine-chip{display:none;position:absolute;right:14px;top:50%;transform:translateY(-50%);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em;background:rgba(124,135,248,.14);color:#7C87F8;cursor:pointer;user-select:none;z-index:5}.engine-chip.visible{display:block}`;
+    document.documentElement.appendChild(style);
+    engineChip = document.createElement('div');
+    engineChip.className = 'engine-chip';
+    engineChip.title = 'Search engine — Tab to cycle, click to reset';
+    engineChip.addEventListener('click', () => {
+        engineOverride = null;
+        updateEngineChip();
+        handleSearch();
+    });
+    inputWrapper.appendChild(engineChip);
+}
+
 let cachedResultItems = [];
 let hidePaletteTimeout = null;
 let hasStaggered = false;
@@ -785,6 +828,7 @@ function createPalette() {
     actionModeIndicator.innerHTML = LOGO_ICON;
     inputWrapper.appendChild(actionModeIndicator);
     inputWrapper.appendChild(input);
+    createEngineChip(inputWrapper);
 
     resultsContainer = document.createElement('div');
     resultsContainer.className = 'results staggered';
@@ -952,6 +996,8 @@ function showPalette() {
     palette.style.background = 'rgba(0,0,0,0.12)';
     isVisible = true;
     isActionMode = false;
+    engineOverride = null;
+    updateEngineChip();
     if (actionModeIndicator) actionModeIndicator.classList.remove('visible');
 
     try {
@@ -989,6 +1035,8 @@ function hidePalette() {
     if (!isVisible || !palette) return;
     isVisible = false;
     isActionMode = false;
+    engineOverride = null;
+    updateEngineChip();
     if (actionModeIndicator) actionModeIndicator.classList.remove('visible');
     for (const t of focusTimeouts) clearTimeout(t);
     focusTimeouts = [];
@@ -1532,12 +1580,13 @@ async function handleSearch() {
 
     const sentQuery = query;
     try {
-        chrome.runtime.sendMessage({ action: 'search-items', query }, response => {
+        chrome.runtime.sendMessage({ action: 'search-items', query, ...(engineOverride ? { engine: engineOverride } : {}) }, response => {
             if (chrome.runtime.lastError) {
                 hidePalette();
                 return;
             }
             if (getSearchQuery() !== sentQuery) return;
+            if (response && response.engine) engineBase = response.engine;
             if (response && response.results) {
                 lastSearchedQuery = query;
                 currentResults = response.results;
@@ -2255,10 +2304,11 @@ function handleKeydown(e) {
         return;
     }
 
-    // Tab trap: Focus MUST stay in the palette input
+    // Tab trap: Focus MUST stay in the palette input — and cycles engines
     if (e.key === 'Tab') {
         e.preventDefault();
         if (input) input.focus();
+        cycleEngine(e.shiftKey ? -1 : 1);
         return;
     }
 
@@ -2340,7 +2390,7 @@ function handleKeydown(e) {
     } else if (e.key === 'Enter') {
         const currentQuery = getSearchQuery();
         if (!isActionMode && currentQuery && currentQuery !== lastSearchedQuery) {
-            chrome.runtime.sendMessage({ action: 'open-query', query: currentQuery }).catch(() => {});
+            chrome.runtime.sendMessage({ action: 'open-query', query: currentQuery, ...(engineOverride ? { engine: engineOverride } : {}) }).catch(() => {});
             hidePalette();
             e.preventDefault();
             return;
