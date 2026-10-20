@@ -57,7 +57,6 @@ function updateEngineChip() {
         p.setAttribute('d', d);
         svg.appendChild(p);
         engineChip.appendChild(svg);
-        engineChip.appendChild(document.createTextNode(label));
     } else {
         engineChip.textContent = label; // unknown engine — plain text
     }
