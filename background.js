@@ -663,6 +663,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         // window with a draggable divider. Current tab is untouched.
                         const left = await chrome.tabs.create({ url: leftUrl, windowId: tab.windowId, index: tab.index + 1, active: false }).catch(() => null);
                         const right = await chrome.tabs.create({ url: rightUrl, windowId: tab.windowId, index: tab.index + 2, active: false }).catch(() => null);
+                        if (left && !right) await chrome.tabs.remove(left.id).catch(() => {}); // no orphaned pane
                         if (left && right) {
                             await chrome.tabs.createSplit([left.id, right.id]).catch(async () => {
                                 // createSplit demands adjacency/matching state — fall back below
