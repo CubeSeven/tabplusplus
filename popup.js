@@ -575,18 +575,6 @@ const manifest = chrome.runtime.getManifest();
 const versionDisplay = document.getElementById('version-display');
 if (versionDisplay) versionDisplay.textContent = `v${manifest.version}`;
 
-// Vault recovery chip — mirrors the SW-side 24h prune so it never advertises stale entries
-chrome.storage.local.get(['vault'], (data) => {
-    const n = (data.vault || []).filter(t => t.savedAt && t.savedAt > Date.now() - 24 * 60 * 60 * 1000).length;
-    const chip = document.getElementById('vault-chip');
-    if (!chip || n === 0) return;
-    chip.hidden = false;
-    chip.textContent = `${n} recoverable — Restore`;
-    chip.addEventListener('click', () => {
-        chrome.runtime.sendMessage({ action: 'open-url', url: 'virtual:restore-vault' }).catch(() => {});
-        window.close();
-    });
-});
 
 chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data) => {
   const merged = { ...getDefaults(), ...data.settings };
@@ -600,19 +588,6 @@ chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data
     const tipFooter = document.getElementById('tip-footer');
     if (tipFooter) tipFooter.style.display = 'none';
   }
-});
-
-// Session stats header — glanceable counts on every popup open
-chrome.tabs.query({}, (tabs) => {
-    const el = document.getElementById('stats-header');
-    if (!el) return;
-    const hibernated = tabs.filter(t => t.discarded).length;
-    const groups = new Set(tabs.filter(t => t.groupId && t.groupId !== -1).map(t => t.groupId)).size;
-    const parts = [`${tabs.length} tabs`];
-    if (hibernated > 0) parts.push(`${hibernated} hibernated`);
-    if (groups > 0) parts.push(`${groups} grouped`);
-    el.textContent = parts.join('  ·  ');
-    el.hidden = false;
 });
 
 // Protected tabs restore — reads the auto-persisted protectedSnapshot
