@@ -22,18 +22,32 @@ let actionModeIndicator = null;
 // ── Search-engine cycling (Tab in the palette input) ──────────────────
 const ENGINE_ORDER = ['google', 'chatgpt', 'perplexity', 'duckduckgo', 'bing', 'brave'];
 const ENGINE_LABELS = { google: 'Google', chatgpt: 'ChatGPT', perplexity: 'Perplexity', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave' };
+const ENGINE_HOMEPAGES = { google: 'https://www.google.com', chatgpt: 'https://chatgpt.com', perplexity: 'https://www.perplexity.ai', duckduckgo: 'https://duckduckgo.com', bing: 'https://www.bing.com', brave: 'https://search.brave.com' };
 let engineOverride = null;
 let engineBase = 'google';
 let engineChip = null;
 
 function updateEngineChip() {
     if (!engineChip) return;
-    if (engineOverride) {
-        engineChip.textContent = ENGINE_LABELS[engineOverride] || engineOverride;
-        engineChip.classList.add('visible');
-    } else {
+    if (!engineOverride) {
         engineChip.classList.remove('visible');
+        return;
     }
+    const label = ENGINE_LABELS[engineOverride] || engineOverride;
+    const home = ENGINE_HOMEPAGES[engineOverride];
+    if (chrome.runtime?.id && home) {
+        const img = document.createElement('img');
+        img.alt = label;
+        img.width = 16; img.height = 16;
+        img.src = chrome.runtime.getURL('/_favicon/?pageUrl=' + encodeURIComponent(home) + '&size=32');
+        img.onerror = () => { engineChip.textContent = label; }; // brand favicon unavailable
+        engineChip.textContent = '';
+        engineChip.title = label + ' — Tab to cycle, click to reset';
+        engineChip.appendChild(img);
+    } else {
+        engineChip.textContent = label;
+    }
+    engineChip.classList.add('visible');
 }
 
 function cycleEngine(dir) {
