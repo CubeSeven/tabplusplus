@@ -233,7 +233,15 @@ function renderFeatures(settings, filter = '') {
     f.description.toLowerCase().includes(filter.toLowerCase())
   );
 
+  let lastCategory = null;
   filtered.forEach((feature) => {
+    if (feature.category && feature.category !== lastCategory) {
+      lastCategory = feature.category;
+      const sectionHeader = document.createElement('div');
+      sectionHeader.className = 'section-header';
+      sectionHeader.textContent = feature.category;
+      container.appendChild(sectionHeader);
+    }
     const isEnabled = settings[feature.id] ?? feature.default;
 
     // Card
@@ -592,6 +600,19 @@ chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data
     const tipFooter = document.getElementById('tip-footer');
     if (tipFooter) tipFooter.style.display = 'none';
   }
+});
+
+// Session stats header — glanceable counts on every popup open
+chrome.tabs.query({}, (tabs) => {
+    const el = document.getElementById('stats-header');
+    if (!el) return;
+    const hibernated = tabs.filter(t => t.discarded).length;
+    const groups = new Set(tabs.filter(t => t.groupId && t.groupId !== -1).map(t => t.groupId)).size;
+    const parts = [`${tabs.length} tabs`];
+    if (hibernated > 0) parts.push(`${hibernated} hibernated`);
+    if (groups > 0) parts.push(`${groups} grouped`);
+    el.textContent = parts.join('  ·  ');
+    el.hidden = false;
 });
 
 // Protected tabs restore — reads the auto-persisted protectedSnapshot

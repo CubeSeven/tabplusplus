@@ -645,6 +645,18 @@
       transition: color 0.2s, border-color 0.2s;
     }
     .vault-chip:hover { color: #000; border-color: #bbb; }
+    .stats-header {
+      display: flex; gap: 14px; align-items: center;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+      color: #999; text-transform: uppercase;
+      padding: 10px 18px 0;
+    }
+    .section-header {
+      font-size: 10px; font-weight: 800; letter-spacing: 1.2px;
+      text-transform: uppercase; color: #aaa;
+      padding: 14px 4px 6px;
+      grid-column: 1 / -1;
+    }
     #tip-footer {
       display: flex;
       align-items: center;
@@ -740,6 +752,7 @@
   </div>
 
 
+  <div id="stats-header" class="stats-header" hidden></div>
   <div id="settings-tab" class="tab-content active">
 
 
