@@ -15,6 +15,7 @@ let pendingCommand = null;
 let domOrderedResults = [];
 let blurOverlay = null;
 let focusTimeouts = [];
+let focusWatchdogId = null;
 let isActionMode = false;
 let suppressActionModeToggle = false;
 let actionModeIndicator = null;
@@ -997,7 +998,9 @@ function createPalette() {
         if (!isVisible || !palette || palette.contains(e.target)) return;
         if (input && document.activeElement !== input) {
             e.stopImmediatePropagation();
-            input.focus();
+            // Deferred: a synchronous focus() inside a focusin handler can be
+            // dropped by the engine; a tick later it always lands.
+            setTimeout(() => { if (isVisible) input.focus(); }, 0);
         }
     }, true);
 }
@@ -1068,6 +1071,14 @@ function showPalette() {
     focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 80));
     focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 200));
     focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 500));
+    // Watchdog: sites with aggressive autofocus (chatgpt.com) can steal focus
+    // after all retries — keep enforcing until the palette closes.
+    if (focusWatchdogId) clearInterval(focusWatchdogId);
+    focusWatchdogId = setInterval(() => {
+        if (!isVisible) { clearInterval(focusWatchdogId); focusWatchdogId = null; return; }
+        const ae = document.activeElement;
+        if (input && ae !== input && !(palette && palette.contains(ae))) input.focus();
+    }, 300);
 
     handleSearch(); // Fetch initial tabs list
 }
