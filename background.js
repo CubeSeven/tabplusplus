@@ -641,6 +641,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                                 await chrome.tabs.remove([left.id, right.id]).catch(() => {});
                             });
                             if (await chrome.tabs.get(left.id).catch(() => null)) {
+                                // Jump the user into the split — without this the
+                                // panes exist but the old tab keeps focus.
+                                await chrome.tabs.update(left.id, { active: true }).catch(() => {});
                                 sendResponse({ success: true });
                                 return;
                             }
