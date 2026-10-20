@@ -553,6 +553,8 @@ function handleToggleChange(featureId, checkbox, card, toggleWrap) {
         return;
       }
       saveSettings();
+      // permissions.onGranted doesn't reach the SW — tell it directly
+      chrome.runtime.sendMessage({ action: 'optional-permissions-granted', permissions: perms }).catch(() => {});
     });
   } else {
     saveSettings();

@@ -52,10 +52,14 @@ function registerBookmarkWatchers() {
 }
 registerBookmarkWatchers();
 // Listeners bound before the optional bookmarks permission is granted stay
-// dead in the live SW instance — re-register (idempotent) on grant.
-chrome.permissions.onGranted.addListener((p) => {
-    if (p.permissions?.includes('bookmarks')) registerBookmarkWatchers();
-});
+// dead in the live SW instance. permissions.onGranted is NOT exposed to
+// service workers (undefined here — it once killed SW registration), so the
+// popup notifies us right after its user-gesture permissions.request().
+if (chrome.permissions?.onGranted?.addListener) {
+    chrome.permissions.onGranted.addListener((p) => {
+        if (p.permissions?.includes('bookmarks')) registerBookmarkWatchers();
+    });
+}
 chrome.runtime.onInstalled.addListener(async (details) => {
     await initializeState(false);
     updateCleanupAlarms();
@@ -830,6 +834,13 @@ const isUrl = isLikelyUrl(q.toLowerCase()) || q.startsWith('localhost');
             sendResponse({ success: true });
             return true;
         }
+
+        case 'optional-permissions-granted':
+            // Popup completed a user-gesture permissions.request() — re-register
+            // watchers that were skipped while the namespace was absent.
+            registerBookmarkWatchers();
+            sendResponse({ success: true });
+            return true;
 
         case 'undo-close-tabs': {
             ensureLoaded().then(async () => {
