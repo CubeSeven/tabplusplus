@@ -630,10 +630,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 ensureLoaded().then(async () => {
                     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
                     if (!tab) { sendResponse({ success: false }); return; }
+                    if (chrome.tabs.createSplit) {
+                        // Chrome 155+ native Split View: two adjacent tabs in the SAME
+                        // window with a draggable divider. Current tab is untouched.
+                        const left = await chrome.tabs.create({ url: leftUrl, windowId: tab.windowId, index: tab.index + 1, active: false }).catch(() => null);
+                        const right = await chrome.tabs.create({ url: rightUrl, windowId: tab.windowId, index: tab.index + 2, active: false }).catch(() => null);
+                        if (left && right) {
+                            await chrome.tabs.createSplit([left.id, right.id]).catch(async () => {
+                                // createSplit demands adjacency/matching state — fall back below
+                                await chrome.tabs.remove([left.id, right.id]).catch(() => {});
+                            });
+                            if (await chrome.tabs.get(left.id).catch(() => null)) {
+                                sendResponse({ success: true });
+                                return;
+                            }
+                        }
+                    }
+                    // Fallback (pre-155 or native path failed): two half-width windows
                     const win = await chrome.windows.get(tab.windowId);
                     const halfW = Math.floor(win.width / 2);
                     await chrome.windows.update(tab.windowId, { width: halfW, left: win.left });
-                    // Left pane = first URL. Navigate current tab unless pinned (then new tab).
                     if (tab.pinned) await chrome.tabs.create({ url: leftUrl, windowId: tab.windowId }).catch(() => {});
                     else await chrome.tabs.update(tab.id, { url: leftUrl }).catch(() => {});
                     await chrome.windows.create({ url: rightUrl, width: halfW, left: win.left + halfW, top: win.top, height: win.height, focused: true }).catch(() => {});
