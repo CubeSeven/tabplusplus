@@ -158,6 +158,10 @@ async function bookmarksPermitted() {
     return chrome.permissions.contains({ permissions: ['bookmarks'] }).catch(() => false);
 }
 
+// Startup reconcile and the debounced live fold can overlap on the same
+// window; a single in-flight flag keeps the (non-refcounted) launch lock sane.
+let bookmarkRestoreInFlight = false;
+
 // Restore is a HEAVY operation — open it only when genuinely needed:
 // if at most this fraction of bookmarks is missing, the session restored
 // fine (or only a couple of new bookmarks are absent) and we do nothing.
@@ -186,6 +190,16 @@ export async function restoreAllBookmarksIfEnabled() {
     await ensureLoaded();
     if (!globalSettings.autoRestoreBookmarks) return false;
     if (!(await bookmarksPermitted())) return false;
+    if (bookmarkRestoreInFlight) return false;
+    bookmarkRestoreInFlight = true;
+    try {
+        return await doRestoreAllBookmarks();
+    } finally {
+        bookmarkRestoreInFlight = false;
+    }
+}
+
+async function doRestoreAllBookmarks() {
     const tabDefs = await collectAllBookmarkTabDefs();
     if (tabDefs.length === 0) return false;
 
@@ -210,7 +224,9 @@ export async function restoreAllBookmarksIfEnabled() {
     }
     const alreadyOpen = tabDefs.length - missing.length;
 
-    if (bestWinId !== null && bestHits >= Math.floor(alreadyOpen * 0.5) && alreadyOpen > 0) {
+    // Minimum signal: one coincidentally-open bookmark tab must not capture
+    // 99 missing tabs into an unrelated window.
+    if (bestWinId !== null && bestHits >= 2 && bestHits >= Math.floor(alreadyOpen * 0.5)) {
         // Heal the surviving window in place — no duplicate second window.
         setBookmarkWindowId(bestWinId);
         launchingWindowIds.add(bestWinId);
@@ -241,6 +257,7 @@ export async function reconcileNewBookmarks() {
     if (!globalSettings.autoRestoreBookmarks) return;
     if (!(await bookmarksPermitted())) return;
     if (typeof bookmarkWindowId !== 'number') return;
+    if (bookmarkRestoreInFlight || launchingWindowIds.has(bookmarkWindowId)) return;
     const alive = !!(await chrome.windows.get(bookmarkWindowId).catch(() => null));
     if (!alive) { setBookmarkWindowId(null); return; }
 

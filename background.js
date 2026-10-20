@@ -24,17 +24,14 @@ chrome.runtime.onStartup.addListener(async () => {
     updateCleanupAlarms();
     // Auto-Restore Bookmarks: wait for Chrome's session restore to settle,
     // then reconcile (runs only when a large share of bookmarks is missing).
-    if (bookmarkRestoreTimer) clearTimeout(bookmarkRestoreTimer);
-    bookmarkRestoreTimer = setTimeout(() => {
-        bookmarkRestoreTimer = null;
-        restoreAllBookmarksIfEnabled().catch(() => {});
-    }, 30000);
+    // An alarm, NOT setTimeout — a bare timer does not keep the SW alive and
+    // the idle reaper kills it before the 30s mark.
+    chrome.alarms.create('tabs-plus-bookmark-restore', { delayInMinutes: 0.5 });
 });
 
 // Auto-Restore Bookmarks: fold newly added/changed bookmarks into the
 // bookmarks window. Debounced — imports and sync create bookmarks in bursts.
 // These listeners only fire while the optional bookmarks permission is granted.
-let bookmarkRestoreTimer = null;
 let bookmarkReconcileTimer = null;
 function scheduleBookmarkReconcile() {
     if (bookmarkReconcileTimer) clearTimeout(bookmarkReconcileTimer);
@@ -43,8 +40,16 @@ function scheduleBookmarkReconcile() {
         reconcileNewBookmarks().catch(() => {});
     }, 2000);
 }
-chrome.bookmarks.onCreated.addListener(scheduleBookmarkReconcile);
-chrome.bookmarks.onChanged.addListener((id, info) => { if (info.url) scheduleBookmarkReconcile(); });
+function registerBookmarkWatchers() {
+    chrome.bookmarks.onCreated.addListener(scheduleBookmarkReconcile);
+    chrome.bookmarks.onChanged.addListener((id, info) => { if (info.url) scheduleBookmarkReconcile(); });
+}
+registerBookmarkWatchers();
+// Listeners bound before the optional bookmarks permission is granted stay
+// dead in the live SW instance — re-register (idempotent) on grant.
+chrome.permissions.onGranted.addListener((p) => {
+    if (p.permissions?.includes('bookmarks')) registerBookmarkWatchers();
+});
 chrome.runtime.onInstalled.addListener(async (details) => {
     await initializeState(false);
     updateCleanupAlarms();
@@ -950,6 +955,12 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         }).catch(() => {});
         return;
     }
+    if (alarm.name === 'tabs-plus-bookmark-restore') {
+        await ensureLoaded();
+        if (globalSettings.autoRestoreBookmarks) restoreAllBookmarksIfEnabled().catch(() => {});
+        return;
+    }
+
     if (alarm.name === 'tabs-plus-auto-hibernate') {
         await ensureLoaded();
         if (!globalSettings.enableAutoHibernate) return;
