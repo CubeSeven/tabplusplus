@@ -22,13 +22,19 @@ function markInherited(tabId) {
 chrome.runtime.onStartup.addListener(async () => {
     await initializeState(true);
     updateCleanupAlarms();
-    // Auto-Restore Bookmarks: reopen anything not already open (deduped).
-    restoreAllBookmarksIfEnabled().catch(() => {});
+    // Auto-Restore Bookmarks: wait for Chrome's session restore to settle,
+    // then reconcile (runs only when a large share of bookmarks is missing).
+    if (bookmarkRestoreTimer) clearTimeout(bookmarkRestoreTimer);
+    bookmarkRestoreTimer = setTimeout(() => {
+        bookmarkRestoreTimer = null;
+        restoreAllBookmarksIfEnabled().catch(() => {});
+    }, 30000);
 });
 
 // Auto-Restore Bookmarks: fold newly added/changed bookmarks into the
 // bookmarks window. Debounced — imports and sync create bookmarks in bursts.
 // These listeners only fire while the optional bookmarks permission is granted.
+let bookmarkRestoreTimer = null;
 let bookmarkReconcileTimer = null;
 function scheduleBookmarkReconcile() {
     if (bookmarkReconcileTimer) clearTimeout(bookmarkReconcileTimer);

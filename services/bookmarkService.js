@@ -158,10 +158,29 @@ async function bookmarksPermitted() {
     return chrome.permissions.contains({ permissions: ['bookmarks'] }).catch(() => false);
 }
 
+// Restore is a HEAVY operation — open it only when genuinely needed:
+// if at most this fraction of bookmarks is missing, the session restored
+// fine (or only a couple of new bookmarks are absent) and we do nothing.
+const RESTORE_MISSING_THRESHOLD = 0.3;
+
+function toastActiveTab(message) {
+    chrome.tabs.query({ active: true, lastFocusedWindow: true }, ([at]) => {
+        if (at) chrome.tabs.sendMessage(at.id, { action: 'show-toast', message }).catch(() => {});
+    });
+}
+
 /**
- * Auto-Restore Bookmarks: open every bookmark that is NOT already open, in one
- * grouped window. Safe to run on every startup — dedupe keeps restarts and
- * Chrome's own session restore from duplicating anything.
+ * Auto-Restore Bookmarks (v2 — conservative by design):
+ *  1. Only fires when a LARGE share of bookmarks is missing (session was
+ *     lost). A healthy restored session, or a couple of new bookmarks,
+ *     triggers nothing.
+ *  2. When restore IS needed, it first looks for a window that already
+ *     holds most of the still-open bookmark tabs and folds the missing
+ *     ones into it — a half-restored session is healed in place instead of
+ *     being duplicated by a second window.
+ *  3. Fresh window only when no meaningful bookmark window exists.
+ * The background caller delays this until Chrome's session restore has
+ * settled — running at raw onStartup sees half-restored sessions.
  */
 export async function restoreAllBookmarksIfEnabled() {
     await ensureLoaded();
@@ -169,33 +188,67 @@ export async function restoreAllBookmarksIfEnabled() {
     if (!(await bookmarksPermitted())) return false;
     const tabDefs = await collectAllBookmarkTabDefs();
     if (tabDefs.length === 0) return false;
-    const open = new Set((await chrome.tabs.query({}).catch(() => [])).map(t => getCanonicalUrl(t.url)));
+
+    const tabs = await chrome.tabs.query({}).catch(() => []);
+    const open = new Set(tabs.map(t => getCanonicalUrl(t.url)));
     const missing = tabDefs.filter(d => !open.has(getCanonicalUrl(d.url)));
-    if (missing.length === 0) return false;
-    return launchBookmarksInNewWindow(missing);
+
+    // Session restored fine (or just a few new bookmarks) — do nothing.
+    if (missing.length / tabDefs.length <= RESTORE_MISSING_THRESHOLD) return false;
+
+    // Find the window that already holds the most bookmark tabs.
+    const bookmarkUrls = new Set(tabDefs.map(d => getCanonicalUrl(d.url)));
+    const winHits = new Map();
+    for (const t of tabs) {
+        if (bookmarkUrls.has(getCanonicalUrl(t.url))) {
+            winHits.set(t.windowId, (winHits.get(t.windowId) || 0) + 1);
+        }
+    }
+    let bestWinId = null, bestHits = 0;
+    for (const [winId, hits] of winHits) {
+        if (hits > bestHits) { bestWinId = winId; bestHits = hits; }
+    }
+    const alreadyOpen = tabDefs.length - missing.length;
+
+    if (bestWinId !== null && bestHits >= Math.floor(alreadyOpen * 0.5) && alreadyOpen > 0) {
+        // Heal the surviving window in place — no duplicate second window.
+        setBookmarkWindowId(bestWinId);
+        launchingWindowIds.add(bestWinId);
+        try {
+            await materializeTabs(missing.slice(0, BOOKMARK_TAB_CAP), bestWinId, { dedupe: true });
+            toastActiveTab(`Restored ${Math.min(missing.length, BOOKMARK_TAB_CAP)} bookmark tabs into this session`);
+            return true;
+        } catch (e) {
+            console.warn('[Tabs++] bookmark restore-fold error:', e.message);
+        } finally {
+            launchingWindowIds.delete(bestWinId);
+        }
+    }
+
+    // No surviving bookmark window — full fresh launch.
+    const ok = await launchBookmarksInNewWindow(missing);
+    if (ok) toastActiveTab(`Restored bookmark tabs (${Math.min(missing.length, BOOKMARK_TAB_CAP)} reopened)`);
+    return ok;
 }
 
 /**
- * Fold newly added/changed bookmarks into the bookmarks window. Creates the
- * window fresh if the previous one was closed. Caller debounces (imports and
- * sync create bookmarks in bursts).
+ * Live fold-in for newly added/changed bookmarks. Deliberately FOLD-ONLY:
+ * a single new bookmark must never spawn a window — recreation happens at
+ * the next startup reconcile if it's ever needed. Caller debounces.
  */
 export async function reconcileNewBookmarks() {
     await ensureLoaded();
     if (!globalSettings.autoRestoreBookmarks) return;
     if (!(await bookmarksPermitted())) return;
+    if (typeof bookmarkWindowId !== 'number') return;
+    const alive = !!(await chrome.windows.get(bookmarkWindowId).catch(() => null));
+    if (!alive) { setBookmarkWindowId(null); return; }
+
     const tabDefs = await collectAllBookmarkTabDefs();
     const open = new Set((await chrome.tabs.query({}).catch(() => [])).map(t => getCanonicalUrl(t.url)));
     const missing = tabDefs.filter(d => !open.has(getCanonicalUrl(d.url)));
-    if (missing.length === 0) return;
-    let alive = false;
-    if (typeof bookmarkWindowId === 'number') {
-        alive = !!(await chrome.windows.get(bookmarkWindowId).catch(() => null));
-    }
-    if (!alive) {
-        await launchBookmarksInNewWindow(missing);
-        return;
-    }
+    if (missing.length === 0 || missing.length > 10) return; // bursts (imports/sync) are not live-adds
+
     launchingWindowIds.add(bookmarkWindowId);
     try {
         await materializeTabs(missing, bookmarkWindowId, { dedupe: true });
