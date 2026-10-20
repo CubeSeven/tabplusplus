@@ -88,6 +88,9 @@ let engineChip = null;
 
 function updateEngineChip() {
     if (!engineChip) return;
+    // Icon and text must use the SAME color source: mirror the input's live
+    // computed color (theme-aware) so fill=currentColor always matches.
+    if (input) engineChip.style.color = getComputedStyle(input).color;
     if (!engineOverride) {
         engineChip.classList.remove('visible');
         return;
@@ -127,7 +130,7 @@ function cycleEngine(dir) {
 function createEngineChip(inputWrapper) {
     inputWrapper.style.position = 'relative';
     const style = document.createElement('style');
-    style.textContent = `.engine-chip{display:none;position:absolute;right:14px;top:50%;transform:translateY(-50%);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em;background:rgba(124,135,248,.14);color:#7C87F8;cursor:pointer;user-select:none;z-index:5}.engine-chip.visible{display:block}`;
+    style.textContent = `.engine-chip{display:none;position:absolute;right:14px;top:50%;transform:translateY(-50%);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em;color:inherit;background:color-mix(in srgb,currentColor 12%,transparent);cursor:pointer;user-select:none;z-index:5}.engine-chip.visible{display:block}`;
     document.documentElement.appendChild(style);
     engineChip = document.createElement('div');
     engineChip.className = 'engine-chip';
