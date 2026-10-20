@@ -696,6 +696,61 @@
     }
     #tip-close-btn:hover { color: #000; }
 
+    /* Search overlay inside header (covers brand + tab menu while active) */
+    .header { position: relative; }
+    #search-row {
+      position: absolute; top: 0; bottom: 0; left: 0; right: 46px;
+      display: flex; align-items: center; padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.97);
+      max-height: none; overflow: visible; opacity: 0;
+      pointer-events: none; z-index: 20; transform: none; border-bottom: 0;
+      transition: opacity 0.18s ease;
+    }
+    #search-row.active {
+      max-height: none; opacity: 1; pointer-events: auto;
+      padding: 8px 12px; transform: none; border-bottom-width: 0;
+    }
+    .tabs-dock { flex-wrap: nowrap; }
+    .tab-btn { font-size: 11px; padding: 5px 8px; }
+
+    /* Footer brand */
+    .brand-footer {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 16px; border-top: 1px solid rgba(0, 0, 0, 0.05);
+      font-size: 11px; color: #999;
+    }
+    .brand-footer-name { font-weight: 700; color: #333; }
+    .brand-footer .version { font-size: 11px; color: #666; text-decoration: none; }
+    .brand-footer .version:hover { color: #000; text-decoration: underline; }
+
+    /* Restore tab */
+    .restore-section { padding: 14px 16px; border-bottom: 1px solid #f0f0f0; }
+    .restore-title { font-size: 13px; font-weight: 700; color: #111; margin-bottom: 2px; }
+    .restore-sub { font-size: 11px; color: #999; margin-bottom: 10px; }
+    .restore-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+    .restore-item {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+      padding: 6px 8px; border-radius: 8px;
+    }
+    .restore-item:hover { background: rgba(0, 0, 0, 0.03); }
+    .restore-item-name { font-size: 12px; font-weight: 600; color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .restore-item-url { font-size: 10.5px; color: #999; white-space: nowrap; }
+    .restore-actions { display: flex; gap: 8px; }
+    .restore-empty { padding: 40px 20px; text-align: center; font-size: 12px; color: #aaa; }
+
+    /* Info tab */
+    .info-block { padding: 18px 16px 10px; }
+    .info-title { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
+    .info-title span { font-size: 12px; font-weight: 600; color: #999; margin-left: 4px; }
+    .info-sub { font-size: 12px; color: #888; margin-top: 4px; }
+    .info-links { display: flex; flex-direction: column; padding: 6px 8px; }
+    .info-links a {
+      padding: 10px 10px; font-size: 12.5px; font-weight: 600; color: #333;
+      text-decoration: none; border-radius: 8px;
+    }
+    .info-links a:hover { background: rgba(0, 0, 0, 0.04); color: #000; }
+    .info-shortcut { padding: 12px 16px; font-size: 11px; color: #999; border-top: 1px solid #f0f0f0; }
+
 
   </style>
   <!-- Inter served locally (Google Fonts CSS + woff2 subsets mirrored) —
@@ -716,22 +771,23 @@
         <button class="tab-btn active" data-target="settings-tab">Settings</button>
         <button class="tab-btn" data-target="tools-tab">Tools</button>
         <button class="tab-btn" data-target="sets-tab">Sets</button>
+        <button class="tab-btn" data-target="restore-tab">Restore</button>
+        <button class="tab-btn" data-target="info-tab">Info</button>
       </div>
 
       <button id="search-trigger" class="btn-icon-subtle" title="Search">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
       </button>
-
-      <a class="version" href="https://github.com/CubeSeven/tabplusplus" target="_blank" id="version-display">v2.6.0</a>
     </div>
-  </div>
 
-  <!-- Search Row (Hidden by default) -->
-  <div id="search-row" class="search-row">
-    <div class="search-input-wrapper">
-      <input type="text" id="global-search" class="search-input" placeholder="Search features & tools..." />
-      <div class="search-icon-inside">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+    <!-- Search overlay: covers the brand + tab menu while active (saves space).
+         The trigger button stays exposed at the right edge to close it. -->
+    <div id="search-row" class="search-row">
+      <div class="search-input-wrapper">
+        <input type="text" id="global-search" class="search-input" placeholder="Search features & tools..." />
+        <div class="search-icon-inside">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        </div>
       </div>
     </div>
   </div>
@@ -764,13 +820,41 @@
     </div>
   </div>
 
-  <!-- Footer (Tabs Restore) -->
-  <div id="vault-container" style="display: none;">
-    <div id="vault-text">Found protected tabs from last session.</div>
-    <div class="vault-actions">
-      <button id="restore-vault-btn" class="btn btn-dark btn-slim">Restore</button>
-      <button id="clear-vault-btn" class="btn btn-light btn-slim" style="border:1px solid #eee;">×</button>
+  <div id="restore-tab" class="tab-content">
+    <div id="restore-archive-section" class="restore-section" hidden>
+      <div class="restore-title">Archived tabs</div>
+      <div class="restore-sub">Saved automatically over the last 24h — click a row to reopen it</div>
+      <div id="restore-archive-list" class="restore-list"></div>
+      <button id="restore-archive-btn" class="btn btn-dark btn-slim">Restore all</button>
     </div>
+    <div id="restore-protected-section" class="restore-section" hidden>
+      <div class="restore-title">Protected tabs from last session</div>
+      <div id="restore-protected-list" class="restore-list"></div>
+      <div class="restore-actions">
+        <button id="restore-vault-btn" class="btn btn-dark btn-slim">Restore all</button>
+        <button id="clear-vault-btn" class="btn btn-light btn-slim" style="border:1px solid #eee;">Dismiss</button>
+      </div>
+    </div>
+    <div id="restore-empty" class="restore-empty" hidden>Nothing to restore. Protected and archived tabs will appear here.</div>
+  </div>
+
+  <div id="info-tab" class="tab-content">
+    <div class="info-block">
+      <div class="info-title">Tabs++ <span id="info-version"></span></div>
+      <div class="info-sub">Premium tab management — workspaces, ghost prevention, smart grouping.</div>
+    </div>
+    <div class="info-links">
+      <a href="https://github.com/CubeSeven/tabplusplus" target="_blank">GitHub repository ↗</a>
+      <a href="https://github.com/CubeSeven/tabplusplus/tree/main/docs" target="_blank">Documentation ↗</a>
+      <a href="https://github.com/CubeSeven/tabplusplus/releases" target="_blank">Release notes ↗</a>
+      <a href="https://github.com/CubeSeven/tabplusplus/blob/main/SECURITY.md" target="_blank">Report an issue ↗</a>
+    </div>
+    <div class="info-shortcut">Palette Ctrl+Shift+K &nbsp;·&nbsp; Hibernate Ctrl+Shift+H &nbsp;·&nbsp; Split: type <b>a.com | b.com</b></div>
+  </div>
+
+  <div class="brand-footer">
+    <span class="brand-footer-name">Tabs++</span>
+    <a class="version" href="https://github.com/CubeSeven/tabplusplus" target="_blank" id="version-display">v2.6.0</a>
   </div>
 
   <!-- Footer (Tip) -->

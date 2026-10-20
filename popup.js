@@ -494,6 +494,10 @@ searchTrigger.addEventListener('click', () => {
   }
 });
 
+globalSearchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') searchTrigger.click();
+});
+
 let searchDebounceTimer = null;
 globalSearchInput.addEventListener('input', (e) => {
   clearTimeout(searchDebounceTimer);
@@ -584,6 +588,8 @@ function saveSettings() {
 const manifest = chrome.runtime.getManifest();
 const versionDisplay = document.getElementById('version-display');
 if (versionDisplay) versionDisplay.textContent = `v${manifest.version}`;
+const infoVersion = document.getElementById('info-version');
+if (infoVersion) infoVersion.textContent = `v${manifest.version}`;
 
 
 chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data) => {
@@ -602,10 +608,98 @@ chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data
 
 // Protected tabs restore — reads the auto-persisted protectedSnapshot
 // (hostname-keyed) written by the SW on every baseline change. No manual save.
+// ── Restore tab ──────────────────────────────────────────────────────
+function updateRestoreEmptyHint() {
+  const hint = document.getElementById('restore-empty');
+  if (!hint) return;
+  const p = document.getElementById('restore-protected-section');
+  const a = document.getElementById('restore-archive-section');
+  hint.hidden = !((p && !p.hidden) || (a && !a.hidden));
+}
+
+function renderProtectedRestoreList(missing, snap) {
+  const section = document.getElementById('restore-protected-section');
+  const list = document.getElementById('restore-protected-list');
+  const restoreBtn = document.getElementById('restore-vault-btn');
+  const clearBtn = document.getElementById('clear-vault-btn');
+  if (!section || !list) return;
+  list.innerHTML = '';
+  if (!missing || missing.length === 0) {
+    section.hidden = true;
+    if (restoreBtn) restoreBtn.hidden = true;
+    if (clearBtn) clearBtn.hidden = true;
+    updateRestoreEmptyHint();
+    return;
+  }
+  section.hidden = false;
+  if (restoreBtn) restoreBtn.hidden = false;
+  if (clearBtn) clearBtn.hidden = false;
+  for (const host of missing) {
+    const s = snap[host] || {};
+    const row = document.createElement('div');
+    row.className = 'restore-item';
+    const name = document.createElement('span');
+    name.className = 'restore-item-name';
+    name.textContent = s.title || host;
+    const url = document.createElement('span');
+    url.className = 'restore-item-url';
+    url.textContent = host;
+    row.appendChild(name);
+    row.appendChild(url);
+    list.appendChild(row);
+  }
+  updateRestoreEmptyHint();
+}
+
+function renderArchiveRestoreList() {
+  chrome.storage.local.get(['vault'], (data) => {
+    const section = document.getElementById('restore-archive-section');
+    const list = document.getElementById('restore-archive-list');
+    const btn = document.getElementById('restore-archive-btn');
+    if (!section || !list) return;
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const entries = (data.vault || []).filter(t => t.savedAt && t.savedAt > cutoff);
+    list.innerHTML = '';
+    if (entries.length === 0) {
+      section.hidden = true;
+      if (btn) btn.hidden = true;
+      updateRestoreEmptyHint();
+      return;
+    }
+    section.hidden = false;
+    if (btn) btn.hidden = false;
+    for (const t of entries) {
+      const row = document.createElement('div');
+      row.className = 'restore-item';
+      row.style.cursor = 'pointer';
+      const name = document.createElement('span');
+      name.className = 'restore-item-name';
+      name.textContent = t.title || t.url || 'Tab';
+      const url = document.createElement('span');
+      url.className = 'restore-item-url';
+      let host = '';
+      try { host = new URL(t.url).hostname; } catch {}
+      url.textContent = host;
+      row.appendChild(name);
+      row.appendChild(url);
+      row.addEventListener('click', () => { chrome.tabs.create({ url: t.url, active: true }); });
+      list.appendChild(row);
+    }
+    updateRestoreEmptyHint();
+  });
+}
+
+renderArchiveRestoreList();
+const restoreArchiveBtn = document.getElementById('restore-archive-btn');
+if (restoreArchiveBtn) restoreArchiveBtn.addEventListener('click', () => {
+  chrome.runtime.sendMessage({ action: 'open-url', url: 'virtual:restore-vault' }).catch(() => {});
+  setTimeout(renderArchiveRestoreList, 600);
+});
+
 chrome.storage.local.get(['protectedSnapshot'], (data) => {
   const snap = data.protectedSnapshot || {};
   const snapKeys = Object.keys(snap);
-  if (snapKeys.length === 0) return; // nothing to restore
+  if (snapKeys.length === 0) { renderProtectedRestoreList([], snap); return; }
 
   chrome.tabs.query({}, (tabs) => {
     const liveHosts = new Set();
@@ -613,12 +707,9 @@ chrome.storage.local.get(['protectedSnapshot'], (data) => {
       try { if (t.url) liveHosts.add(new URL(t.url).hostname); } catch {}
     }
     const missing = snapKeys.filter(h => !liveHosts.has(h));
-    if (missing.length === 0) return; // all protected tabs already open
+    if (missing.length === 0) { renderProtectedRestoreList([], snap); return; }
 
-    const vaultContainer = document.getElementById('vault-container');
-    vaultContainer.style.display = 'flex';
-    const vaultText = document.getElementById('vault-text');
-    if (vaultText) vaultText.textContent = `${missing.length} protected tab${missing.length > 1 ? 's' : ''} ready to restore`;
+    renderProtectedRestoreList(missing, snap);
 
     document.getElementById('restore-vault-btn').addEventListener('click', async () => {
       // Hibernates a restored tab once its page has finished loading,
@@ -693,14 +784,14 @@ chrome.storage.local.get(['protectedSnapshot'], (data) => {
           }
         } catch (e) { /* continue on failure */ }
       }
-      vaultContainer.style.display = 'none';
+      renderProtectedRestoreList([], snap);
     });
     document.getElementById('clear-vault-btn').addEventListener('click', () => {
       // Remove missing entries from protectedSnapshot
       const updated = { ...snap };
       for (const h of missing) delete updated[h];
       chrome.storage.local.set({ protectedSnapshot: updated }, () => {
-        vaultContainer.style.display = 'none';
+        renderProtectedRestoreList([], updated);
       });
     });
   });
