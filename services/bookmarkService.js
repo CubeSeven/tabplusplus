@@ -1,5 +1,6 @@
-import { launchingWindowIds } from '../state.js';
+import { launchingWindowIds, globalSettings, bookmarkWindowId, setBookmarkWindowId } from '../state.js';
 import { ensureLoaded } from './tabService.js';
+import { getCanonicalUrl } from '../utils.js';
 import { materializeTabs, launchInNewWindow } from './setService.js';
 
 // Chrome's nine valid tab-group colors, in a stable order. Used to deterministically
@@ -102,10 +103,14 @@ export async function performLaunchBookmarkFolder(folderId) {
  */
 export async function performLaunchAllBookmarks() {
     await ensureLoaded();
+    const tabDefs = await collectAllBookmarkTabDefs();
+    return launchBookmarksInNewWindow(tabDefs);
+}
 
+async function collectAllBookmarkTabDefs() {
     const tree = await chrome.bookmarks.getTree().catch(() => null);
     const root = tree && tree[0];
-    if (!root) return false;
+    if (!root) return [];
 
     // The bookmark tree's root node is virtual; its children are the real roots
     // (Bookmarks Bar, Other Bookmarks, Mobile). Walk into each root's children
@@ -146,7 +151,59 @@ export async function performLaunchAllBookmarks() {
         }
     }
 
-    return launchBookmarksInNewWindow(tabDefs);
+    return tabDefs;
+}
+
+async function bookmarksPermitted() {
+    return chrome.permissions.contains({ permissions: ['bookmarks'] }).catch(() => false);
+}
+
+/**
+ * Auto-Restore Bookmarks: open every bookmark that is NOT already open, in one
+ * grouped window. Safe to run on every startup — dedupe keeps restarts and
+ * Chrome's own session restore from duplicating anything.
+ */
+export async function restoreAllBookmarksIfEnabled() {
+    await ensureLoaded();
+    if (!globalSettings.autoRestoreBookmarks) return false;
+    if (!(await bookmarksPermitted())) return false;
+    const tabDefs = await collectAllBookmarkTabDefs();
+    if (tabDefs.length === 0) return false;
+    const open = new Set((await chrome.tabs.query({}).catch(() => [])).map(t => getCanonicalUrl(t.url)));
+    const missing = tabDefs.filter(d => !open.has(getCanonicalUrl(d.url)));
+    if (missing.length === 0) return false;
+    return launchBookmarksInNewWindow(missing);
+}
+
+/**
+ * Fold newly added/changed bookmarks into the bookmarks window. Creates the
+ * window fresh if the previous one was closed. Caller debounces (imports and
+ * sync create bookmarks in bursts).
+ */
+export async function reconcileNewBookmarks() {
+    await ensureLoaded();
+    if (!globalSettings.autoRestoreBookmarks) return;
+    if (!(await bookmarksPermitted())) return;
+    const tabDefs = await collectAllBookmarkTabDefs();
+    const open = new Set((await chrome.tabs.query({}).catch(() => [])).map(t => getCanonicalUrl(t.url)));
+    const missing = tabDefs.filter(d => !open.has(getCanonicalUrl(d.url)));
+    if (missing.length === 0) return;
+    let alive = false;
+    if (typeof bookmarkWindowId === 'number') {
+        alive = !!(await chrome.windows.get(bookmarkWindowId).catch(() => null));
+    }
+    if (!alive) {
+        await launchBookmarksInNewWindow(missing);
+        return;
+    }
+    launchingWindowIds.add(bookmarkWindowId);
+    try {
+        await materializeTabs(missing, bookmarkWindowId, { dedupe: true });
+    } catch (e) {
+        console.warn('[Tabs++] bookmark reconcile error:', e.message);
+    } finally {
+        launchingWindowIds.delete(bookmarkWindowId);
+    }
 }
 
 /**
@@ -199,5 +256,7 @@ async function launchBookmarksInNewWindow(tabDefs) {
     // freezes Chrome. Cap at a sane ceiling, keeping the first N in order so the
     // user's most-curated (top-of-tree) bookmarks win the budget.
     const capped = tabDefs.length > BOOKMARK_TAB_CAP ? tabDefs.slice(0, BOOKMARK_TAB_CAP) : tabDefs;
-    return launchInNewWindow(capped);
+    const winId = await launchInNewWindow(capped);
+    if (typeof winId === 'number') setBookmarkWindowId(winId);
+    return !!winId;
 }

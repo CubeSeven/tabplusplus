@@ -236,7 +236,8 @@ export async function launchInNewWindow(tabDefs) {
         if (newWin?.id) launchingWindowIds.delete(newWin.id);
     }
 
-    return true;
+    // Window id (truthy) on success so callers can track the launched window
+    return newWin?.id || true;
 }
 
 export async function performSaveSet(request) {

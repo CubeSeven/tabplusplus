@@ -139,6 +139,15 @@ const FEATURES = [
     badge: 'Perf',
     category: 'Performance',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`
+  },
+  {
+    id: 'autoRestoreBookmarks',
+    title: 'Auto-Restore Bookmarks',
+    description: 'Reopen all bookmarks in a grouped window at browser start, and open newly added bookmarks automatically. Needs the Bookmarks tool enabled.',
+    default: false,
+    badge: 'Core',
+    category: 'Guard',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`
   }
 ];
 

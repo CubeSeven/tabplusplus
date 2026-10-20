@@ -8,7 +8,7 @@
 // query and skipped.
 //
 // state.js stays pure (AGENTS.md #13): all chrome.* access lives here.
-import { lastActiveTabId, setLastActiveTabId, peekWindows, blurredSourceTabs, ntpTabCache, pomoTimer, setPomoTimer, discardedTabs } from '../state.js';
+import { lastActiveTabId, setLastActiveTabId, peekWindows, blurredSourceTabs, ntpTabCache, pomoTimer, setPomoTimer, discardedTabs, bookmarkWindowId, setBookmarkWindowId } from '../state.js';
 
 const KEY = 'swState';
 let lastSnapshotJson = '';
@@ -20,6 +20,7 @@ export async function restoreSessionState() {
     if (!s) return;
     if (typeof s.lastActiveTabId === 'number') setLastActiveTabId(s.lastActiveTabId);
     if (s.pomoTimer) setPomoTimer(s.pomoTimer);
+    if (typeof s.bookmarkWindowId === 'number') setBookmarkWindowId(s.bookmarkWindowId);
     for (const [k, v] of s.peekWindows || []) peekWindows.set(k, v);
     for (const [k, v] of s.ntpTabCache || []) ntpTabCache.set(k, v);
     (s.discardedTabs || []).forEach(v => discardedTabs.add(v));
@@ -37,6 +38,7 @@ export async function restoreSessionState() {
     for (const [winId, tabId] of [...ntpTabCache.entries()]) if (!liveWinIds.has(winId) || !liveTabIds.has(tabId)) ntpTabCache.delete(winId);
     for (const tabId of [...discardedTabs]) if (!liveTabIds.has(tabId)) discardedTabs.delete(tabId);
     for (const tabId of [...blurredSourceTabs]) if (!liveTabIds.has(tabId)) blurredSourceTabs.delete(tabId);
+    if (bookmarkWindowId !== null && !liveWinIds.has(bookmarkWindowId)) setBookmarkWindowId(null);
 }
 
 export function persistSessionState() {
@@ -44,6 +46,7 @@ export function persistSessionState() {
     const snapshot = {
         lastActiveTabId,
         pomoTimer,
+        bookmarkWindowId,
         peekWindows: [...peekWindows.entries()],
         ntpTabCache: [...ntpTabCache.entries()],
         discardedTabs: [...discardedTabs],

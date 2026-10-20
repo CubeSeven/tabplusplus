@@ -2,6 +2,7 @@ import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, g
 import { NONE_GROUP, NTP_URL, SEARCH_ENGINES } from './constants.js';
 import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard, isLikelyUrl, parseThresholdToMs } from './utils.js';
 import { persistSessionState } from './services/sessionState.js';
+import { restoreAllBookmarksIfEnabled, reconcileNewBookmarks } from './services/bookmarkService.js';
 import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines, pruneProtectedHost, focusNtpTab } from './services/tabService.js';
 import { stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
 import { handleSearchItems, executeAction } from './services/paletteService.js';
@@ -21,7 +22,23 @@ function markInherited(tabId) {
 chrome.runtime.onStartup.addListener(async () => {
     await initializeState(true);
     updateCleanupAlarms();
+    // Auto-Restore Bookmarks: reopen anything not already open (deduped).
+    restoreAllBookmarksIfEnabled().catch(() => {});
 });
+
+// Auto-Restore Bookmarks: fold newly added/changed bookmarks into the
+// bookmarks window. Debounced — imports and sync create bookmarks in bursts.
+// These listeners only fire while the optional bookmarks permission is granted.
+let bookmarkReconcileTimer = null;
+function scheduleBookmarkReconcile() {
+    if (bookmarkReconcileTimer) clearTimeout(bookmarkReconcileTimer);
+    bookmarkReconcileTimer = setTimeout(() => {
+        bookmarkReconcileTimer = null;
+        reconcileNewBookmarks().catch(() => {});
+    }, 2000);
+}
+chrome.bookmarks.onCreated.addListener(scheduleBookmarkReconcile);
+chrome.bookmarks.onChanged.addListener((id, info) => { if (info.url) scheduleBookmarkReconcile(); });
 chrome.runtime.onInstalled.addListener(async (details) => {
     await initializeState(false);
     updateCleanupAlarms();

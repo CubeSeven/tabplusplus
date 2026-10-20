@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS = {
     enableMediaExtractor: false,
     enableVolumeControl: true,
     reduceEffects: false,
+    autoRestoreBookmarks: false,
     timeFormat: '24h',
     showClock: true,
     autoPeekCrossDomain: false,
