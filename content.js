@@ -1432,9 +1432,23 @@ function createPomoUI() {
     `;
     
     card.addEventListener('click', () => {
-        if (confirm('Stop Pomodoro timer?')) {
-            chrome.runtime.sendMessage({ action: 'stop-pomo-timer' }).catch(() => {});
-        }
+        if (card.querySelector('.pomo-actions')) return; // controls already open
+        const row = document.createElement('div');
+        row.className = 'pomo-actions';
+        row.style.cssText = 'display:flex;gap:10px;align-items:center;margin-left:6px;';
+        const mkBtn = (text, fn) => {
+            const b = document.createElement('button');
+            b.textContent = text;
+            b.style.cssText = 'all:unset;cursor:pointer;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;opacity:0.75;padding:2px 4px;';
+            b.addEventListener('mouseenter', () => b.style.opacity = '1');
+            b.addEventListener('mouseleave', () => b.style.opacity = '0.75');
+            b.addEventListener('click', (e) => { e.stopPropagation(); fn(); row.remove(); });
+            return b;
+        };
+        row.appendChild(mkBtn('Stop', () => chrome.runtime.sendMessage({ action: 'stop-pomo-timer' }).catch(() => {})));
+        row.appendChild(mkBtn('+5 min', () => chrome.runtime.sendMessage({ action: 'extend-pomo-timer' }).catch(() => {})));
+        card.appendChild(row);
+        setTimeout(() => row.remove(), 4000);
     });
     
     shadow.appendChild(style);

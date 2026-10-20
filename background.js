@@ -742,6 +742,20 @@ const isUrl = isLikelyUrl(q.toLowerCase()) || q.startsWith('localhost');
         case 'get-pomo-status':
             ensureLoaded().then(() => sendResponse({ pomoTimer }));
             return true;
+
+        case 'extend-pomo-timer':
+            ensureLoaded().then(async () => {
+                if (!pomoTimer.isActive) { sendResponse({ success: false }); return; }
+                // Extend keeps elapsed time — do NOT restart via startPomoTimer
+                const endTime = pomoTimer.endTime + 5 * 60 * 1000;
+                const minutes = (pomoTimer.minutes || 0) + 5;
+                setPomoTimer({ endTime, type: pomoTimer.type, isActive: true, minutes });
+                persistSessionState();
+                chrome.alarms.clear('pomo-timer').then(() => chrome.alarms.create('pomo-timer', { when: endTime }));
+                broadcastPomoState();
+                sendResponse({ success: true });
+            }).catch(() => sendResponse({ success: false }));
+            return true;
     }
 });
 
