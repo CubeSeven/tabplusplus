@@ -738,7 +738,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (typeof request.query !== 'string') { sendResponse({ success: false }); return; }
             const q = request.query.trim();
 const isUrl = isLikelyUrl(q.toLowerCase()) || q.startsWith('localhost');
-            const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
+            const engine = SEARCH_ENGINES[request.engine] || SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
             let url = engine.url + encodeURIComponent(q);
             if (isUrl) url = q.startsWith('http://') || q.startsWith('https://') ? q : 'https://' + q;
             chrome.tabs.create({ url, active: true })
