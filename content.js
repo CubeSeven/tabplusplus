@@ -1243,6 +1243,11 @@ function dismissVolumeSlider() {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (!request || typeof request !== 'object' || typeof request.action !== 'string') return;
+    if (request.action === 'show-toast') {
+        showPageToast(request.message, { actionLabel: request.actionLabel || null, undoAction: request.undoAction || null });
+        sendResponse({ success: true });
+        return true;
+    }
     if (request.action === 'toggle-palette') {
         if (request.forceAction && typeof request.forceAction === 'string') {
             // Open palette and immediately activate the action
@@ -3017,6 +3022,65 @@ function startCustomEyedropper(dataUrl) {
             });
         });
     };
+}
+
+// ── Shared page toast (SW-driven action feedback) ──
+let _toastHost = null;
+function showPageToast(message, { actionLabel = null, undoAction = null, duration = 3500 } = {}) {
+    if (!chrome.runtime?.id) return;
+    if (_toastHost) { _toastHost.remove(); _toastHost = null; }
+    _toastHost = document.createElement('div');
+    const shadow = _toastHost.attachShadow({ mode: 'closed' });
+    const style = document.createElement('style');
+    style.textContent = `
+        .toast {
+            position: fixed; bottom: 30px; left: 0; right: 0; margin: 0 auto;
+            width: max-content; max-width: 90vw;
+            transform: translateY(20px);
+            background: rgba(22, 22, 26, 0.85);
+            backdrop-filter: blur(24px) saturate(200%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff; padding: 12px 20px; border-radius: 99px;
+            font-size: 14px; font-family: system-ui, -apple-system, sans-serif;
+            font-weight: 500; opacity: 0;
+            transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 16px 32px rgba(0, 0, 0, 0.3);
+            display: flex; align-items: center; gap: 12px;
+            z-index: 2147483647;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast-action {
+            all: unset; cursor: pointer;
+            color: #7C87F8; font-weight: 700; font-size: 12px;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            padding: 2px 6px; border-radius: 6px;
+        }
+        .toast-action:hover { text-decoration: underline; }
+    `;
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    const label = document.createElement('span');
+    label.textContent = String(message || '');
+    toast.appendChild(label);
+    function dismiss() {
+        toast.classList.remove('show');
+        setTimeout(() => { if (_toastHost) { _toastHost.remove(); _toastHost = null; } }, 300);
+    }
+    if (actionLabel && undoAction) {
+        const btn = document.createElement('button');
+        btn.className = 'toast-action';
+        btn.textContent = String(actionLabel);
+        btn.addEventListener('click', () => {
+            chrome.runtime.sendMessage({ action: undoAction }).catch(() => {});
+            dismiss();
+        });
+        toast.appendChild(btn);
+    }
+    shadow.appendChild(style);
+    shadow.appendChild(toast);
+    document.documentElement.appendChild(_toastHost);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(dismiss, actionLabel ? 5000 : duration);
 }
 
 let _ssProgressHost = null;
