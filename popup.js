@@ -624,7 +624,7 @@ function updateRestoreEmptyHint() {
   if (!hint) return;
   const p = document.getElementById('restore-protected-section');
   const a = document.getElementById('restore-archive-section');
-  hint.hidden = !((p && !p.hidden) || (a && !a.hidden));
+  hint.hidden = !!((p && !p.hidden) || (a && !a.hidden));
 }
 
 function renderProtectedRestoreList(missing, snap) {
@@ -648,11 +648,12 @@ function renderProtectedRestoreList(missing, snap) {
     const s = snap[host] || {};
     const row = document.createElement('div');
     row.className = 'restore-item';
-      const fav = document.createElement('img');
-      fav.className = 'restore-item-fav';
-      fav.src = chrome.runtime.getURL('/_favicon/?pageUrl=' + encodeURIComponent(s.url || ('https://' + host)) + '&size=16');
-      fav.alt = '';
-      row.appendChild(fav);
+    const fav = document.createElement('img');
+    fav.className = 'restore-item-fav';
+    fav.src = chrome.runtime.getURL('/_favicon/?pageUrl=' + encodeURIComponent(s.url || ('https://' + host)) + '&size=16');
+    fav.alt = '';
+    fav.onerror = () => fav.remove();
+    row.appendChild(fav);
     const name = document.createElement('span');
     name.className = 'restore-item-name';
     name.textContent = s.title || host;
@@ -661,6 +662,14 @@ function renderProtectedRestoreList(missing, snap) {
     url.textContent = host;
     row.appendChild(name);
     row.appendChild(url);
+    if (s.url) {
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.title = s.url;
+      const open = () => chrome.tabs.create({ url: s.url, active: true }).catch(() => {});
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    }
     list.appendChild(row);
   }
   updateRestoreEmptyHint();
@@ -682,27 +691,32 @@ function renderArchiveRestoreList() {
       return;
     }
     section.hidden = false;
-    if (btn) btn.hidden = false;
+    if (btn) { btn.hidden = false; btn.disabled = false; }
     for (const t of entries) {
+      let host = '';
+      try { host = new URL(t.url).hostname; } catch { continue; } // skip malformed entries
       const row = document.createElement('div');
       row.className = 'restore-item';
-      row.style.cursor = 'pointer';
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.title = t.title || t.url;
       const fav = document.createElement('img');
       fav.className = 'restore-item-fav';
       fav.src = chrome.runtime.getURL('/_favicon/?pageUrl=' + encodeURIComponent(t.url) + '&size=16');
       fav.alt = '';
+      fav.onerror = () => fav.remove();
       row.appendChild(fav);
       const name = document.createElement('span');
       name.className = 'restore-item-name';
       name.textContent = t.title || t.url || 'Tab';
       const url = document.createElement('span');
       url.className = 'restore-item-url';
-      let host = '';
-      try { host = new URL(t.url).hostname; } catch {}
       url.textContent = host;
       row.appendChild(name);
       row.appendChild(url);
-      row.addEventListener('click', () => { chrome.tabs.create({ url: t.url, active: true }); });
+      const open = () => chrome.tabs.create({ url: t.url, active: true }).catch(() => {});
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
       list.appendChild(row);
     }
     updateRestoreEmptyHint();
@@ -712,8 +726,9 @@ function renderArchiveRestoreList() {
 renderArchiveRestoreList();
 const restoreArchiveBtn = document.getElementById('restore-archive-btn');
 if (restoreArchiveBtn) restoreArchiveBtn.addEventListener('click', () => {
+  restoreArchiveBtn.disabled = true; // no double-restore race
   chrome.runtime.sendMessage({ action: 'open-url', url: 'virtual:restore-vault' }).catch(() => {});
-  setTimeout(renderArchiveRestoreList, 600);
+  setTimeout(renderArchiveRestoreList, 1200);
 });
 
 chrome.storage.local.get(['protectedSnapshot'], (data) => {
