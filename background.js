@@ -1,4 +1,4 @@
-import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, blurredSourceTabs, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds, savedPrompts, setSavedPrompts } from './state.js';
+import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, blurredSourceTabs, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds, savedPrompts, setSavedPrompts, lastClosedTabs, setLastClosedTabs } from './state.js';
 import { NONE_GROUP, NTP_URL, SEARCH_ENGINES } from './constants.js';
 import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard, isLikelyUrl, parseThresholdToMs } from './utils.js';
 import { persistSessionState } from './services/sessionState.js';
@@ -516,6 +516,15 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 });
 
 // --- MESSAGE DISPATCHER ---
+function sendActionToast(tabId, message, undo = false) {
+    if (typeof tabId !== 'number') return;
+    chrome.tabs.sendMessage(tabId, {
+        action: 'show-toast',
+        message,
+        ...(undo ? { actionLabel: 'Undo', undoAction: 'undo-close-tabs' } : {})
+    }).catch(() => {});
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (!request || typeof request !== 'object' || typeof request.action !== 'string') return;
     switch (request.action) {
@@ -615,8 +624,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (typeof request.url !== 'string') { sendResponse({ success: false }); return; }
             if (request.url === 'virtual:restore-vault') {
                 ensureLoaded().then(async () => {
+                    const n = sessionVault.length;
                     const success = await restoreVault(sessionVault);
-                    if (success) { setSessionVault([]); vaultCanonicalUrls.clear(); syncVaultToStorage(); }
+                    if (success) {
+                        setSessionVault([]); vaultCanonicalUrls.clear(); syncVaultToStorage();
+                        sendActionToast(sender.tab?.id, `Restored ${n} tab${n === 1 ? '' : 's'}`);
+                    }
                     sendResponse({ success });
                 }).catch(e => { console.warn('[Tabs++] open-url restore-vault error:', e.message); sendResponse({ success: false }); });
                 return true;
@@ -736,6 +749,18 @@ const isUrl = isLikelyUrl(q.toLowerCase()) || q.startsWith('localhost');
         case 'stop-pomo-timer': {
             stopPomoTimer();
             sendResponse({ success: true });
+            return true;
+        }
+
+        case 'undo-close-tabs': {
+            ensureLoaded().then(async () => {
+                const tabs = lastClosedTabs || [];
+                setLastClosedTabs([]);
+                for (const t of tabs) {
+                    await chrome.tabs.create({ url: t.url, index: t.index, pinned: t.pinned, windowId: t.windowId }).catch(() => {});
+                }
+                sendResponse({ success: true });
+            }).catch(() => sendResponse({ success: false }));
             return true;
         }
 
@@ -916,7 +941,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
                 }
             }
             syncVaultToStorage();
+            setLastClosedTabs(toClose.map(t => ({ url: t.url, index: t.index, pinned: t.pinned, windowId: t.windowId })));
             chrome.tabs.remove(toClose.map(t => t.id)).catch(() => {});
+            chrome.tabs.query({ active: true, lastFocusedWindow: true }, ([at]) => {
+                if (at) sendActionToast(at.id, `Archived ${toClose.length} tab${toClose.length === 1 ? '' : 's'}`, true);
+            });
         }
     }
 });

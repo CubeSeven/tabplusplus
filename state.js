@@ -30,6 +30,9 @@ export let discardedTabs = new Set();
 export let recentlyAwakened = new Map();
 export let pendingFocusGuardWindowIds = new Set();
 export let savedPrompts = [];
+// Tab snapshots for the Undo toast (close-other / clear-unprotected / batch archive).
+// Memory-only by design: undo lives for seconds, SW death killing it is fine.
+export let lastClosedTabs = [];
 
 
 export function setLastActiveTabId(id) { lastActiveTabId = id; }
@@ -38,6 +41,7 @@ export function setSessionVault(val) { sessionVault = val; }
 export function setTabSets(val) { tabSets = val; }
 export function setPomoTimer(val) { pomoTimer = val; }
 export function setSavedPrompts(val) { savedPrompts = val; }
+export function setLastClosedTabs(val) { lastClosedTabs = val; }
 
 
 // Helper to update settings
