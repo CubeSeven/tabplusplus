@@ -726,6 +726,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 }).catch(e => { console.warn('[Tabs++] open-url restore-vault error:', e.message); sendResponse({ success: false }); });
                 return true;
             }
+            // Engine search (palette Enter / Tab-cycled engine / bang): if a tab
+            // on that engine is already open, navigate it instead of stacking
+            // yet another one.
+            const engineHit = Object.values(SEARCH_ENGINES).find(eng => request.url.startsWith(eng.url));
+            if (engineHit) {
+                const origin = new URL(engineHit.homepage).origin;
+                chrome.tabs.query({ url: origin + '/*' }).then(async ([existing]) => {
+                    if (!existing) return false;
+                    await chrome.tabs.update(existing.id, { url: request.url, active: true });
+                    await chrome.windows.update(existing.windowId, { focused: true }).catch(() => {});
+                    sendResponse({ success: true });
+                    return true;
+                }).then((reused) => {
+                    if (reused) return;
+                    chrome.tabs.create({ url: request.url, active: true })
+                        .then(tab => {
+                            if (tab) chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+                        })
+                        .catch(() => {});
+                    sendResponse({ success: true });
+                }).catch(() => {
+                    chrome.tabs.create({ url: request.url, active: true }).catch(() => {});
+                    sendResponse({ success: true });
+                });
+                return true;
+            }
             chrome.tabs.create({ url: request.url, active: true })
                 .then(tab => {
                     if (tab) chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});

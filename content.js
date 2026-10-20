@@ -986,6 +986,17 @@ function createPalette() {
             e.stopPropagation();
         });
     });
+
+    // Focus guard: sites with aggressive autofocus (e.g. chatgpt.com) steal
+    // focus back after the timed retries in showPalette. While the palette is
+    // open, any focus landing outside it is immediately returned.
+    document.addEventListener('focusin', (e) => {
+        if (!isVisible || !palette || palette.contains(e.target)) return;
+        if (input && document.activeElement !== input) {
+            e.stopImmediatePropagation();
+            input.focus();
+        }
+    }, true);
 }
 
 function handleActionModeInput() {
