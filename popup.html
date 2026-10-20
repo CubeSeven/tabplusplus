@@ -49,29 +49,9 @@
       gap: 12px;
     }
 
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-shrink: 0;
-    }
 
-    .logo {
-      width: 18px;
-      height: 18px;
-      filter: drop-shadow(0 2px 4px rgba(255, 59, 48, 0.2));
-    }
 
-    .brand {
-      font-size: 14px;
-      font-weight: 750;
-      letter-spacing: -0.03em;
-      color: #000;
-    }
 
-    .brand span {
-      color: #ff3b30;
-    }
 
     .header-right {
       display: flex;
@@ -684,22 +664,19 @@
     }
     #tip-close-btn:hover { color: #000; }
 
-    /* Search overlay inside header (covers brand + tab menu while active) */
-    .header { position: relative; }
+    /* Search swaps inline with the tab menu while active */
+    .header-right { flex: 1; gap: 8px; }
     #search-row {
-      position: absolute; top: 0; bottom: 0; left: 0; right: 46px;
-      display: flex; align-items: center; padding: 8px 12px;
-      background: rgba(255, 255, 255, 0.97);
-      max-height: none; overflow: visible; opacity: 0;
-      pointer-events: none; z-index: 20; transform: none; border-bottom: 0;
-      transition: opacity 0.18s ease;
+      display: none; flex: 1; max-height: none; overflow: visible;
+      opacity: 1; transform: none; border-bottom: 0; padding: 0;
+      background: transparent; backdrop-filter: none;
     }
-    #search-row.active {
-      max-height: none; opacity: 1; pointer-events: auto;
-      padding: 8px 12px; transform: none; border-bottom-width: 0;
-    }
+    .header.searching #search-row { display: flex; align-items: center; }
+    .header.searching .tabs-dock { display: none; }
     .tabs-dock { flex-wrap: nowrap; }
     .tab-btn { font-size: 11px; padding: 5px 8px; }
+    /* Footers pinned to the popup bottom regardless of content height */
+    .tab-content { flex: 1 0 auto; }
 
     /* Footer brand */
     .brand-footer {
@@ -749,11 +726,6 @@
 
   <!-- Header & Tabs (Unified) -->
   <div class="header">
-    <div class="header-left">
-      <img src="assets/icon16.png" class="logo" alt="" />
-      <span class="brand">Tabs<span>++</span></span>
-    </div>
-    
     <div class="header-right">
       <div class="tabs-dock">
         <button class="tab-btn active" data-target="settings-tab">Settings</button>
@@ -763,20 +735,18 @@
         <button class="tab-btn" data-target="info-tab">Info</button>
       </div>
 
+      <div id="search-row" class="search-row">
+        <div class="search-input-wrapper">
+          <input type="text" id="global-search" class="search-input" placeholder="Search features & tools..." />
+          <div class="search-icon-inside">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          </div>
+        </div>
+      </div>
+
       <button id="search-trigger" class="btn-icon-subtle" title="Search">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
       </button>
-    </div>
-
-    <!-- Search overlay: covers the brand + tab menu while active (saves space).
-         The trigger button stays exposed at the right edge to close it. -->
-    <div id="search-row" class="search-row">
-      <div class="search-input-wrapper">
-        <input type="text" id="global-search" class="search-input" placeholder="Search features & tools..." />
-        <div class="search-icon-inside">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-        </div>
-      </div>
     </div>
   </div>
 

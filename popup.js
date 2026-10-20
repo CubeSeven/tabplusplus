@@ -484,6 +484,7 @@ const globalSearchInput = document.getElementById('global-search');
 searchTrigger.addEventListener('click', () => {
   const isActive = searchRow.classList.toggle('active');
   searchTrigger.classList.toggle('active', isActive);
+  document.querySelector('.header')?.classList.toggle('searching', isActive);
   
   if (isActive) {
     globalSearchInput.focus();
