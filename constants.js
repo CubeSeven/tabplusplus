@@ -76,11 +76,15 @@ export const BANGS = {
 
 export const SEARCH_ENGINES = {
     google:     { label: 'Google',     url: 'https://www.google.com/search?q=',              homepage: 'https://www.google.com',             suggest: 'https://suggestqueries.google.com/complete/search?client=chrome&q=' },
+    chatgpt:    { label: 'ChatGPT',    url: 'https://chatgpt.com/?q=',                        homepage: 'https://chatgpt.com',                suggest: null },
     duckduckgo: { label: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=',                    homepage: 'https://duckduckgo.com',             suggest: 'https://duckduckgo.com/ac/?q=' },
     bing:       { label: 'Bing',       url: 'https://www.bing.com/search?q=',                homepage: 'https://www.bing.com',               suggest: null },
     brave:      { label: 'Brave',      url: 'https://search.brave.com/search?q=',            homepage: 'https://search.brave.com',           suggest: null },
     perplexity: { label: 'Perplexity', url: 'https://www.perplexity.ai/search?q=',           homepage: 'https://www.perplexity.ai',          suggest: null },
 };
+
+// Tab-cycle order in the palette (client mirrors this list).
+export const ENGINE_CYCLE = ['google', 'chatgpt', 'perplexity', 'duckduckgo', 'bing', 'brave'];
 
 export const GROUP_COLORS = {
     blue: '#4285f4', red: '#ea4335', yellow: '#fbbc04', green: '#34a853',

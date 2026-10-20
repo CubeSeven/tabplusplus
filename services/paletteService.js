@@ -297,8 +297,8 @@ const VOL_ACTIONS = {
     vol_max: { level: 100 }
 };
 
-function getSearchUrl(query) {
-    const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
+function getSearchUrl(query, engineKey = null) {
+    const engine = SEARCH_ENGINES[engineKey] || SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
     return engine.url + encodeURIComponent(query);
 }
 
@@ -328,19 +328,22 @@ export async function handleSearchItems(request, sender, sendResponse) {
     const currentGen = ++searchGeneration;
     const query = (typeof request.query === 'string' ? request.query : "").trim();
     const lowerQuery = query.toLowerCase();
+    // Palette Tab-cycle: per-session engine override, null = user default
+    const engineKey = (typeof request.engine === 'string' && SEARCH_ENGINES[request.engine]) ? request.engine : null;
 
     // Single-entry memo: a backspace→retype of the same query returns the
     // previous payload for free within LAST_QUERY_TTL (well under the tab-cache
     // freshness budget, so it adds no extra staleness).
-    if (lastQueryMemo && lastQueryMemo.query === query && Date.now() - lastQueryMemo.ts < LAST_QUERY_TTL) {
+    if (lastQueryMemo && lastQueryMemo.query === query && lastQueryMemo.engine === engineKey && Date.now() - lastQueryMemo.ts < LAST_QUERY_TTL) {
         sendResponse(lastQueryMemo.payload);
         return;
     }
-    // Wrap sendResponse so every result path records into the memo automatically.
+    // Wrap sendResponse so every result path records into the memo automatically
+    // and reports the engine actually used (clients need it as cycle base).
     const realSendResponse = sendResponse;
     sendResponse = (payload) => {
-        lastQueryMemo = { query, payload, ts: Date.now() };
-        realSendResponse(payload);
+        lastQueryMemo = { query, payload, ts: Date.now(), engine: engineKey };
+        realSendResponse({ ...payload, engine: engineKey || globalSettings.searchEngine || 'google' });
     };
 
     if (query.startsWith('>')) {
@@ -692,7 +695,7 @@ export async function handleSearchItems(request, sender, sendResponse) {
             const bang = resolveBang(query);
             if (bang) results.push(bang);
             else if (isLikelyUrl(lowerQuery)) results.push({ type: 'navigate', title: `Go to ${query}`, url: query.startsWith('http') ? query : 'https://' + query });
-            else results.push({ type: 'search', title: `Search ${SEARCH_ENGINES[globalSettings.searchEngine]?.label || 'Google'} for "${query}"`, url: getSearchUrl(query) });
+            else results.push({ type: 'search', title: `Search ${(SEARCH_ENGINES[engineKey] || SEARCH_ENGINES[globalSettings.searchEngine])?.label || 'Google'} for "${query}"`, url: getSearchUrl(query, engineKey) });
         }
         suggestions.slice(0, 5).forEach(s => results.push({ type: 'search', title: s, url: getSearchUrl(s) }));
         
