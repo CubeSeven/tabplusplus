@@ -23,10 +23,12 @@ function markInherited(tabId) {
 chrome.runtime.onStartup.addListener(async () => {
     await initializeState(true);
     updateCleanupAlarms();
-    // Auto-Restore Bookmarks: wait for Chrome's session restore to settle,
-    // then reconcile (runs only when a large share of bookmarks is missing).
-    // An alarm, NOT setTimeout — a bare timer does not keep the SW alive and
-    // the idle reaper kills it before the 30s mark.
+    // Auto-Restore Bookmarks: wait for Chrome's session restore to settle
+    // (tab entries exist within ~3-5s), then reconcile. The 10s timer fires
+    // inside the SW's post-event keepalive window; the 30s alarm is a backstop
+    // in case the SW was killed early — by then the first run already ran and
+    // the second no-ops (threshold + dedupe + in-flight guard).
+    setTimeout(() => restoreAllBookmarksIfEnabled().catch(() => {}), 10000);
     chrome.alarms.create('tabs-plus-bookmark-restore', { delayInMinutes: 0.5 });
 });
 
