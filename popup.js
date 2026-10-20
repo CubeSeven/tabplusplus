@@ -233,6 +233,16 @@ function renderFeatures(settings, filter = '') {
     f.description.toLowerCase().includes(filter.toLowerCase())
   );
 
+  // Group cards under ONE header per category — the raw FEATURES order
+  // interleaved categories (Tools, Guard, Tools...). Stable sort keeps
+  // within-category order; unknown categories sort last.
+  const CATEGORY_ORDER = ['Guard', 'Search', 'Tools', 'Media', 'Performance'];
+  filtered.sort((a, b) => {
+    const ai = CATEGORY_ORDER.indexOf(a.category);
+    const bi = CATEGORY_ORDER.indexOf(b.category);
+    return (ai === -1 ? CATEGORY_ORDER.length : ai) - (bi === -1 ? CATEGORY_ORDER.length : bi);
+  });
+
   let lastCategory = null;
   filtered.forEach((feature) => {
     if (feature.category && feature.category !== lastCategory) {
