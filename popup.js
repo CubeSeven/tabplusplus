@@ -143,7 +143,7 @@ const FEATURES = [
   {
     id: 'autoRestoreBookmarks',
     title: 'Auto-Restore Bookmarks',
-    description: 'Reopen all bookmarks in a grouped window at browser start, and open newly added bookmarks automatically. Needs the Bookmarks tool enabled.',
+    description: 'Reopen all bookmarks at browser start. Requires the Bookmarks tool.',
     default: false,
     badge: 'Core',
     category: 'Guard',
