@@ -107,7 +107,7 @@ const FEATURES = [
   {
     id: 'enableBookmarks',
     title: 'Search Bookmarks',
-    description: 'Include your bookmarks in palette search. Use "> open folder <name>" to insert a bookmark folder as a tab group (capped at 100 tabs per insert).',
+    description: 'Include bookmarks in palette search and folder inserts.',
     default: false,
     badge: 'Opt-in',
     category: 'Tools',
