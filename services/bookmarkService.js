@@ -6,7 +6,6 @@ import { materializeTabs, launchInNewWindow } from './setService.js';
 // Chrome's nine valid tab-group colors, in a stable order. Used to deterministically
 // assign a color to a subfolder-derived group so the same folder always lands on
 // the same color across launches.
-const GROUP_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
 
 // Hard cap on tabs a single bookmark launch will open. materializeTabs creates
 // unpinned tabs concurrently via Promise.all, so opening hundreds at once
@@ -23,13 +22,13 @@ const PENDING_GROUP = 0;
  * Deterministically picks one of Chrome's tab-group colors from a string.
  * Same title → same color on every launch, so folders feel stable.
  */
+// Neutral by default: bookmark groups are created grey (Chrome's "uncolored"
+// look — there is no white) and keep the user's manual recolor forever via
+// the groupColorOverrides map, which the tabGroups.onUpdated listener fills.
 function colorForTitle(title) {
-    const key = (title || '').trim().toLowerCase();
-    let hash = 0;
-    for (let i = 0; i < key.length; i++) {
-        hash = (hash * 31 + key.charCodeAt(i)) | 0;
-    }
-    return GROUP_COLORS[Math.abs(hash) % GROUP_COLORS.length];
+    const key = (title || '').trim();
+    if (!key) return '';
+    return globalSettings.groupColorOverrides?.[key] || '';
 }
 
 /**

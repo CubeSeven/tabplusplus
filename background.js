@@ -319,6 +319,15 @@ if (chrome.tabGroups) {
 
     chrome.tabGroups.onUpdated.addListener((group) => {
         groupCache.set(group.id, { title: group.title || '', color: group.color || 'grey' });
+        // Remember the user's chosen color per group title — restored bookmark
+        // groups come back in that color instead of neutral grey.
+        if (group.title) {
+            const overrides = globalSettings.groupColorOverrides || {};
+            if (overrides[group.title] !== group.color) {
+                overrides[group.title] = group.color;
+                updateSettings({ groupColorOverrides: overrides });
+            }
+        }
         // Back-fill baselines for all tabs in this group so stored
         // groupTitle/groupColor stays accurate
         chrome.tabs.query({ groupId: group.id }, (tabs) => {

@@ -23,6 +23,9 @@ export const DEFAULT_SETTINGS = {
     enableVolumeControl: true,
     reduceEffects: false,
     autoRestoreBookmarks: false,
+    // group title -> user-picked color. Groups default to neutral (grey;
+    // Chrome has no white) and stay that way until recolored manually.
+    groupColorOverrides: {},
     timeFormat: '24h',
     showClock: true,
     autoPeekCrossDomain: false,
