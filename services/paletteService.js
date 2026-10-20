@@ -4,7 +4,7 @@ import { BANGS, NONE_GROUP, SEARCH_ENGINES } from '../constants.js';
 import { getBaseDomain, isLikelyUrl } from '../utils.js';
 import { syncBaselinesToStorage, ensureLoaded, safeHibernate, hibernateActiveTab, updateCleanupAlarms } from './tabService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './setService.js';
-import { performLaunchBookmarkFolder, performLaunchAllBookmarks } from './bookmarkService.js';
+import { performLaunchBookmarkFolder, performLaunchAllBookmarks, performLaunchAllBookmarksHere } from './bookmarkService.js';
 
 
 
@@ -162,6 +162,7 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'save_group', category: 'Sets', title: 'Save Group as Set', aliases: ['store group', 'save'] },
     { type: 'action', id: 'stash_group', category: 'Sets', title: 'Stash Current Group', aliases: ['hide', 'store and close'] },
     { type: 'action', id: 'open_all_bookmarks', category: 'Sets', title: 'Insert All Bookmarks in New Window', aliases: ['load all bookmarks', 'all bookmarks', 'open bookmarks'], requiredSetting: 'enableBookmarks' },
+    { type: 'action', id: 'open_all_bookmarks_here', category: 'Sets', title: 'Insert All Bookmarks in This Window', aliases: ['bookmarks here', 'open bookmarks here', 'load bookmarks here'], requiredSetting: 'enableBookmarks' },
     { type: 'action', id: 'open_bookmarks_folder_prompt', category: 'Sets', title: 'Insert a Bookmarks Folder...', aliases: ['bookmarks folder', 'open folder', 'open bookmarks'], requiredSetting: 'enableBookmarks' },
     { type: 'action', id: 'export_sets', category: 'Sets', title: 'Export Sets JSON', aliases: ['backup sets', 'download'], requiredSetting: 'enableMediaExtractor' },
     { type: 'action', id: 'hibernate_all', category: 'Performance', title: 'Hibernate Background Tabs', aliases: ['sleep', 'ram', 'memory', 'freeze'] },
@@ -974,6 +975,9 @@ export async function executeAction(commandId, args, senderTab = null) {
             }
             case 'open_all_bookmarks':
                 performLaunchAllBookmarks().catch(() => {});
+                break;
+            case 'open_all_bookmarks_here':
+                performLaunchAllBookmarksHere().catch(() => {});
                 break;
             case 'export_sets':
                 // executeAction already awaited ensureLoaded() at entry

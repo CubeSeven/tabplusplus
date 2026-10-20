@@ -107,6 +107,31 @@ export async function performLaunchAllBookmarks() {
     return launchBookmarksInNewWindow(tabDefs);
 }
 
+// Manual palette action: same as performLaunchAllBookmarks but into the
+// CURRENT window (deduped against everything already open).
+export async function performLaunchAllBookmarksHere() {
+    await ensureLoaded();
+    if (!(await bookmarksPermitted())) return false;
+    const tabDefs = await collectAllBookmarkTabDefs();
+    if (tabDefs.length === 0) return false;
+    const win = await chrome.windows.getCurrent().catch(() => null);
+    if (!win) return false;
+    const open = new Set((await chrome.tabs.query({}).catch(() => [])).map(t => getCanonicalUrl(t.url)));
+    const missing = tabDefs.filter(d => !open.has(getCanonicalUrl(d.url)));
+    if (missing.length === 0) return false;
+    launchingWindowIds.add(win.id);
+    try {
+        await materializeTabs(missing.slice(0, BOOKMARK_TAB_CAP), win.id, { dedupe: true });
+        setBookmarkWindowId(win.id);
+        return true;
+    } catch (e) {
+        console.warn('[Tabs++] bookmark launch-here error:', e.message);
+        return false;
+    } finally {
+        launchingWindowIds.delete(win.id);
+    }
+}
+
 async function collectAllBookmarkTabDefs() {
     const tree = await chrome.bookmarks.getTree().catch(() => null);
     const root = tree && tree[0];
@@ -238,6 +263,26 @@ async function doRestoreAllBookmarks() {
             console.warn('[Tabs++] bookmark restore-fold error:', e.message);
         } finally {
             launchingWindowIds.delete(bestWinId);
+        }
+    }
+
+    // If the ONLY window is a lone blank/NTP tab (typical crash-reopen with a
+    // lost session), reuse that window instead of stranding a dead empty one.
+    const wins = await chrome.windows.getAll({ populate: true }).catch(() => []);
+    const loneBlank = wins.length === 1 && wins[0].tabs?.length === 1 &&
+        /^(chrome:\/\/newtab\/?|about:blank)$/i.test(wins[0].tabs[0].url || '');
+    if (loneBlank) {
+        const winId = wins[0].id;
+        setBookmarkWindowId(winId);
+        launchingWindowIds.add(winId);
+        try {
+            await materializeTabs(missing.slice(0, BOOKMARK_TAB_CAP), winId, { dedupe: true });
+            toastActiveTab(`Restored ${Math.min(missing.length, BOOKMARK_TAB_CAP)} bookmark tabs`);
+            return true;
+        } catch (e) {
+            console.warn('[Tabs++] bookmark restore-reuse error:', e.message);
+        } finally {
+            launchingWindowIds.delete(winId);
         }
     }
 
