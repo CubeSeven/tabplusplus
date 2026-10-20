@@ -567,6 +567,19 @@ const manifest = chrome.runtime.getManifest();
 const versionDisplay = document.getElementById('version-display');
 if (versionDisplay) versionDisplay.textContent = `v${manifest.version}`;
 
+// Vault recovery chip — mirrors the SW-side 24h prune so it never advertises stale entries
+chrome.storage.local.get(['vault'], (data) => {
+    const n = (data.vault || []).filter(t => t.savedAt && t.savedAt > Date.now() - 24 * 60 * 60 * 1000).length;
+    const chip = document.getElementById('vault-chip');
+    if (!chip || n === 0) return;
+    chip.hidden = false;
+    chip.textContent = `${n} recoverable — Restore`;
+    chip.addEventListener('click', () => {
+        chrome.runtime.sendMessage({ action: 'open-url', url: 'virtual:restore-vault' }).catch(() => {});
+        window.close();
+    });
+});
+
 chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data) => {
   const merged = { ...getDefaults(), ...data.settings };
   cachedPopupSettings = merged;

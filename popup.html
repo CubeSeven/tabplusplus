@@ -637,6 +637,14 @@
     /* ── Footer ───────────────────────────────── */
 
     /* ── Tip Footer ────────────────────────────── */
+    .vault-chip {
+      all: unset; cursor: pointer;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.2px;
+      color: #666; padding: 2px 8px; border-radius: 99px;
+      border: 1px solid #e5e5e5; background: transparent;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .vault-chip:hover { color: #000; border-color: #bbb; }
     #tip-footer {
       display: flex;
       align-items: center;
@@ -716,6 +724,7 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
       </button>
 
+      <button id="vault-chip" class="vault-chip" hidden></button>
       <a class="version" href="https://github.com/CubeSeven/tabplusplus" target="_blank" id="version-display">v2.6.0</a>
     </div>
   </div>
