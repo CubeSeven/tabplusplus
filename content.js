@@ -78,7 +78,7 @@ function cycleEngine(dir) {
 function createEngineChip(inputWrapper) {
     inputWrapper.style.position = 'relative';
     const style = document.createElement('style');
-    style.textContent = `.engine-chip{display:none;position:absolute;right:14px;top:50%;transform:translateY(-50%);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em;color:inherit;background:color-mix(in srgb,currentColor 12%,transparent);cursor:pointer;user-select:none;z-index:5}.engine-chip.visible{display:block}`;
+    style.textContent = `.engine-chip{display:none;position:absolute;right:14px;top:50%;transform:translateY(-50%);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em;color:inherit;background:transparent;cursor:pointer;user-select:none;z-index:5}.engine-chip.visible{display:block}`;
     document.documentElement.appendChild(style);
     engineChip = document.createElement('div');
     engineChip.className = 'engine-chip';
