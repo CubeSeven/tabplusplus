@@ -102,8 +102,8 @@ function updateEngineChip() {
         const ns = 'http://www.w3.org/2000/svg';
         const svg = document.createElementNS(ns, 'svg');
         svg.setAttribute('viewBox', '0 0 24 24');
-        svg.setAttribute('width', '13');
-        svg.setAttribute('height', '13');
+        svg.setAttribute('width', '16');
+        svg.setAttribute('height', '16');
         svg.setAttribute('fill', 'currentColor');
         const p = document.createElementNS(ns, 'path');
         p.setAttribute('d', d);
