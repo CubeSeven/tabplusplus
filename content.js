@@ -1244,7 +1244,11 @@ function dismissVolumeSlider() {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (!request || typeof request !== 'object' || typeof request.action !== 'string') return;
     if (request.action === 'show-toast') {
-        showPageToast(request.message, { actionLabel: request.actionLabel || null, undoAction: request.undoAction || null });
+        showPageToast(request.message, {
+            actionLabel: request.actionLabel || null,
+            undoAction: request.undoAction || null,
+            undoToken: request.undoToken
+        });
         sendResponse({ success: true });
         return true;
     }
@@ -1442,11 +1446,14 @@ function createPomoUI() {
             b.style.cssText = 'all:unset;cursor:pointer;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;opacity:0.75;padding:2px 4px;';
             b.addEventListener('mouseenter', () => b.style.opacity = '1');
             b.addEventListener('mouseleave', () => b.style.opacity = '0.75');
+            b.addEventListener('focus', () => b.style.boxShadow = '0 0 0 2px #7C87F8');
+            b.addEventListener('blur', () => b.style.boxShadow = '');
             b.addEventListener('click', (e) => { e.stopPropagation(); fn(); row.remove(); });
             return b;
         };
-        row.appendChild(mkBtn('Stop', () => chrome.runtime.sendMessage({ action: 'stop-pomo-timer' }).catch(() => {})));
-        row.appendChild(mkBtn('+5 min', () => chrome.runtime.sendMessage({ action: 'extend-pomo-timer' }).catch(() => {})));
+        const safeSend = (msg) => { try { chrome.runtime.sendMessage(msg).catch(() => {}); } catch (e) { /* context invalidated */ } };
+        row.appendChild(mkBtn('Stop', () => safeSend({ action: 'stop-pomo-timer' })));
+        row.appendChild(mkBtn('+5 min', () => safeSend({ action: 'extend-pomo-timer' })));
         card.appendChild(row);
         setTimeout(() => row.remove(), 4000);
     });
@@ -3041,7 +3048,7 @@ function startCustomEyedropper(dataUrl) {
 
 // ── Shared page toast (SW-driven action feedback) ──
 let _toastHost = null;
-function showPageToast(message, { actionLabel = null, undoAction = null, duration = 3500 } = {}) {
+function showPageToast(message, { actionLabel = null, undoAction = null, undoToken = null, duration = 3500 } = {}) {
     if (!chrome.runtime?.id) return;
     if (_toastHost) { _toastHost.remove(); _toastHost = null; }
     _toastHost = document.createElement('div');
@@ -3071,22 +3078,30 @@ function showPageToast(message, { actionLabel = null, undoAction = null, duratio
             padding: 2px 6px; border-radius: 6px;
         }
         .toast-action:hover { text-decoration: underline; }
+        .toast-action:focus-visible { outline: 2px solid #7C87F8; outline-offset: 1px; }
     `;
     const toast = document.createElement('div');
     toast.className = 'toast';
     const label = document.createElement('span');
     label.textContent = String(message || '');
     toast.appendChild(label);
+    const host = _toastHost; // a stale dismiss must never remove a NEWER toast
     function dismiss() {
         toast.classList.remove('show');
-        setTimeout(() => { if (_toastHost) { _toastHost.remove(); _toastHost = null; } }, 300);
+        setTimeout(() => { if (_toastHost === host) { _toastHost.remove(); _toastHost = null; } }, 300);
     }
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
     if (actionLabel && undoAction) {
         const btn = document.createElement('button');
         btn.className = 'toast-action';
         btn.textContent = String(actionLabel);
         btn.addEventListener('click', () => {
-            chrome.runtime.sendMessage({ action: undoAction }).catch(() => {});
+            // sendMessage throws synchronously after an extension reload —
+            // the .catch() alone never sees it.
+            try {
+                chrome.runtime.sendMessage({ action: undoAction, ...(undoToken !== null && undoToken !== undefined ? { undoToken } : {}) }).catch(() => {});
+            } catch (e) { /* context invalidated */ }
             dismiss();
         });
         toast.appendChild(btn);
