@@ -622,6 +622,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         case 'open-url':
             if (typeof request.url !== 'string') { sendResponse({ success: false }); return; }
+            if (request.url.startsWith('virtual:split?')) {
+                const params = new URLSearchParams(request.url.slice('virtual:split?'.length));
+                const leftUrl = params.get('l') || '';
+                const rightUrl = params.get('r') || '';
+                if (!leftUrl || !rightUrl) { sendResponse({ success: false }); return; }
+                ensureLoaded().then(async () => {
+                    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                    if (!tab) { sendResponse({ success: false }); return; }
+                    const win = await chrome.windows.get(tab.windowId);
+                    const halfW = Math.floor(win.width / 2);
+                    await chrome.windows.update(tab.windowId, { width: halfW, left: win.left });
+                    // Left pane = first URL. Navigate current tab unless pinned (then new tab).
+                    if (tab.pinned) await chrome.tabs.create({ url: leftUrl, windowId: tab.windowId }).catch(() => {});
+                    else await chrome.tabs.update(tab.id, { url: leftUrl }).catch(() => {});
+                    await chrome.windows.create({ url: rightUrl, width: halfW, left: win.left + halfW, top: win.top, height: win.height, focused: true }).catch(() => {});
+                    sendResponse({ success: true });
+                }).catch(() => sendResponse({ success: false }));
+                return true;
+            }
             if (request.url === 'virtual:restore-vault') {
                 ensureLoaded().then(async () => {
                     const n = sessionVault.length;

@@ -669,6 +669,24 @@ export async function handleSearchItems(request, sender, sendResponse) {
     ]).then(async ([tabs, history, bookmarks, suggestions, closedSessions]) => {
         if (currentGen !== searchGeneration) return;
         let results = [...virtualResults];
+        if (query && query.includes('|')) {
+            const parts = query.split('|');
+            const left = parts[0].trim();
+            const right = parts.length === 2 ? parts[1].trim() : '';
+            if (left && right) {
+                // Non-URL side resolves to a search-results page (approved behavior)
+                const resolveSide = (s) => {
+                    const low = s.toLowerCase();
+                    if (isLikelyUrl(low) || low.startsWith('localhost')) return s.includes('://') ? s : 'https://' + s;
+                    return getSearchUrl(s);
+                };
+                results.push({
+                    type: 'split',
+                    title: `Split view: ${left}  |  ${right}`,
+                    url: `virtual:split?l=${encodeURIComponent(resolveSide(left))}&r=${encodeURIComponent(resolveSide(right))}`
+                });
+            }
+        }
         if (query) {
             const bang = resolveBang(query);
             if (bang) results.push(bang);

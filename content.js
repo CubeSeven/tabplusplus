@@ -1549,9 +1549,10 @@ const GROUP_COLORS = {
     pink: '#ff6d9f', purple: '#a142f4', cyan: '#24c1e0', orange: '#fa7b17', grey: '#9e9e9e'
 };
 
-const SECTION_ORDER = ['action', 'bang', 'navigate', 'search', 'tab', 'closed', 'bookmark', 'history', 'vault'];
+const SECTION_ORDER = ['action', 'bang', 'navigate', 'split', 'search', 'tab', 'closed', 'bookmark', 'history', 'vault'];
 const SECTION_LABELS = {
     action: 'Actions',
+    split: 'Split View',
     vault: 'Protected Tabs',
     tab: 'Open Tabs',
     closed: 'Recently Closed',
@@ -1572,7 +1573,7 @@ const LOGO_ICON = `<svg width="30" height="30" viewBox="0 0 193 193" fill="none"
 
 const TYPE_FALLBACK = {
     action: ICONS.zap, tab: ICONS.globe, history: ICONS.clock, bookmark: ICONS.star, bang: ICONS.zap,
-    search: ICONS.search, navigate: ICONS.link, closed: ICONS.clock, default: ICONS.file
+    search: ICONS.search, navigate: ICONS.link, split: ICONS.link, closed: ICONS.clock, default: ICONS.file
 };
 
 function getFaviconHtml(result) {
