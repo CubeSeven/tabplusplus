@@ -1,4 +1,4 @@
-import { globalSettings, updateSettings, tabSets, memoryBaselines, sessionVault, setLastClosedTabs } from '../state.js';
+import { globalSettings, updateSettings, tabSets, memoryBaselines, sessionVault, setLastClosedTabs, bumpUndoSerial } from '../state.js';
 import { startPomoTimer, stopPomoTimer } from './pomoService.js';
 import { BANGS, NONE_GROUP, SEARCH_ENGINES } from '../constants.js';
 import { getBaseDomain, isLikelyUrl } from '../utils.js';
@@ -1056,11 +1056,12 @@ export async function executeAction(commandId, args, senderTab = null) {
                 const closing = tabs.filter(t => !t.pinned && t.groupId === NONE_GROUP && !t.active);
                 if (closing.length > 0) {
                     setLastClosedTabs(closing.map(t => ({ url: t.url, index: t.index, pinned: t.pinned, windowId: t.windowId })));
+                    const undoToken = bumpUndoSerial();
                     chrome.tabs.remove(closing.map(t => t.id)).catch(() => {});
                     if (senderTab) chrome.tabs.sendMessage(senderTab.id, {
                         action: 'show-toast',
                         message: `Closed ${closing.length} unprotected tab${closing.length === 1 ? '' : 's'}`,
-                        actionLabel: 'Undo', undoAction: 'undo-close-tabs'
+                        actionLabel: 'Undo', undoAction: 'undo-close-tabs', undoToken
                     }).catch(() => {});
                 }
                 break;
@@ -1115,12 +1116,13 @@ export async function executeAction(commandId, args, senderTab = null) {
                 const closing = tabs.filter(t => t.id !== tab.id);
                 if (closing.length > 0) {
                     setLastClosedTabs(closing.map(t => ({ url: t.url, index: t.index, pinned: t.pinned, windowId: t.windowId })));
+                    const undoToken = bumpUndoSerial();
                     chrome.tabs.remove(closing.map(t => t.id)).catch(() => {});
                     const toastId = senderTab ? senderTab.id : tab.id;
                     chrome.tabs.sendMessage(toastId, {
                         action: 'show-toast',
                         message: `Closed ${closing.length} tab${closing.length === 1 ? '' : 's'}`,
-                        actionLabel: 'Undo', undoAction: 'undo-close-tabs'
+                        actionLabel: 'Undo', undoAction: 'undo-close-tabs', undoToken
                     }).catch(() => {});
                 }
                 break;

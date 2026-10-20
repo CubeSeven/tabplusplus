@@ -35,6 +35,9 @@ export let savedPrompts = [];
 export let lastClosedTabs = [];
 // Window that holds the auto-restored bookmarks (Auto-Restore Bookmarks).
 export let bookmarkWindowId = null;
+// Serial for the single undo slot — toasts carry it so stale Undo clicks
+// (payload already replaced by a newer action) are rejected.
+export let undoSerial = 0;
 
 
 export function setLastActiveTabId(id) { lastActiveTabId = id; }
@@ -45,6 +48,7 @@ export function setPomoTimer(val) { pomoTimer = val; }
 export function setSavedPrompts(val) { savedPrompts = val; }
 export function setLastClosedTabs(val) { lastClosedTabs = val; }
 export function setBookmarkWindowId(val) { bookmarkWindowId = val; }
+export function bumpUndoSerial() { return ++undoSerial; }
 
 
 // Helper to update settings

@@ -1,7 +1,8 @@
-import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, blurredSourceTabs, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds, savedPrompts, setSavedPrompts, lastClosedTabs, setLastClosedTabs } from './state.js';
+import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, blurredSourceTabs, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds, savedPrompts, setSavedPrompts, lastClosedTabs, setLastClosedTabs, undoSerial } from './state.js';
 import { NONE_GROUP, NTP_URL, SEARCH_ENGINES } from './constants.js';
 import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard, isLikelyUrl, parseThresholdToMs } from './utils.js';
 import { persistSessionState } from './services/sessionState.js';
+import { bumpUndoSerial } from './state.js';
 import { restoreAllBookmarksIfEnabled, reconcileNewBookmarks } from './services/bookmarkService.js';
 import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines, pruneProtectedHost, focusNtpTab } from './services/tabService.js';
 import { stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
@@ -544,13 +545,19 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 });
 
 // --- MESSAGE DISPATCHER ---
-function sendActionToast(tabId, message, undo = false) {
-    if (typeof tabId !== 'number') return;
-    chrome.tabs.sendMessage(tabId, {
+function sendActionToast(tabId, message, undo = false, undoToken = null) {
+    const payload = {
         action: 'show-toast',
         message,
-        ...(undo ? { actionLabel: 'Undo', undoAction: 'undo-close-tabs' } : {})
-    }).catch(() => {});
+        ...(undo ? { actionLabel: 'Undo', undoAction: 'undo-close-tabs', ...(undoToken !== null ? { undoToken } : {}) } : {})
+    };
+    const deliver = (id) => {
+        if (typeof id !== 'number') return;
+        chrome.tabs.sendMessage(id, payload).catch(() => {});
+    };
+    if (typeof tabId === 'number') { deliver(tabId); return; }
+    // Popup senders have no tab — route the toast to the active tab instead
+    chrome.tabs.query({ active: true, lastFocusedWindow: true }, ([at]) => deliver(at?.id));
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -821,10 +828,17 @@ const isUrl = isLikelyUrl(q.toLowerCase()) || q.startsWith('localhost');
 
         case 'undo-close-tabs': {
             ensureLoaded().then(async () => {
+                // Stale toast: the payload was replaced by a newer action
+                if (typeof request.undoToken === 'number' && request.undoToken !== undoSerial) {
+                    sendResponse({ success: false });
+                    return;
+                }
                 const tabs = lastClosedTabs || [];
                 setLastClosedTabs([]);
+                const liveWins = new Set((await chrome.windows.getAll().catch(() => [])).map(w => w.id));
                 for (const t of tabs) {
-                    await chrome.tabs.create({ url: t.url, index: t.index, pinned: t.pinned, windowId: t.windowId }).catch(() => {});
+                    const winId = liveWins.has(t.windowId) ? t.windowId : chrome.windows.WINDOW_ID_CURRENT;
+                    await chrome.tabs.create({ url: t.url, pinned: t.pinned, windowId: winId }).catch(() => {});
                 }
                 sendResponse({ success: true });
             }).catch(() => sendResponse({ success: false }));
@@ -839,7 +853,7 @@ const isUrl = isLikelyUrl(q.toLowerCase()) || q.startsWith('localhost');
             ensureLoaded().then(async () => {
                 if (!pomoTimer.isActive) { sendResponse({ success: false }); return; }
                 // Extend keeps elapsed time — do NOT restart via startPomoTimer
-                const endTime = pomoTimer.endTime + 5 * 60 * 1000;
+                const endTime = Math.max(Date.now(), pomoTimer.endTime) + 5 * 60 * 1000;
                 const minutes = (pomoTimer.minutes || 0) + 5;
                 setPomoTimer({ endTime, type: pomoTimer.type, isActive: true, minutes });
                 persistSessionState();
@@ -1015,9 +1029,10 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
             }
             syncVaultToStorage();
             setLastClosedTabs(toClose.map(t => ({ url: t.url, index: t.index, pinned: t.pinned, windowId: t.windowId })));
+            const undoToken = bumpUndoSerial();
             chrome.tabs.remove(toClose.map(t => t.id)).catch(() => {});
             chrome.tabs.query({ active: true, lastFocusedWindow: true }, ([at]) => {
-                if (at) sendActionToast(at.id, `Archived ${toClose.length} tab${toClose.length === 1 ? '' : 's'}`, true);
+                sendActionToast(at?.id, `Archived ${toClose.length} tab${toClose.length === 1 ? '' : 's'}`, true, undoToken);
             });
         }
     }
