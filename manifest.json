@@ -6,6 +6,7 @@
   "permissions": [
     "tabs",
     "storage",
+    "favicon",
     "tabGroups",
     "scripting",
     "alarms"

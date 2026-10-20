@@ -639,6 +639,11 @@ function renderProtectedRestoreList(missing, snap) {
     const s = snap[host] || {};
     const row = document.createElement('div');
     row.className = 'restore-item';
+      const fav = document.createElement('img');
+      fav.className = 'restore-item-fav';
+      fav.src = chrome.runtime.getURL('/_favicon/?pageUrl=' + encodeURIComponent(s.url || ('https://' + host)) + '&size=16');
+      fav.alt = '';
+      row.appendChild(fav);
     const name = document.createElement('span');
     name.className = 'restore-item-name';
     name.textContent = s.title || host;
@@ -673,6 +678,11 @@ function renderArchiveRestoreList() {
       const row = document.createElement('div');
       row.className = 'restore-item';
       row.style.cursor = 'pointer';
+      const fav = document.createElement('img');
+      fav.className = 'restore-item-fav';
+      fav.src = chrome.runtime.getURL('/_favicon/?pageUrl=' + encodeURIComponent(t.url) + '&size=16');
+      fav.alt = '';
+      row.appendChild(fav);
       const name = document.createElement('span');
       name.className = 'restore-item-name';
       name.textContent = t.title || t.url || 'Tab';
