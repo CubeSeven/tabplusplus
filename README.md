@@ -19,7 +19,7 @@
 | Smart Engine Tabs | Engine searches reuse an already-open tab on that engine instead of stacking new ones |
 | Undo Everywhere | Destructive actions show toasts with a working Undo |
 
-See [docs/UPDATE_NOTES.md](docs/UPDATE_NOTES.md) for the full changelog.
+See the [Feature Guide](docs/FEATURES.md) for how to use each one, and [docs/UPDATE_NOTES.md](docs/UPDATE_NOTES.md) for the full changelog.
 
 ---
 
