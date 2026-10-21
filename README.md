@@ -1,8 +1,25 @@
-# Tabs++ — v2.6.0
+# Tabs++ — v2.7.0
 
 [**Live Demo & Docs**](https://cubeseven.github.io/tabplusplus/)
 
 **Tabs++** is a professional, high-performance browser extension that transforms Google Chrome into a persistent, focused workspace with tab protection, workspace management, and 90+ developer-first tools.
+
+---
+
+## ✨ New in v2.7.0
+
+| Title | Description |
+| :--- | :--- |
+| Engine Cycling | Press **Tab** in the palette to switch search engine (Google → ChatGPT → Perplexity → DuckDuckGo → Bing → Brave) — query stays typed |
+| Local-First Search | Opt-in: your open tabs, bookmarks and history rank above web suggestions, with a pre-selected Top Hit |
+| Split View | Type `site1.com \| site2.com` in the palette for Chrome's native side-by-side (155+) |
+| Auto-Restore Bookmarks | Opt-in safety net: reopens all bookmarks grouped ~10s after a crash-restart, deduped, 100-tab cap |
+| Restore Tab | Popup tab with archived + protected tabs, favicons, one-click (or Enter) restore |
+| Neutral Group Colors | Tab groups default to grey; your manual recolors persist across restores |
+| Smart Engine Tabs | Engine searches reuse an already-open tab on that engine instead of stacking new ones |
+| Undo Everywhere | Destructive actions show toasts with a working Undo |
+
+See [docs/UPDATE_NOTES.md](docs/UPDATE_NOTES.md) for the full changelog.
 
 ---
 
