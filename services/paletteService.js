@@ -2,6 +2,7 @@ import { globalSettings, updateSettings, tabSets, memoryBaselines, sessionVault,
 import { startPomoTimer, stopPomoTimer } from './pomoService.js';
 import { BANGS, NONE_GROUP, SEARCH_ENGINES } from '../constants.js';
 import { getBaseDomain, isLikelyUrl } from '../utils.js';
+import { applyLocalFirst } from './searchRanking.js';
 import { syncBaselinesToStorage, ensureLoaded, safeHibernate, hibernateActiveTab, updateCleanupAlarms } from './tabService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './setService.js';
 import { performLaunchBookmarkFolder, performLaunchAllBookmarks, performLaunchAllBookmarksHere } from './bookmarkService.js';
@@ -697,7 +698,7 @@ export async function handleSearchItems(request, sender, sendResponse) {
             else if (isLikelyUrl(lowerQuery)) results.push({ type: 'navigate', title: `Go to ${query}`, url: query.startsWith('http') ? query : 'https://' + query });
             else results.push({ type: 'search', title: `Search ${(SEARCH_ENGINES[engineKey] || SEARCH_ENGINES[globalSettings.searchEngine])?.label || 'Google'} for "${query}"`, url: getSearchUrl(query, engineKey) });
         }
-        suggestions.slice(0, 5).forEach(s => results.push({ type: 'search', title: s, url: getSearchUrl(s) }));
+        suggestions.slice(0, 5).forEach(s => results.push({ type: 'search', title: s, url: getSearchUrl(s, engineKey), _suggestion: true }));
         
         const formattedTabs = tabs.filter(t => !query || (t._titleLower && t._titleLower.includes(lowerQuery)) || (t._urlLower && t._urlLower.includes(lowerQuery))).slice(0, query ? 5 : 15).map(t => ({
             type: 'tab', id: t.id, title: t.title || t.url, url: t.url, windowId: t.windowId, favIconUrl: t.favIconUrl || null, groupId: t.groupId ?? NONE_GROUP
@@ -737,7 +738,8 @@ export async function handleSearchItems(request, sender, sendResponse) {
         }
 
         const seen = new Set();
-        sendResponse({ results: results.filter(r => !r.url || (seen.has(r.url) ? false : seen.add(r.url))) });
+        const deduped = results.filter(r => !r.url || (seen.has(r.url) ? false : seen.add(r.url)));
+        sendResponse({ results: globalSettings.preferLocalResults ? applyLocalFirst(deduped, query, sender?.tab?.id) : deduped });
     }).catch(() => sendResponse({ results: [] }));
 }
 

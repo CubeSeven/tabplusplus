@@ -1657,15 +1657,17 @@ const GROUP_COLORS = {
     pink: '#ff6d9f', purple: '#a142f4', cyan: '#24c1e0', orange: '#fa7b17', grey: '#9e9e9e'
 };
 
-const SECTION_ORDER = ['action', 'bang', 'navigate', 'split', 'search', 'tab', 'closed', 'bookmark', 'history', 'vault'];
+const SECTION_ORDER = ['tophit', 'action', 'bang', 'navigate', 'split', 'search', 'tab', 'closed', 'bookmark', 'history', 'vault', 'suggestion'];
 const SECTION_LABELS = {
+    tophit: 'Top Hit',
     action: 'Actions',
     split: 'Split View',
     vault: 'Protected Tabs',
     tab: 'Open Tabs',
     closed: 'Recently Closed',
     bookmark: 'Bookmarks',
-    history: 'History'
+    history: 'History',
+    suggestion: 'Suggestions'
 };
 const ICONS = {
     zap: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
@@ -1739,7 +1741,8 @@ function renderResults(results) {
     const grouped = {};
     SECTION_ORDER.forEach(t => grouped[t] = []);
     results.forEach(r => {
-        const key = SECTION_ORDER.includes(r.type) ? r.type : 'history';
+        // _section is set by Local-First Search and overrides the type's section.
+        const key = [r._section, r.type].find(k => SECTION_ORDER.includes(k)) || 'history';
         grouped[key].push(r);
     });
 

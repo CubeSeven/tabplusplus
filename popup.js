@@ -114,6 +114,15 @@ const FEATURES = [
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`
   },
   {
+    id: 'preferLocalResults',
+    title: 'Local-First Search',
+    description: 'Show matching tabs, bookmarks and history above web suggestions, with the best match on top.',
+    default: false,
+    badge: null,
+    category: 'Tools',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 12H3"/><path d="M16 18H3"/><path d="M10 6H3"/><path d="M21 18V8a2 2 0 0 0-2-2h-5"/><path d="m16 8-2-2 2-2"/></svg>`
+  },
+  {
     id: 'enableRecentlyClosed',
     title: 'Recently Closed',
     description: 'Show recently closed tabs at the top of the palette.',
