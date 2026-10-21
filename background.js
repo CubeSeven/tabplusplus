@@ -118,6 +118,18 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
         }
     }
 
+    // Restore Guard (issue #10 bug 1): closing the ACTIVE pinned/grouped tab
+    // woke a hibernated neighbor before our restore landed. Put it back to
+    // sleep — the restored tab owns the focus now.
+    if (pendingRestoreWindowIds.has(activeInfo.windowId)) {
+        const isDiscarded = discardedTabs.has(activeInfo.tabId);
+        const awakenedTime = recentlyAwakened.get(activeInfo.tabId);
+        const recentlyAwoke = awakenedTime && (Date.now() - awakenedTime < 1000);
+        if (isDiscarded || recentlyAwoke) {
+            chrome.tabs.discard(activeInfo.tabId).catch(() => {});
+        }
+    }
+
     // Auto-Collapse sibling guard: when a tab in a group is closed, Chrome
     // auto-focuses a sibling. If that sibling is in a group currently being
     // closed (groupClosureTracker is alive), redirect focus to NTP and
@@ -484,10 +496,19 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             }
 
             // Protected tab single close: RESTORE
+            // If the CLOSED tab was the active one (Ctrl+W), Chrome has already
+            // focused — and woken — a hibernated neighbor. Restore takes focus
+            // back (issue #10 bug 1) and the onActivated restore-guard re-sleeps
+            // the neighbor. Skip active-restore when we're about to collapse.
+            const restoreActive = tabId === lastActiveTabId && !data._collapseAfterRestore;
+            if (restoreActive) {
+                pendingRestoreWindowIds.add(removeInfo.windowId);
+                setTimeout(() => pendingRestoreWindowIds.delete(removeInfo.windowId), 1500);
+            }
             try {
                 const newTab = await chrome.tabs.create({
                     url: data.url, pinned: data.pinned,
-                    windowId: removeInfo.windowId, active: false, index: data.index
+                    windowId: removeInfo.windowId, active: restoreActive, index: data.index
                 });
 
                 let resolvedGid = NONE_GROUP;
