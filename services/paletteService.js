@@ -1145,7 +1145,8 @@ export async function executeAction(commandId, args, senderTab = null) {
                             const res = await chrome.tabs.sendMessage(tab.id, { action: "get-video-time" }).catch(() => null);
                             if (res?.timestamp) {
                                 const u = new URL(url);
-                                if (u.hostname.includes("vimeo.com")) {
+                                const h = u.hostname;
+                                if (h === "vimeo.com" || h.endsWith(".vimeo.com")) {
                                     u.hash = "t=" + res.timestamp;
                                 } else {
                                     u.searchParams.set("t", res.timestamp);

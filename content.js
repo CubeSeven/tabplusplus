@@ -2860,15 +2860,16 @@ function getVideoTimestamp() {
     
     const seconds = Math.floor(v.currentTime);
     const host = window.location.hostname;
-    
-    if (host.includes('youtube.com')) return `${seconds}s`;
-    if (host.includes('twitch.tv')) {
+    const isHost = (d) => host === d || host.endsWith('.' + d);
+
+    if (isHost('youtube.com')) return `${seconds}s`;
+    if (isHost('twitch.tv')) {
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         const s = seconds % 60;
         return `${h}h${m}m${s}s`;
     }
-    if (host.includes('vimeo.com')) {
+    if (isHost('vimeo.com')) {
         const m = Math.floor(seconds / 60);
         const s = seconds % 60;
         return `${m}m${s}s`;
