@@ -1,6 +1,12 @@
 # Tabs++ — v2.7.0
 
-[**Live Demo & Docs**](https://cubeseven.github.io/tabplusplus/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Manifest V3](https://img.shields.io/badge/Manifest-V3-4285F4.svg)](https://developer.chrome.com/docs/extensions/develop/migrate)
+[![Latest Release](https://img.shields.io/github/v/release/CubeSeven/tabplusplus)](https://github.com/CubeSeven/tabplusplus/releases)
+
+[**Live Demo & Docs**](https://cubeseven.github.io/tabplusplus/) · [**Download latest release**](https://github.com/CubeSeven/tabplusplus/releases/latest)
+
+**Open source (MIT).** Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Tabs++** is a professional, high-performance browser extension that transforms Google Chrome into a persistent, focused workspace with tab protection, workspace management, and 90+ developer-first tools.
 
