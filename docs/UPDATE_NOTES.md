@@ -1,3 +1,26 @@
+## v2.7.0
+
+**New**
+- Palette: press **Tab** to cycle search engines (Google → ChatGPT → Perplexity → DuckDuckGo → Bing → Brave). Brand-icon chip shows the active engine; click it to reset. Shift+Tab reverses.
+- ChatGPT added as a first-class search engine.
+- Local-First Search (PR #19, opt-in): open tabs, bookmarks and history rank above web suggestions, with an optional pre-selected Top Hit.
+- Split View: type `a | b` in the palette to open two URLs in Chrome's native split view (155+).
+- Auto-Restore Bookmarks (opt-in): reopens all bookmarks ~10s after a crash-restart, deduped, grouped, 100-tab cap. Live adds fold into the bookmarks window.
+- Restore tab in the popup: archived tabs and protected snapshot with favicons, keyboard accessible.
+- `Insert All Bookmarks in This Window` palette action.
+
+**Changed**
+- Tab groups default to neutral grey; manual recolors persist across restores.
+- Engine searches reuse an already-open tab on that engine instead of stacking new ones.
+- Popup rework: footer brand, inline search, Info tab.
+- Toast system shared everywhere, with Undo (token-guarded against stale clicks).
+- Dropped bundled Inter font (~220KB smaller); system font stack.
+
+**Fixed**
+- Focus guard: aggressive-autofocus sites (chatgpt.com) can no longer steal the palette input.
+- Service worker registration crashes (tabs.onUpdated filters, optional-permission namespaces, permissions.onGranted).
+- Undo restores into dead windows; stale undo toasts; engine suggestions now respect the cycled engine.
+
 Latest Update: v2.6.0 (Bug fixes + bookmark folders)
 
 **What changed in v2.6.0:**

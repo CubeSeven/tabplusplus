@@ -1,7 +1,10 @@
-import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, blurredSourceTabs, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds, savedPrompts, setSavedPrompts } from './state.js';
+import { memoryBaselines, globalSettings, lastActiveTabId, setLastActiveTabId, groupCache, peekWindows, blurredSourceTabs, evictionGraveyard, recreationRegistry, groupClosureTracker, windowBatchTracker, closingWindowIds, ntpTabCache, sessionVault, vaultCanonicalUrls, setSessionVault, tabSets, updateSettings, pomoTimer, setPomoTimer, launchingWindowIds, pendingLaunches, decrementPendingLaunches, discardedTabs, recentlyAwakened, pendingFocusGuardWindowIds, pendingRestoreWindowIds, savedPrompts, setSavedPrompts, lastClosedTabs, setLastClosedTabs, undoSerial } from './state.js';
 import { NONE_GROUP, NTP_URL, SEARCH_ENGINES } from './constants.js';
-import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard } from './utils.js';
-import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines, persistProtectedSnapshot, pruneProtectedHost } from './services/tabService.js';
+import { getCanonicalUrl, safeDiscard, getBaseDomain, clearPendingDiscard, isLikelyUrl, parseThresholdToMs } from './utils.js';
+import { persistSessionState } from './services/sessionState.js';
+import { bumpUndoSerial } from './state.js';
+import { restoreAllBookmarksIfEnabled, reconcileNewBookmarks } from './services/bookmarkService.js';
+import { ensureLoaded, initializeState, processTab, applyAutoGrouping, applyAutoCollapse, syncBaselinesToStorage, syncVaultToStorage, syncSetsToStorage, syncPromptsToStorage, restoreVault, safeHibernate, updateCleanupAlarms, evictUnprotectedBaselines, registerProtectedBaselines, pruneProtectedHost, focusNtpTab } from './services/tabService.js';
 import { stopPomoTimer, broadcastPomoState } from './services/pomoService.js';
 import { handleSearchItems, executeAction } from './services/paletteService.js';
 import { cleanupPeekWindow, handleOpenPeek, handlePromotePeek, handleCheckPeekStatus } from './services/peekService.js';
@@ -22,7 +25,43 @@ chrome.runtime.onStartup.addListener(async () => {
     await initializeState(true);
     refreshGroupOrder();
     updateCleanupAlarms();
+    // Auto-Restore Bookmarks: wait for Chrome's session restore to settle
+    // (tab entries exist within ~3-5s), then reconcile. The 10s timer fires
+    // inside the SW's post-event keepalive window; the 30s alarm is a backstop
+    // in case the SW was killed early — by then the first run already ran and
+    // the second no-ops (threshold + dedupe + in-flight guard).
+    setTimeout(() => restoreAllBookmarksIfEnabled().catch(() => {}), 10000);
+    chrome.alarms.create('tabs-plus-bookmark-restore', { delayInMinutes: 0.5 });
 });
+
+// Auto-Restore Bookmarks: fold newly added/changed bookmarks into the
+// bookmarks window. Debounced — imports and sync create bookmarks in bursts.
+// These listeners only fire while the optional bookmarks permission is granted.
+let bookmarkReconcileTimer = null;
+function scheduleBookmarkReconcile() {
+    if (bookmarkReconcileTimer) clearTimeout(bookmarkReconcileTimer);
+    bookmarkReconcileTimer = setTimeout(() => {
+        bookmarkReconcileTimer = null;
+        reconcileNewBookmarks().catch(() => {});
+    }, 2000);
+}
+function registerBookmarkWatchers() {
+    // The chrome.bookmarks namespace does not exist until the optional
+    // permission is granted — touching it unguarded kills the SW.
+    if (!chrome.bookmarks?.onCreated) return;
+    chrome.bookmarks.onCreated.addListener(scheduleBookmarkReconcile);
+    chrome.bookmarks.onChanged.addListener((id, info) => { if (info.url) scheduleBookmarkReconcile(); });
+}
+registerBookmarkWatchers();
+// Listeners bound before the optional bookmarks permission is granted stay
+// dead in the live SW instance. permissions.onGranted is NOT exposed to
+// service workers (undefined here — it once killed SW registration), so the
+// popup notifies us right after its user-gesture permissions.request().
+if (chrome.permissions?.onGranted?.addListener) {
+    chrome.permissions.onGranted.addListener((p) => {
+        if (p.permissions?.includes('bookmarks')) registerBookmarkWatchers();
+    });
+}
 chrome.runtime.onInstalled.addListener(async (details) => {
     await initializeState(false);
     refreshGroupOrder();
@@ -55,6 +94,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
     chrome.windows.getAll({ windowTypes: ['normal'] }).then(remaining => {
         if (remaining.length === 0) { syncBaselinesToStorage(true); }
     }).catch(() => {});
+    persistSessionState();
 });
 
 // --- TAB LISTENERS (CONSOLIDATED) ---
@@ -81,6 +121,18 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
         }
     }
 
+    // Restore Guard (issue #10 bug 1): closing the ACTIVE pinned/grouped tab
+    // woke a hibernated neighbor before our restore landed. Put it back to
+    // sleep — the restored tab owns the focus now.
+    if (pendingRestoreWindowIds.has(activeInfo.windowId)) {
+        const isDiscarded = discardedTabs.has(activeInfo.tabId);
+        const awakenedTime = recentlyAwakened.get(activeInfo.tabId);
+        const recentlyAwoke = awakenedTime && (Date.now() - awakenedTime < 1000);
+        if (isDiscarded || recentlyAwoke) {
+            chrome.tabs.discard(activeInfo.tabId).catch(() => {});
+        }
+    }
+
     // Auto-Collapse sibling guard: when a tab in a group is closed, Chrome
     // auto-focuses a sibling. If that sibling is in a group currently being
     // closed (groupClosureTracker is alive), redirect focus to NTP and
@@ -91,23 +143,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
             if (!groupClosureTracker.has(tab.groupId)) return;
             // Move focus away so the sibling can be discarded
             try {
-                const cachedNtpId = globalSettings.useDefaultNtp ? null : ntpTabCache.get(tab.windowId);
-                if (cachedNtpId) {
-                    await chrome.tabs.update(cachedNtpId, { active: true });
-                } else {
-                    const existing = await chrome.tabs.query({ url: NTP_URL, windowId: tab.windowId });
-                    if (existing && existing.length > 0) {
-                        ntpTabCache.set(tab.windowId, existing[0].id);
-                        await chrome.tabs.update(existing[0].id, { active: true });
-                    } else {
-                        const createOpts = globalSettings.useDefaultNtp
-                            ? { active: true, windowId: tab.windowId, index: 9999 }
-                            : { url: NTP_URL, active: true, windowId: tab.windowId, index: 9999 };
-                        const c = await chrome.tabs.create(createOpts);
-                        if (!globalSettings.useDefaultNtp) ntpTabCache.set(tab.windowId, c.id);
-                        if (c.groupId !== NONE_GROUP) chrome.tabs.ungroup(c.id).catch(() => {});
-                    }
-                }
+                await focusNtpTab(tab.windowId);
             } catch (e) {}
             safeDiscard(tab.id);
         });
@@ -127,6 +163,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
             blurredSourceTabs.delete(activeInfo.tabId);
         }
     }
+    persistSessionState();
 });
 
 const pendingInheritanceCheck = new Set();
@@ -177,6 +214,16 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+    // Chrome's tabs.onUpdated does NOT support event filters (Firefox-only
+    // API shape). Gate synchronously instead so irrelevant property changes
+    // (title, favIconUrl, audible, muted…) never reach the async cascade.
+    const relevant =
+        changeInfo.url !== undefined ||
+        changeInfo.status !== undefined ||
+        changeInfo.pinned !== undefined ||
+        changeInfo.groupId !== undefined ||
+        changeInfo.discarded !== undefined;
+    if (!relevant) return;
     await ensureLoaded();
 
     // Redirect Chrome's native NTP to Tabs++ NTP when user wants it.
@@ -262,6 +309,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     if (changeInfo.discarded === true && tab.groupId !== NONE_GROUP) {
         applyAutoCollapse(tab.groupId, tab.windowId);
     }
+    persistSessionState();
 });
 
 // Tab ID replacement on hibernation restore
@@ -286,6 +334,15 @@ if (chrome.tabGroups) {
 
     chrome.tabGroups.onUpdated.addListener((group) => {
         groupCache.set(group.id, { title: group.title || '', color: group.color || 'grey' });
+        // Remember the user's chosen color per group title — restored bookmark
+        // groups come back in that color instead of neutral grey.
+        if (group.title) {
+            const overrides = globalSettings.groupColorOverrides || {};
+            if (overrides[group.title] !== group.color) {
+                overrides[group.title] = group.color;
+                updateSettings({ groupColorOverrides: overrides });
+            }
+        }
         // Back-fill baselines for all tabs in this group so stored
         // groupTitle/groupColor stays accurate
         chrome.tabs.query({ groupId: group.id }, (tabs) => {
@@ -331,30 +388,9 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     if (!isPaletteClosing && !isProtectedTab && globalSettings.focusNTPOnClose && tabId === lastActiveTabId && !removeInfo.isWindowClosing) {
         pendingFocusGuardWindowIds.add(removeInfo.windowId);
         if (!peekWindows.has(removeInfo.windowId)) {
-            const cachedNtpId = globalSettings.useDefaultNtp ? null : ntpTabCache.get(removeInfo.windowId);
-            if (cachedNtpId) {
-                chrome.tabs.update(cachedNtpId, { active: true }).catch(() => ntpTabCache.delete(removeInfo.windowId));
-            } else {
-                // Cache miss: query for any existing NTP tab in this window before
-                // creating a new one, to avoid spawning duplicate NTP tabs when the
-                // cache is stale (e.g. user manually closed the cached NTP tab).
-                chrome.tabs.query({ url: NTP_URL, windowId: removeInfo.windowId }, (existing) => {
-                    if (existing && existing.length > 0) {
-                        ntpTabCache.set(removeInfo.windowId, existing[0].id);
-                        chrome.tabs.update(existing[0].id, { active: true }).catch(() => {});
-                    } else {
-                        const createOpts = globalSettings.useDefaultNtp
-                            ? { active: true, windowId: removeInfo.windowId, index: 9999 }
-                            : { url: NTP_URL, active: true, windowId: removeInfo.windowId, index: 9999 };
-                        chrome.tabs.create(createOpts)
-                            .then(c => {
-                                if (!globalSettings.useDefaultNtp) ntpTabCache.set(removeInfo.windowId, c.id);
-                                if (c.groupId !== NONE_GROUP && chrome.tabGroups) chrome.tabs.ungroup(c.id).catch(() => {});
-                            })
-                            .catch(() => {});
-                    }
-                });
-            }
+            // Shared resolver: cached -> query -> create (was a callback cascade
+            // duplicated from two other sites with drifting edge handling).
+            await focusNtpTab(removeInfo.windowId).catch(() => {});
         }
     }
 
@@ -368,6 +404,7 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
     clearPendingDiscard(tabId);
     pendingInheritanceCheck.delete(tabId);
     blurredSourceTabs.delete(tabId);
+    persistSessionState();
 
     // Baseline lookup.
     const data = memoryBaselines.get(tabId);
@@ -462,10 +499,19 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
             }
 
             // Protected tab single close: RESTORE
+            // If the CLOSED tab was the active one (Ctrl+W), Chrome has already
+            // focused — and woken — a hibernated neighbor. Restore takes focus
+            // back (issue #10 bug 1) and the onActivated restore-guard re-sleeps
+            // the neighbor. Skip active-restore when we're about to collapse.
+            const restoreActive = tabId === lastActiveTabId && !data._collapseAfterRestore;
+            if (restoreActive) {
+                pendingRestoreWindowIds.add(removeInfo.windowId);
+                setTimeout(() => pendingRestoreWindowIds.delete(removeInfo.windowId), 1500);
+            }
             try {
                 const newTab = await chrome.tabs.create({
                     url: data.url, pinned: data.pinned,
-                    windowId: removeInfo.windowId, active: false, index: data.index
+                    windowId: removeInfo.windowId, active: restoreActive, index: data.index
                 });
 
                 let resolvedGid = NONE_GROUP;
@@ -541,6 +587,21 @@ chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
 });
 
 // --- MESSAGE DISPATCHER ---
+function sendActionToast(tabId, message, undo = false, undoToken = null) {
+    const payload = {
+        action: 'show-toast',
+        message,
+        ...(undo ? { actionLabel: 'Undo', undoAction: 'undo-close-tabs', ...(undoToken !== null ? { undoToken } : {}) } : {})
+    };
+    const deliver = (id) => {
+        if (typeof id !== 'number') return;
+        chrome.tabs.sendMessage(id, payload).catch(() => {});
+    };
+    if (typeof tabId === 'number') { deliver(tabId); return; }
+    // Popup senders have no tab — route the toast to the active tab instead
+    chrome.tabs.query({ active: true, lastFocusedWindow: true }, ([at]) => deliver(at?.id));
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (!request || typeof request !== 'object' || typeof request.action !== 'string') return;
     switch (request.action) {
@@ -594,12 +655,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         case 'close-peek':
             if (sender.tab?.windowId) chrome.windows.remove(sender.tab.windowId).catch(() => {});
+            sendResponse({ success: true });
             return true;
 
         case 'palette-closing':
             if (sender.tab?.id) {
                 paletteFallbackClosingIds.add(sender.tab.id);
             }
+            sendResponse({ success: true });
             return true;
             
         case 'update-settings':
@@ -629,20 +692,89 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
 
         case 'switch-to-tab':
-            if (!Number.isFinite(request.tabId) || !Number.isFinite(request.windowId)) return;
+            if (!Number.isFinite(request.tabId) || !Number.isFinite(request.windowId)) { sendResponse({ success: false }); return; }
             chrome.tabs.update(request.tabId, { active: true }).catch(() => {});
             chrome.windows.update(request.windowId, { focused: true }).catch(() => {});
             sendResponse({ success: true });
             return true;
 
         case 'open-url':
-            if (typeof request.url !== 'string') return;
+            if (typeof request.url !== 'string') { sendResponse({ success: false }); return; }
+            if (request.url.startsWith('virtual:split?')) {
+                const params = new URLSearchParams(request.url.slice('virtual:split?'.length));
+                const leftUrl = params.get('l') || '';
+                const rightUrl = params.get('r') || '';
+                if (!leftUrl || !rightUrl) { sendResponse({ success: false }); return; }
+                ensureLoaded().then(async () => {
+                    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                    if (!tab) { sendResponse({ success: false }); return; }
+                    if (chrome.tabs.createSplit) {
+                        // Chrome 155+ native Split View: two adjacent tabs in the SAME
+                        // window with a draggable divider. Current tab is untouched.
+                        const left = await chrome.tabs.create({ url: leftUrl, windowId: tab.windowId, index: tab.index + 1, active: false }).catch(() => null);
+                        const right = await chrome.tabs.create({ url: rightUrl, windowId: tab.windowId, index: tab.index + 2, active: false }).catch(() => null);
+                        if (left && !right) await chrome.tabs.remove(left.id).catch(() => {}); // no orphaned pane
+                        if (left && right) {
+                            await chrome.tabs.createSplit([left.id, right.id]).catch(async () => {
+                                // createSplit demands adjacency/matching state — fall back below
+                                await chrome.tabs.remove([left.id, right.id]).catch(() => {});
+                            });
+                            if (await chrome.tabs.get(left.id).catch(() => null)) {
+                                // Jump the user into the split — without this the
+                                // panes exist but the old tab keeps focus.
+                                await chrome.tabs.update(left.id, { active: true }).catch(() => {});
+                                sendResponse({ success: true });
+                                return;
+                            }
+                        }
+                    }
+                    // Fallback (pre-155 or native path failed): two half-width windows
+                    const win = await chrome.windows.get(tab.windowId);
+                    const halfW = Math.floor(win.width / 2);
+                    await chrome.windows.update(tab.windowId, { width: halfW, left: win.left });
+                    if (tab.pinned) await chrome.tabs.create({ url: leftUrl, windowId: tab.windowId }).catch(() => {});
+                    else await chrome.tabs.update(tab.id, { url: leftUrl }).catch(() => {});
+                    await chrome.windows.create({ url: rightUrl, width: halfW, left: win.left + halfW, top: win.top, height: win.height, focused: true }).catch(() => {});
+                    sendResponse({ success: true });
+                }).catch(() => sendResponse({ success: false }));
+                return true;
+            }
             if (request.url === 'virtual:restore-vault') {
                 ensureLoaded().then(async () => {
+                    const n = sessionVault.length;
                     const success = await restoreVault(sessionVault);
-                    if (success) { setSessionVault([]); vaultCanonicalUrls.clear(); syncVaultToStorage(); }
+                    if (success) {
+                        setSessionVault([]); vaultCanonicalUrls.clear(); syncVaultToStorage();
+                        sendActionToast(sender.tab?.id, `Restored ${n} tab${n === 1 ? '' : 's'}`);
+                    }
                     sendResponse({ success });
                 }).catch(e => { console.warn('[Tabs++] open-url restore-vault error:', e.message); sendResponse({ success: false }); });
+                return true;
+            }
+            // Engine search (palette Enter / Tab-cycled engine / bang): if a tab
+            // on that engine is already open, navigate it instead of stacking
+            // yet another one.
+            const engineHit = Object.values(SEARCH_ENGINES).find(eng => request.url.startsWith(eng.url));
+            if (engineHit) {
+                const origin = new URL(engineHit.homepage).origin;
+                chrome.tabs.query({ url: origin + '/*' }).then(async ([existing]) => {
+                    if (!existing) return false;
+                    await chrome.tabs.update(existing.id, { url: request.url, active: true });
+                    await chrome.windows.update(existing.windowId, { focused: true }).catch(() => {});
+                    sendResponse({ success: true });
+                    return true;
+                }).then((reused) => {
+                    if (reused) return;
+                    chrome.tabs.create({ url: request.url, active: true })
+                        .then(tab => {
+                            if (tab) chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+                        })
+                        .catch(() => {});
+                    sendResponse({ success: true });
+                }).catch(() => {
+                    chrome.tabs.create({ url: request.url, active: true }).catch(() => {});
+                    sendResponse({ success: true });
+                });
                 return true;
             }
             chrome.tabs.create({ url: request.url, active: true })
@@ -654,10 +786,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
 
         case 'open-query': {
-            if (typeof request.query !== 'string') return;
+            if (typeof request.query !== 'string') { sendResponse({ success: false }); return; }
             const q = request.query.trim();
-            const isUrl = /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\\/\w \.-]*)*\/?$/.test(q.toLowerCase()) || q.startsWith('localhost');
-            const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
+const isUrl = isLikelyUrl(q.toLowerCase()) || q.startsWith('localhost');
+            const engine = SEARCH_ENGINES[request.engine] || SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
             let url = engine.url + encodeURIComponent(q);
             if (isUrl) url = q.startsWith('http://') || q.startsWith('https://') ? q : 'https://' + q;
             chrome.tabs.create({ url, active: true })
@@ -763,8 +895,48 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
         }
 
+        case 'optional-permissions-granted':
+            // Popup completed a user-gesture permissions.request() — re-register
+            // watchers that were skipped while the namespace was absent.
+            registerBookmarkWatchers();
+            sendResponse({ success: true });
+            return true;
+
+        case 'undo-close-tabs': {
+            ensureLoaded().then(async () => {
+                // Stale toast: the payload was replaced by a newer action
+                if (typeof request.undoToken === 'number' && request.undoToken !== undoSerial) {
+                    sendResponse({ success: false });
+                    return;
+                }
+                const tabs = lastClosedTabs || [];
+                setLastClosedTabs([]);
+                const liveWins = new Set((await chrome.windows.getAll().catch(() => [])).map(w => w.id));
+                for (const t of tabs) {
+                    const winId = liveWins.has(t.windowId) ? t.windowId : chrome.windows.WINDOW_ID_CURRENT;
+                    await chrome.tabs.create({ url: t.url, pinned: t.pinned, windowId: winId }).catch(() => {});
+                }
+                sendResponse({ success: true });
+            }).catch(() => sendResponse({ success: false }));
+            return true;
+        }
+
         case 'get-pomo-status':
-            sendResponse({ pomoTimer });
+            ensureLoaded().then(() => sendResponse({ pomoTimer }));
+            return true;
+
+        case 'extend-pomo-timer':
+            ensureLoaded().then(async () => {
+                if (!pomoTimer.isActive) { sendResponse({ success: false }); return; }
+                // Extend keeps elapsed time — do NOT restart via startPomoTimer
+                const endTime = Math.max(Date.now(), pomoTimer.endTime) + 5 * 60 * 1000;
+                const minutes = (pomoTimer.minutes || 0) + 5;
+                setPomoTimer({ endTime, type: pomoTimer.type, isActive: true, minutes });
+                persistSessionState();
+                chrome.alarms.clear('pomo-timer').then(() => chrome.alarms.create('pomo-timer', { when: endTime }));
+                broadcastPomoState();
+                sendResponse({ success: true });
+            }).catch(() => sendResponse({ success: false }));
             return true;
     }
 });
@@ -846,21 +1018,25 @@ async function queryOrCreateNtpWithPalette(windowId) {
     const existing = await chrome.tabs.query({ url: NTP_URL, windowId });
     if (existing && existing.length > 0) {
         ntpTabCache.set(windowId, existing[0].id);
+        persistSessionState();
         await chrome.tabs.update(existing[0].id, { active: true }).catch(() => {});
         await chrome.tabs.sendMessage(existing[0].id, { action: 'toggle-palette' }).catch(() => {});
     } else {
         const created = await chrome.tabs.create({ url: NTP_URL + '?action=palette', active: true }).catch(() => null);
         if (created) ntpTabCache.set(windowId, created.id);
+        persistSessionState();
     }
 }
 
 // --- ALARMS ---
 chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name === 'pomo-timer') {
+        await ensureLoaded(); // SW may have died since the timer started — restore pomoTimer first
         // Capture type BEFORE clearing state, as notification reads it
         const completedType = pomoTimer.type;
         setPomoTimer({ endTime: null, type: null, isActive: false, minutes: null });
         broadcastPomoState();
+        persistSessionState();
         chrome.notifications.create('pomo-done', {
             type: 'basic',
             iconUrl: 'assets/icon128.png',
@@ -870,26 +1046,34 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         }).catch(() => {});
         return;
     }
+    if (alarm.name === 'tabs-plus-bookmark-restore') {
+        await ensureLoaded();
+        if (globalSettings.autoRestoreBookmarks) restoreAllBookmarksIfEnabled().catch(() => {});
+        return;
+    }
+
     if (alarm.name === 'tabs-plus-auto-hibernate') {
         await ensureLoaded();
         if (!globalSettings.enableAutoHibernate) return;
 
-        let ms = 60 * 60 * 1000; // default 1h
-        const raw = globalSettings.hibernateThresholdRaw || '1h';
-        const match = raw.match(/^(\d+(?:\.\d+)?)\s*(m|h)$/i);
-        if (match) {
-            const val = parseFloat(match[1]);
-            if (match[2].toLowerCase() === 'm') ms = val * 60 * 1000;
-            if (match[2].toLowerCase() === 'h') ms = val * 60 * 60 * 1000;
-        }
+        const ms = parseThresholdToMs(globalSettings.hibernateThresholdRaw, 60 * 60 * 1000);
         const cutoff = Date.now() - ms;
         const tabs = await chrome.tabs.query({});
-        for (const tab of tabs) {
-            if (tab.active || tab.pinned || tab.groupId !== NONE_GROUP || memoryBaselines.has(tab.id) || peekWindows.has(tab.windowId)) continue;
-            if (tab.lastAccessed && tab.lastAccessed < cutoff) {
-                await safeHibernate(tab);
+        const targets = tabs.filter(t =>
+            !t.active && !t.pinned && t.groupId === NONE_GROUP &&
+            !memoryBaselines.has(t.id) && !peekWindows.has(t.windowId) &&
+            t.lastAccessed && t.lastAccessed < cutoff
+        );
+        // Bounded concurrency — sequential 8s-per-tab awaits exceeded the SW
+        // lifetime on many stale tabs and the pass died mid-way.
+        let idx = 0;
+        const worker = async () => {
+            while (idx < targets.length) {
+                const t = targets[idx++];
+                await safeHibernate(t).catch(() => {});
             }
-        }
+        };
+        await Promise.all(Array.from({ length: Math.min(5, targets.length) }, worker));
         return;
     }
 
@@ -897,14 +1081,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         await ensureLoaded();
         if (!globalSettings.enableAutoArchive) return;
 
-        let ms = 12 * 60 * 60 * 1000; // default 12h
-        const raw = globalSettings.archiveThresholdRaw || '12h';
-        const match = raw.match(/^(\d+(?:\.\d+)?)\s*(m|h)$/i);
-        if (match) {
-            const val = parseFloat(match[1]);
-            if (match[2].toLowerCase() === 'm') ms = val * 60 * 1000;
-            if (match[2].toLowerCase() === 'h') ms = val * 60 * 60 * 1000;
-        }
+        const ms = parseThresholdToMs(globalSettings.archiveThresholdRaw, 12 * 60 * 60 * 1000);
         const cutoff = Date.now() - ms;
         const tabs = await chrome.tabs.query({});
         const toClose = [];
@@ -927,7 +1104,12 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
                 }
             }
             syncVaultToStorage();
+            setLastClosedTabs(toClose.map(t => ({ url: t.url, index: t.index, pinned: t.pinned, windowId: t.windowId })));
+            const undoToken = bumpUndoSerial();
             chrome.tabs.remove(toClose.map(t => t.id)).catch(() => {});
+            chrome.tabs.query({ active: true, lastFocusedWindow: true }, ([at]) => {
+                sendActionToast(at?.id, `Archived ${toClose.length} tab${toClose.length === 1 ? '' : 's'}`, true, undoToken);
+            });
         }
     }
 });

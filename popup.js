@@ -116,11 +116,20 @@ const FEATURES = [
   {
     id: 'enableBookmarks',
     title: 'Search Bookmarks',
-    description: 'Include your bookmarks in palette search. Use "> open folder <name>" to insert a bookmark folder as a tab group (capped at 100 tabs per insert).',
+    description: 'Include bookmarks in palette search and folder inserts.',
     default: false,
     badge: 'Opt-in',
     category: 'Tools',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`
+  },
+  {
+    id: 'preferLocalResults',
+    title: 'Local-First Search',
+    description: 'Show matching tabs, bookmarks and history above web suggestions, with the best match on top.',
+    default: false,
+    badge: null,
+    category: 'Tools',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 12H3"/><path d="M16 18H3"/><path d="M10 6H3"/><path d="M21 18V8a2 2 0 0 0-2-2h-5"/><path d="m16 8-2-2 2-2"/></svg>`
   },
   {
     id: 'enableRecentlyClosed',
@@ -139,6 +148,24 @@ const FEATURES = [
     badge: 'Opt-in',
     category: 'Guard',
     icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`
+  },
+  {
+    id: 'reduceEffects',
+    title: 'Reduce Visual Effects',
+    description: 'Freeze blur animations on the New Tab page and popup. Lower GPU usage.',
+    default: false,
+    badge: 'Perf',
+    category: 'Performance',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`
+  },
+  {
+    id: 'autoRestoreBookmarks',
+    title: 'Auto-Restore Bookmarks',
+    description: 'Reopen all bookmarks at browser start. Requires the Bookmarks tool.',
+    default: false,
+    badge: 'Core',
+    category: 'Guard',
+    icon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`
   }
 ];
 
@@ -233,7 +260,25 @@ function renderFeatures(settings, filter = '') {
     f.description.toLowerCase().includes(filter.toLowerCase())
   );
 
+  // Group cards under ONE header per category — the raw FEATURES order
+  // interleaved categories (Tools, Guard, Tools...). Stable sort keeps
+  // within-category order; unknown categories sort last.
+  const CATEGORY_ORDER = ['Guard', 'Search', 'Tools', 'Media', 'Performance'];
+  filtered.sort((a, b) => {
+    const ai = CATEGORY_ORDER.indexOf(a.category);
+    const bi = CATEGORY_ORDER.indexOf(b.category);
+    return (ai === -1 ? CATEGORY_ORDER.length : ai) - (bi === -1 ? CATEGORY_ORDER.length : bi);
+  });
+
+  let lastCategory = null;
   filtered.forEach((feature) => {
+    if (feature.category && feature.category !== lastCategory) {
+      lastCategory = feature.category;
+      const sectionHeader = document.createElement('div');
+      sectionHeader.className = 'section-header';
+      sectionHeader.textContent = feature.category;
+      container.appendChild(sectionHeader);
+    }
     const isEnabled = settings[feature.id] ?? feature.default;
 
     // Card
@@ -255,6 +300,7 @@ function renderFeatures(settings, filter = '') {
     checkbox.type = 'checkbox';
     checkbox.id = `toggle-${feature.id}`;
     checkbox.checked = isEnabled;
+    checkbox.setAttribute('aria-label', feature.title);
 
     const track = document.createElement('div');
     track.className = 'toggle-track';
@@ -392,6 +438,7 @@ function renderTools(settings, filter = '') {
       checkbox.type = 'checkbox';
       checkbox.id = `toggle-${tool.settingId}`;
       checkbox.checked = isEnabled;
+      checkbox.setAttribute('aria-label', tool.title);
 
       const track = document.createElement('div');
       track.className = 'toggle-track';
@@ -464,6 +511,7 @@ const globalSearchInput = document.getElementById('global-search');
 searchTrigger.addEventListener('click', () => {
   const isActive = searchRow.classList.toggle('active');
   searchTrigger.classList.toggle('active', isActive);
+  document.querySelector('.header')?.classList.toggle('searching', isActive);
   
   if (isActive) {
     globalSearchInput.focus();
@@ -474,17 +522,22 @@ searchTrigger.addEventListener('click', () => {
   }
 });
 
-globalSearchInput.addEventListener('input', (e) => {
-  triggerSearch(e.target.value);
+globalSearchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') searchTrigger.click();
 });
 
+let searchDebounceTimer = null;
+globalSearchInput.addEventListener('input', (e) => {
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => triggerSearch(e.target.value), 120);
+});
+
+// Cached settings — the popup can't change them mid-search, and a storage
+// read per keystroke was pure waste.
+let cachedPopupSettings = getDefaults();
 function triggerSearch(query) {
-  chrome.storage.local.get({ settings: getDefaults() }, (data) => {
-    // Always render both or detect active tab? 
-    // Let's render both to keep it simple, or only active if performance is an issue.
-    renderFeatures(data.settings, query);
-    renderTools(data.settings, query);
-  });
+  renderFeatures(cachedPopupSettings, query);
+  renderTools(cachedPopupSettings, query);
 }
 
 // ─────────────────────────────────────────────
@@ -518,6 +571,8 @@ function handleToggleChange(featureId, checkbox, card, toggleWrap) {
         return;
       }
       saveSettings();
+      // permissions.onGranted doesn't reach the SW — tell it directly
+      chrome.runtime.sendMessage({ action: 'optional-permissions-granted', permissions: perms }).catch(() => {});
     });
   } else {
     saveSettings();
@@ -554,6 +609,7 @@ function saveSettings() {
       }
     });
     chrome.storage.local.set({ settings }).catch(() => {});
+    document.body.classList.toggle('fx-off', settings.reduceEffects === true);
     chrome.runtime.sendMessage({ action: 'update-settings', settings }).catch(() => {});
   });
 }
@@ -562,9 +618,14 @@ function saveSettings() {
 const manifest = chrome.runtime.getManifest();
 const versionDisplay = document.getElementById('version-display');
 if (versionDisplay) versionDisplay.textContent = `v${manifest.version}`;
+const infoVersion = document.getElementById('info-version');
+if (infoVersion) infoVersion.textContent = `v${manifest.version}`;
+
 
 chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data) => {
   const merged = { ...getDefaults(), ...data.settings };
+  cachedPopupSettings = merged;
+  document.body.classList.toggle('fx-off', merged.reduceEffects === true);
   renderFeatures(merged);
   renderTools(merged);
 
@@ -577,10 +638,123 @@ chrome.storage.local.get({ settings: getDefaults(), tipDismissed: false }, (data
 
 // Protected tabs restore — reads the auto-persisted protectedSnapshot
 // (hostname-keyed) written by the SW on every baseline change. No manual save.
+// ── Restore tab ──────────────────────────────────────────────────────
+function updateRestoreEmptyHint() {
+  const hint = document.getElementById('restore-empty');
+  if (!hint) return;
+  const p = document.getElementById('restore-protected-section');
+  const a = document.getElementById('restore-archive-section');
+  hint.hidden = !!((p && !p.hidden) || (a && !a.hidden));
+}
+
+function renderProtectedRestoreList(missing, snap) {
+  const section = document.getElementById('restore-protected-section');
+  const list = document.getElementById('restore-protected-list');
+  const restoreBtn = document.getElementById('restore-vault-btn');
+  const clearBtn = document.getElementById('clear-vault-btn');
+  if (!section || !list) return;
+  list.innerHTML = '';
+  if (!missing || missing.length === 0) {
+    section.hidden = true;
+    if (restoreBtn) restoreBtn.hidden = true;
+    if (clearBtn) clearBtn.hidden = true;
+    updateRestoreEmptyHint();
+    return;
+  }
+  section.hidden = false;
+  if (restoreBtn) restoreBtn.hidden = false;
+  if (clearBtn) clearBtn.hidden = false;
+  for (const host of missing) {
+    const s = snap[host] || {};
+    const row = document.createElement('div');
+    row.className = 'restore-item';
+    const fav = document.createElement('img');
+    fav.className = 'restore-item-fav';
+    fav.src = chrome.runtime.getURL('/_favicon/?pageUrl=' + encodeURIComponent(s.url || ('https://' + host)) + '&size=16');
+    fav.alt = '';
+    fav.onerror = () => fav.remove();
+    row.appendChild(fav);
+    const name = document.createElement('span');
+    name.className = 'restore-item-name';
+    name.textContent = s.title || host;
+    const url = document.createElement('span');
+    url.className = 'restore-item-url';
+    url.textContent = host;
+    row.appendChild(name);
+    row.appendChild(url);
+    if (s.url) {
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.title = s.url;
+      const open = () => chrome.tabs.create({ url: s.url, active: true }).catch(() => {});
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    }
+    list.appendChild(row);
+  }
+  updateRestoreEmptyHint();
+}
+
+function renderArchiveRestoreList() {
+  chrome.storage.local.get(['vault'], (data) => {
+    const section = document.getElementById('restore-archive-section');
+    const list = document.getElementById('restore-archive-list');
+    const btn = document.getElementById('restore-archive-btn');
+    if (!section || !list) return;
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const entries = (data.vault || []).filter(t => t.savedAt && t.savedAt > cutoff);
+    list.innerHTML = '';
+    if (entries.length === 0) {
+      section.hidden = true;
+      if (btn) btn.hidden = true;
+      updateRestoreEmptyHint();
+      return;
+    }
+    section.hidden = false;
+    if (btn) { btn.hidden = false; btn.disabled = false; }
+    for (const t of entries) {
+      let host = '';
+      try { host = new URL(t.url).hostname; } catch { continue; } // skip malformed entries
+      const row = document.createElement('div');
+      row.className = 'restore-item';
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.title = t.title || t.url;
+      const fav = document.createElement('img');
+      fav.className = 'restore-item-fav';
+      fav.src = chrome.runtime.getURL('/_favicon/?pageUrl=' + encodeURIComponent(t.url) + '&size=16');
+      fav.alt = '';
+      fav.onerror = () => fav.remove();
+      row.appendChild(fav);
+      const name = document.createElement('span');
+      name.className = 'restore-item-name';
+      name.textContent = t.title || t.url || 'Tab';
+      const url = document.createElement('span');
+      url.className = 'restore-item-url';
+      url.textContent = host;
+      row.appendChild(name);
+      row.appendChild(url);
+      const open = () => chrome.tabs.create({ url: t.url, active: true }).catch(() => {});
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+      list.appendChild(row);
+    }
+    updateRestoreEmptyHint();
+  });
+}
+
+renderArchiveRestoreList();
+const restoreArchiveBtn = document.getElementById('restore-archive-btn');
+if (restoreArchiveBtn) restoreArchiveBtn.addEventListener('click', () => {
+  restoreArchiveBtn.disabled = true; // no double-restore race
+  chrome.runtime.sendMessage({ action: 'open-url', url: 'virtual:restore-vault' }).catch(() => {});
+  setTimeout(renderArchiveRestoreList, 1200);
+});
+
 chrome.storage.local.get(['protectedSnapshot'], (data) => {
   const snap = data.protectedSnapshot || {};
   const snapKeys = Object.keys(snap);
-  if (snapKeys.length === 0) return; // nothing to restore
+  if (snapKeys.length === 0) { renderProtectedRestoreList([], snap); return; }
 
   chrome.tabs.query({}, (tabs) => {
     const liveHosts = new Set();
@@ -588,12 +762,9 @@ chrome.storage.local.get(['protectedSnapshot'], (data) => {
       try { if (t.url) liveHosts.add(new URL(t.url).hostname); } catch {}
     }
     const missing = snapKeys.filter(h => !liveHosts.has(h));
-    if (missing.length === 0) return; // all protected tabs already open
+    if (missing.length === 0) { renderProtectedRestoreList([], snap); return; }
 
-    const vaultContainer = document.getElementById('vault-container');
-    vaultContainer.style.display = 'flex';
-    const vaultText = document.getElementById('vault-text');
-    if (vaultText) vaultText.textContent = `${missing.length} protected tab${missing.length > 1 ? 's' : ''} ready to restore`;
+    renderProtectedRestoreList(missing, snap);
 
     document.getElementById('restore-vault-btn').addEventListener('click', async () => {
       // Hibernates a restored tab once its page has finished loading,
@@ -668,14 +839,14 @@ chrome.storage.local.get(['protectedSnapshot'], (data) => {
           }
         } catch (e) { /* continue on failure */ }
       }
-      vaultContainer.style.display = 'none';
+      renderProtectedRestoreList([], snap);
     });
     document.getElementById('clear-vault-btn').addEventListener('click', () => {
       // Remove missing entries from protectedSnapshot
       const updated = { ...snap };
       for (const h of missing) delete updated[h];
       chrome.storage.local.set({ protectedSnapshot: updated }, () => {
-        vaultContainer.style.display = 'none';
+        renderProtectedRestoreList([], updated);
       });
     });
   });

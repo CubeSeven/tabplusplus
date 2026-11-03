@@ -23,6 +23,20 @@ Tabs++ transforms Chrome into a **Browser OS** where your workspace is immutable
 
 ## 🛠 Command Palette & Action Engine
 
+### Search Layer (v2.7 additions)
+- **Engine cycling**: clients cycle a per-session engine override with Tab; the SW (`paletteService`) builds search/suggestion URLs from the override and reports the active engine back in every response. Bangs still take precedence.
+- **Engine tab reuse**: engine-search URLs navigate an existing tab on that engine's origin (`open-url` handler).
+- **Local-first ranking** (`services/searchRanking.js`): opt-in re-rank of results; strong local match → `tophit` section (clients render `tophit` / `suggestion` sections).
+
+### Bookmarks Auto-Restore (v2.7)
+`services/bookmarkService.js` — startup reconcile behind a 10s settle timer + 30s `chrome.alarms` backstop. Acts only when >30% of bookmarks are missing; folds into a surviving window (≥2 tab signal) or reuses a lone blank window; live adds fold into the tracked bookmarks window (burst-guarded, ≤10). Watchers register lazily behind the optional permission and re-register on grant (popup-driven message, since `permissions.onGranted` is unavailable in SWs).
+
+### Undo tokens (v2.7)
+Single undo slot (`lastClosedTabs`) with a serial (`state.undoSerial`); toasts carry the serial and stale Undos are rejected; restore falls back to live windows.
+
+### Session-state mirror (v2.7)
+`services/sessionState.js` persists volatile SW state (focus-pending, launch locks, bookmark window id) into `chrome.storage.session`, so SW death mid-operation no longer corrupts it. `state.js` stays pure (AGENTS.md #13).
+
 ### Search Layer
 Spotlight-style search across:
 - **Open Tabs** (with window-switching support)

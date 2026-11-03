@@ -1,10 +1,11 @@
-import { globalSettings, updateSettings, tabSets, memoryBaselines, sessionVault } from '../state.js';
+import { globalSettings, updateSettings, tabSets, memoryBaselines, sessionVault, setLastClosedTabs, bumpUndoSerial } from '../state.js';
 import { startPomoTimer, stopPomoTimer } from './pomoService.js';
 import { BANGS, NONE_GROUP, SEARCH_ENGINES } from '../constants.js';
-import { getBaseDomain } from '../utils.js';
+import { getBaseDomain, isLikelyUrl } from '../utils.js';
+import { applyLocalFirst } from './searchRanking.js';
 import { syncBaselinesToStorage, ensureLoaded, safeHibernate, hibernateActiveTab, updateCleanupAlarms } from './tabService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './setService.js';
-import { performLaunchBookmarkFolder, performLaunchAllBookmarks } from './bookmarkService.js';
+import { performLaunchBookmarkFolder, performLaunchAllBookmarks, performLaunchAllBookmarksHere } from './bookmarkService.js';
 
 
 
@@ -96,9 +97,10 @@ function getSuggestions(query) {
     const suggestUrl = getSuggestUrl(query);
     if (!suggestUrl) return Promise.resolve([]);
     if (pendingFetchController) pendingFetchController.abort();
-    pendingFetchController = new AbortController();
-    const timer = setTimeout(() => pendingFetchController.abort(), 3000);
-    return fetch(suggestUrl, { signal: pendingFetchController.signal })
+    const controller = new AbortController();
+    pendingFetchController = controller;
+    const timer = setTimeout(() => controller.abort(), 3000); // abort only OUR request
+    return fetch(suggestUrl, { signal: controller.signal })
         .then(r => r.json())
         .then(data => {
             clearTimeout(timer);
@@ -107,12 +109,17 @@ function getSuggestions(query) {
             }
             return Array.isArray(data) ? data[1] || [] : [];
         })
-        .catch(() => []);
+        .catch(() => [])
+        .finally(() => clearTimeout(timer));
 }
 
 function withTimeout(promise, ms, fallback) {
     if (!promise) return Promise.resolve(fallback);
-    return Promise.race([promise, new Promise(r => setTimeout(() => r(fallback), ms))]);
+    let timer;
+    return Promise.race([
+        promise,
+        new Promise(r => { timer = setTimeout(() => r(fallback), ms); })
+    ]).finally(() => clearTimeout(timer));
 }
 
 // Helper for Color Conversion
@@ -156,6 +163,7 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'save_group', category: 'Sets', title: 'Save Group as Set', aliases: ['store group', 'save'] },
     { type: 'action', id: 'stash_group', category: 'Sets', title: 'Stash Current Group', aliases: ['hide', 'store and close'] },
     { type: 'action', id: 'open_all_bookmarks', category: 'Sets', title: 'Insert All Bookmarks in New Window', aliases: ['load all bookmarks', 'all bookmarks', 'open bookmarks'], requiredSetting: 'enableBookmarks' },
+    { type: 'action', id: 'open_all_bookmarks_here', category: 'Sets', title: 'Insert All Bookmarks in This Window', aliases: ['bookmarks here', 'open bookmarks here', 'load bookmarks here'], requiredSetting: 'enableBookmarks' },
     { type: 'action', id: 'open_bookmarks_folder_prompt', category: 'Sets', title: 'Insert a Bookmarks Folder...', aliases: ['bookmarks folder', 'open folder', 'open bookmarks'], requiredSetting: 'enableBookmarks' },
     { type: 'action', id: 'export_sets', category: 'Sets', title: 'Export Sets JSON', aliases: ['backup sets', 'download'], requiredSetting: 'enableMediaExtractor' },
     { type: 'action', id: 'hibernate_all', category: 'Performance', title: 'Hibernate Background Tabs', aliases: ['sleep', 'ram', 'memory', 'freeze'] },
@@ -290,8 +298,8 @@ const VOL_ACTIONS = {
     vol_max: { level: 100 }
 };
 
-function getSearchUrl(query) {
-    const engine = SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
+function getSearchUrl(query, engineKey = null) {
+    const engine = SEARCH_ENGINES[engineKey] || SEARCH_ENGINES[globalSettings.searchEngine] || SEARCH_ENGINES.google;
     return engine.url + encodeURIComponent(query);
 }
 
@@ -321,19 +329,22 @@ export async function handleSearchItems(request, sender, sendResponse) {
     const currentGen = ++searchGeneration;
     const query = (typeof request.query === 'string' ? request.query : "").trim();
     const lowerQuery = query.toLowerCase();
+    // Palette Tab-cycle: per-session engine override, null = user default
+    const engineKey = (typeof request.engine === 'string' && SEARCH_ENGINES[request.engine]) ? request.engine : null;
 
     // Single-entry memo: a backspace→retype of the same query returns the
     // previous payload for free within LAST_QUERY_TTL (well under the tab-cache
     // freshness budget, so it adds no extra staleness).
-    if (lastQueryMemo && lastQueryMemo.query === query && Date.now() - lastQueryMemo.ts < LAST_QUERY_TTL) {
+    if (lastQueryMemo && lastQueryMemo.query === query && lastQueryMemo.engine === engineKey && Date.now() - lastQueryMemo.ts < LAST_QUERY_TTL) {
         sendResponse(lastQueryMemo.payload);
         return;
     }
-    // Wrap sendResponse so every result path records into the memo automatically.
+    // Wrap sendResponse so every result path records into the memo automatically
+    // and reports the engine actually used (clients need it as cycle base).
     const realSendResponse = sendResponse;
     sendResponse = (payload) => {
-        lastQueryMemo = { query, payload, ts: Date.now() };
-        realSendResponse(payload);
+        lastQueryMemo = { query, payload, ts: Date.now(), engine: engineKey };
+        realSendResponse({ ...payload, engine: engineKey || globalSettings.searchEngine || 'google' });
     };
 
     if (query.startsWith('>')) {
@@ -663,13 +674,31 @@ export async function handleSearchItems(request, sender, sendResponse) {
     ]).then(async ([tabs, history, bookmarks, suggestions, closedSessions]) => {
         if (currentGen !== searchGeneration) return;
         let results = [...virtualResults];
+        if (query && query.includes('|')) {
+            const parts = query.split('|');
+            const left = parts[0].trim();
+            const right = parts.length === 2 ? parts[1].trim() : '';
+            if (left && right) {
+                // Non-URL side resolves to a search-results page (approved behavior)
+                const resolveSide = (s) => {
+                    const low = s.toLowerCase();
+                    if (isLikelyUrl(low) || low.startsWith('localhost')) return s.includes('://') ? s : 'https://' + s;
+                    return getSearchUrl(s);
+                };
+                results.push({
+                    type: 'split',
+                    title: `Split view: ${left}  |  ${right}`,
+                    url: `virtual:split?l=${encodeURIComponent(resolveSide(left))}&r=${encodeURIComponent(resolveSide(right))}`
+                });
+            }
+        }
         if (query) {
             const bang = resolveBang(query);
             if (bang) results.push(bang);
-            else if (/^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/.test(lowerQuery)) results.push({ type: 'navigate', title: `Go to ${query}`, url: lowerQuery.startsWith('http') ? lowerQuery : 'https://' + lowerQuery });
-            else results.push({ type: 'search', title: `Search ${SEARCH_ENGINES[globalSettings.searchEngine]?.label || 'Google'} for "${query}"`, url: getSearchUrl(query) });
+            else if (isLikelyUrl(lowerQuery)) results.push({ type: 'navigate', title: `Go to ${query}`, url: query.startsWith('http') ? query : 'https://' + query });
+            else results.push({ type: 'search', title: `Search ${(SEARCH_ENGINES[engineKey] || SEARCH_ENGINES[globalSettings.searchEngine])?.label || 'Google'} for "${query}"`, url: getSearchUrl(query, engineKey) });
         }
-        suggestions.slice(0, 5).forEach(s => results.push({ type: 'search', title: s, url: getSearchUrl(s) }));
+        suggestions.slice(0, 5).forEach(s => results.push({ type: 'search', title: s, url: getSearchUrl(s, engineKey), _suggestion: true }));
         
         const formattedTabs = tabs.filter(t => !query || (t._titleLower && t._titleLower.includes(lowerQuery)) || (t._urlLower && t._urlLower.includes(lowerQuery))).slice(0, query ? 5 : 15).map(t => ({
             type: 'tab', id: t.id, title: t.title || t.url, url: t.url, windowId: t.windowId, favIconUrl: t.favIconUrl || null, groupId: t.groupId ?? NONE_GROUP
@@ -681,7 +710,7 @@ export async function handleSearchItems(request, sender, sendResponse) {
         const tabUrlSet = new Set(tabs.map(t => t.url));
         results.push(...history.filter(h => h.url && !tabUrlSet.has(h.url)).slice(0, 10).map(h => ({ type: 'history', title: h.title || h.url, url: h.url })));
         if (!query && closedSessions) results.push(...closedSessions.filter(s => s.tab && s.tab.url && !s.tab.url.startsWith('chrome')).slice(0, 5).map(s => ({ type: 'closed', title: s.tab.title || s.tab.url, url: s.tab.url, favIconUrl: s.tab.favIconUrl || null })));
-        if (sessionVault.length > 0 && (!query || "restore".includes(lowerQuery))) {
+        if (sessionVault.length > 0 && (!query || "restore".startsWith(lowerQuery))) {
             results.unshift({ type: 'vault', title: `Restore ${sessionVault.length} protected tabs`, url: 'virtual:restore-vault' });
         }
 
@@ -709,7 +738,8 @@ export async function handleSearchItems(request, sender, sendResponse) {
         }
 
         const seen = new Set();
-        sendResponse({ results: results.filter(r => !r.url || (seen.has(r.url) ? false : seen.add(r.url))) });
+        const deduped = results.filter(r => !r.url || (seen.has(r.url) ? false : seen.add(r.url)));
+        sendResponse({ results: globalSettings.preferLocalResults ? applyLocalFirst(deduped, query, sender?.tab?.id) : deduped });
     }).catch(() => sendResponse({ results: [] }));
 }
 
@@ -951,22 +981,26 @@ export async function executeAction(commandId, args, senderTab = null) {
             case 'open_all_bookmarks':
                 performLaunchAllBookmarks().catch(() => {});
                 break;
+            case 'open_all_bookmarks_here':
+                performLaunchAllBookmarksHere().catch(() => {});
+                break;
             case 'export_sets':
-                ensureLoaded().then(() => {
-                    const res = { sets: tabSets };
-                    if (!res?.sets) return;
-                    const url = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(res.sets, null, 2));
-                    chrome.downloads.download({ url, filename: 'tabs_plus_plus_sets.json' }).catch(() => {});
-                });
+                // executeAction already awaited ensureLoaded() at entry
+                chrome.downloads.download({
+                    url: 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(tabSets, null, 2)),
+                    filename: 'tabs_plus_plus_sets.json'
+                }).catch(() => {});
                 break;
             case 'hibernate_all': {
                 const tabs = await chrome.tabs.query({ active: false });
                 tabs.forEach(t => safeHibernate(t).catch(() => {}));
+                if (tabs.length > 0 && senderTab) chrome.tabs.sendMessage(senderTab.id, { action: 'show-toast', message: `Hibernating ${tabs.length} tabs...` }).catch(() => {});
                 break;
             }
             case 'hibernate_window': {
                 const tabs = await chrome.tabs.query({ windowId: currentWinId, active: false });
                 tabs.forEach(t => safeHibernate(t).catch(() => {}));
+                if (tabs.length > 0 && senderTab) chrome.tabs.sendMessage(senderTab.id, { action: 'show-toast', message: `Hibernating ${tabs.length} tabs...` }).catch(() => {});
                 break;
             }
             case 'hibernate_pinned': {
@@ -1028,8 +1062,17 @@ export async function executeAction(commandId, args, senderTab = null) {
                 break;
             case 'clear_unprotected': {
                 const tabs = await chrome.tabs.query({ windowId: currentWinId });
-                const toClose = tabs.filter(t => !t.pinned && t.groupId === NONE_GROUP && !t.active).map(t => t.id);
-                if (toClose.length > 0) chrome.tabs.remove(toClose).catch(() => {});
+                const closing = tabs.filter(t => !t.pinned && t.groupId === NONE_GROUP && !t.active);
+                if (closing.length > 0) {
+                    setLastClosedTabs(closing.map(t => ({ url: t.url, index: t.index, pinned: t.pinned, windowId: t.windowId })));
+                    const undoToken = bumpUndoSerial();
+                    chrome.tabs.remove(closing.map(t => t.id)).catch(() => {});
+                    if (senderTab) chrome.tabs.sendMessage(senderTab.id, {
+                        action: 'show-toast',
+                        message: `Closed ${closing.length} unprotected tab${closing.length === 1 ? '' : 's'}`,
+                        actionLabel: 'Undo', undoAction: 'undo-close-tabs', undoToken
+                    }).catch(() => {});
+                }
                 break;
             }
             case 'toggle_pin':
@@ -1077,9 +1120,20 @@ export async function executeAction(commandId, args, senderTab = null) {
                 break;
             }
             case 'close_other_tabs': {
+                if (!tab) break; // no resolvable active tab — abort rather than close everything
                 const tabs = await chrome.tabs.query({ windowId: currentWinId });
-                const toClose = tabs.filter(t => t.id !== tab?.id).map(t => t.id);
-                if (toClose.length > 0) chrome.tabs.remove(toClose).catch(() => {});
+                const closing = tabs.filter(t => t.id !== tab.id);
+                if (closing.length > 0) {
+                    setLastClosedTabs(closing.map(t => ({ url: t.url, index: t.index, pinned: t.pinned, windowId: t.windowId })));
+                    const undoToken = bumpUndoSerial();
+                    chrome.tabs.remove(closing.map(t => t.id)).catch(() => {});
+                    const toastId = senderTab ? senderTab.id : tab.id;
+                    chrome.tabs.sendMessage(toastId, {
+                        action: 'show-toast',
+                        message: `Closed ${closing.length} tab${closing.length === 1 ? '' : 's'}`,
+                        actionLabel: 'Undo', undoAction: 'undo-close-tabs', undoToken
+                    }).catch(() => {});
+                }
                 break;
             }
             case "update_baseline":
@@ -1091,7 +1145,8 @@ export async function executeAction(commandId, args, senderTab = null) {
                             const res = await chrome.tabs.sendMessage(tab.id, { action: "get-video-time" }).catch(() => null);
                             if (res?.timestamp) {
                                 const u = new URL(url);
-                                if (u.hostname.includes("vimeo.com")) {
+                                const h = u.hostname;
+                                if (h === "vimeo.com" || h.endsWith(".vimeo.com")) {
                                     u.hash = "t=" + res.timestamp;
                                 } else {
                                     u.searchParams.set("t", res.timestamp);

@@ -592,3 +592,12 @@ mark {
     word-break: break-word;
 }
 
+/* Reduce Visual Effects mode (popup toggle) — stops continuous GPU work.
+   Blur layers stay (rendered once, look unchanged); only animation and
+   will-change hints are dropped. */
+body.fx-off .blob {
+    animation: none;
+}
+body.fx-off .container {
+    will-change: auto;
+}

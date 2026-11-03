@@ -15,9 +15,83 @@ let pendingCommand = null;
 let domOrderedResults = [];
 let blurOverlay = null;
 let focusTimeouts = [];
+let focusWatchdogId = null;
 let isActionMode = false;
 let suppressActionModeToggle = false;
 let actionModeIndicator = null;
+
+// ── Search-engine cycling (Tab in the palette input) ──────────────────
+const ENGINE_ORDER = ['google', 'chatgpt', 'perplexity', 'duckduckgo', 'bing', 'brave'];
+const ENGINE_LABELS = { google: 'Google', chatgpt: 'ChatGPT', perplexity: 'Perplexity', duckduckgo: 'DuckDuckGo', bing: 'Bing', brave: 'Brave' };
+const ENGINE_ICON_PATHS = {
+"google": "M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z",
+"chatgpt": "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z",
+"perplexity": "M22.3977 7.0896h-2.3106V.0676l-7.5094 6.3542V.1577h-1.1554v6.1966L4.4904 0v7.0896H1.6023v10.3976h2.8882V24l6.932-6.3591v6.2005h1.1554v-6.0469l6.9318 6.1807v-6.4879h2.8882V7.0896zm-3.4657-4.531v4.531h-5.355l5.355-4.531zm-13.2862.0676 4.8691 4.4634H5.6458V2.6262zM2.7576 16.332V8.245h7.8476l-6.1149 6.1147v1.9723H2.7576zm2.8882 5.0404v-3.8852h.0001v-2.6488l5.7763-5.7764v7.0111l-5.7764 5.2993zm12.7086.0248-5.7766-5.1509V9.0618l5.7766 5.7766v6.5588zm2.8882-5.0652h-1.733v-1.9723L13.3948 8.245h7.8478v8.087z",
+"duckduckgo": "M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 23C5.925 23 1 18.074 1 12S5.926 1 12 1s11 4.925 11 11-4.925 11-11 11zm10.219-11c0 4.805-3.317 8.833-7.786 9.925-.27-.521-.53-1.017-.749-1.438.645.249 1.93.718 2.208.615.376-.144.282-3.149-.14-3.245-.338-.075-1.632.837-2.141 1.209l.034.156c.078.397.144.993.03 1.247-.001.004-.002.01-.004.013a.218.218 0 0 1-.068.088c-.284.188-1.081.284-1.503.188a.516.516 0 0 1-.064-.02c-.694.396-2.01 1.109-2.25.971-.329-.188-.377-2.676-.329-3.288.035-.46 1.653.286 2.442.679.174-.163.602-.272.98-.31-.57-1.389-.99-2.977-.733-4.105 0 .002.002.002.002.002.356.248 2.73 1.05 3.91 1.027 1.18-.024 3.114-.743 2.903-1.323-.212-.58-2.135.51-4.142.324-1.486-.138-1.748-.804-1.42-1.29.414-.611 1.168.116 2.411-.256 1.245-.371 2.987-1.035 3.632-1.397 1.494-.833-.625-1.177-1.125-.947-.474.22-2.123.637-2.889.82.428-1.516-.603-4.149-1.757-5.3-.376-.376-.951-.612-1.603-.736-.25-.344-.654-.671-1.225-.977a5.772 5.772 0 0 0-3.595-.584l-.024.004-.034.004.004.002c-.148.028-.237.08-.357.098.148.016.705.276 1.057.418-.174.068-.412.108-.596.184a.828.828 0 0 0-.204.056c-.173.08-.303.375-.3.515.84-.086 2.082-.026 2.991.246-.644.09-1.235.258-1.661.482-.016.008-.03.018-.048.028-.054.02-.106.042-.152.066-1.367.72-1.971 2.405-1.611 4.424.323 1.824 1.665 8.088 2.29 11.064-3.973-1.4-6.822-5.186-6.822-9.639C1.781 6.356 6.356 1.781 12 1.781S22.219 6.356 22.219 12zM9.095 9.581a.758.758 0 1 0 0 1.516.758.758 0 0 0 0-1.516zm.338.702a.196.196 0 1 1 0-.392.196.196 0 0 1 0 .392zm4.724-1.043a.65.65 0 1 0 0 1.299.65.65 0 0 0 0-1.3zm.29.601a.168.168 0 1 1 0-.336.168.168 0 0 1 0 .336zM9.313 8.146s-.571-.26-1.125.09c-.554.348-.534.704-.534.704s-.294-.656.49-.978c.786-.32 1.17.184 1.17.184zm5.236-.052s-.41-.234-.73-.23c-.654.008-.831.296-.831.296s.11-.688.945-.55a.84.84 0 0 1 .616.484z",
+"bing": "M20.176 15.406a6.48 6.48 0 01-1.736 4.414c1.338-1.47.803-3.869-1.003-4.635-.862-.305-2.488-.85-3.367-1.158a1.834 1.834 0 01-.932-.818c-.381-.975-1.163-2.968-1.548-3.948-.095-.285-.31-.625-.265-.938.046-.598.724-1.003 1.276-.754l3.682 1.888c.621.292 1.305.692 1.796 1.172a6.486 6.486 0 012.097 4.777zm-1.44 1.888c-.264-1.194-1.135-1.744-2.216-2.028-1.527.902-4.853 2.878-6.952 4.13-1.103.68-2.13 1.35-2.919 1.242a2.866 2.866 0 01-2.77-2.325c-.012-.048-.008-.03-.001.01a6.4 6.4 0 00.947 2.653 6.498 6.498 0 005.486 3.022c1.908.062 3.536-1.153 5.099-2.096.292-.188.804-.496 1.332-.831l1.423-1.51c.553-.577.764-1.426.571-2.267zm-12.04 2.97c.422 0 .822-.1 1.173-.29.355-.215.964-.579 1.7-1.018L9.57 4.502c0-.99-.497-1.864-1.257-2.382-.08-.059-2.91-1.901-2.99-1.956-.605-.432-1.523.045-1.5.797v14.887l.417 2.36a2.488 2.488 0 002.455 2.056z",
+"brave": "M15.68 0l2.096 2.38s1.84-.512 2.709.358c.868.87 1.584 1.638 1.584 1.638l-.562 1.381.715 2.047s-2.104 7.98-2.35 8.955c-.486 1.919-.818 2.66-2.198 3.633-1.38.972-3.884 2.66-4.293 2.916-.409.256-.92.692-1.38.692-.46 0-.97-.436-1.38-.692a185.796 185.796 0 01-4.293-2.916c-1.38-.973-1.712-1.714-2.197-3.633-.247-.975-2.351-8.955-2.351-8.955l.715-2.047-.562-1.381s.716-.768 1.585-1.638c.868-.87 2.708-.358 2.708-.358L8.321 0h7.36zm-3.679 14.936c-.14 0-1.038.317-1.758.69-.72.373-1.242.637-1.409.742-.167.104-.065.301.087.409.152.107 2.194 1.69 2.393 1.866.198.175.489.464.687.464.198 0 .49-.29.688-.464.198-.175 2.24-1.759 2.392-1.866.152-.108.254-.305.087-.41-.167-.104-.689-.368-1.41-.741-.72-.373-1.617-.69-1.757-.69zm0-11.278s-.409.001-1.022.206-1.278.46-1.584.46c-.307 0-2.581-.434-2.581-.434S4.119 7.152 4.119 7.849c0 .697.339.881.68 1.243l2.02 2.149c.192.203.59.511.356 1.066-.235.555-.58 1.26-.196 1.977.384.716 1.042 1.194 1.464 1.115.421-.08 1.412-.598 1.776-.834.364-.237 1.518-1.19 1.518-1.554 0-.365-1.193-1.02-1.413-1.168-.22-.15-1.226-.725-1.247-.95-.02-.227-.012-.293.284-.851.297-.559.831-1.304.742-1.8-.089-.495-.95-.753-1.565-.986-.615-.232-1.799-.671-1.947-.74-.148-.068-.11-.133.339-.175.448-.043 1.719-.212 2.292-.052.573.16 1.552.403 1.632.532.079.13.149.134.067.579-.081.445-.5 2.581-.541 2.96-.04.38-.12.63.288.724.409.094 1.097.256 1.333.256s.924-.162 1.333-.256c.408-.093.329-.344.288-.723-.04-.38-.46-2.516-.541-2.961-.082-.445-.012-.45.067-.579.08-.129 1.059-.372 1.632-.532.573-.16 1.845.009 2.292.052.449.042.487.107.339.175-.148.069-1.332.508-1.947.74-.615.233-1.476.49-1.565.986-.09.496.445 1.241.742 1.8.297.558.304.624.284.85-.02.226-1.026.802-1.247.95-.22.15-1.413.804-1.413 1.169 0 .364 1.154 1.317 1.518 1.554.364.236 1.355.755 1.776.834.422.079 1.08-.4 1.464-1.115.384-.716.039-1.422-.195-1.977-.235-.555.163-.863.355-1.066l2.02-2.149c.341-.362.68-.546.68-1.243 0-.697-2.695-3.96-2.695-3.96s-2.274.436-2.58.436c-.307 0-.972-.256-1.585-.461-.613-.205-1.022-.206-1.022-.206z"
+}; // simple-icons paths, 24x24 viewBox
+let engineOverride = null;
+let engineBase = 'google';
+let engineChip = null;
+
+function updateEngineChip() {
+    if (!engineChip) return;
+    // Icon and text must use the SAME color source: mirror the input's live
+    // computed color (theme-aware) so fill=currentColor always matches.
+    if (input) engineChip.style.color = getComputedStyle(input).color;
+    if (!engineOverride) {
+        engineChip.classList.remove('visible');
+        return;
+    }
+    const label = ENGINE_LABELS[engineOverride] || engineOverride;
+    engineChip.textContent = '';
+    engineChip.title = label + ' — Tab to cycle, click to reset';
+    const d = ENGINE_ICON_PATHS[engineOverride];
+    if (d) {
+        // Brand glyph as monochrome SVG — fill tracks currentColor, so it
+        // recolors with the background exactly like text.
+        const ns = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('width', '16');
+        svg.setAttribute('height', '16');
+        svg.setAttribute('fill', 'currentColor');
+        const p = document.createElementNS(ns, 'path');
+        p.setAttribute('d', d);
+        svg.appendChild(p);
+        engineChip.appendChild(svg);
+    } else {
+        engineChip.textContent = label; // unknown engine — plain text
+    }
+    engineChip.classList.add('visible');
+}
+
+function cycleEngine(dir) {
+    const cur = engineOverride || engineBase;
+    let i = ENGINE_ORDER.indexOf(cur);
+    if (i === -1) i = 0;
+    engineOverride = ENGINE_ORDER[(i + dir + ENGINE_ORDER.length) % ENGINE_ORDER.length];
+    updateEngineChip();
+    handleSearch();
+}
+
+function createEngineChip(inputWrapper) {
+    inputWrapper.style.position = 'relative';
+    const style = document.createElement('style');
+    style.textContent = `.engine-chip{display:none;position:absolute;right:14px;top:50%;transform:translateY(-50%);padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em;color:inherit;background:transparent;cursor:pointer;user-select:none;z-index:5}.engine-chip.visible{display:block}`;
+    document.documentElement.appendChild(style);
+    engineChip = document.createElement('div');
+    engineChip.className = 'engine-chip';
+    engineChip.title = 'Search engine — Tab to cycle, click to reset';
+    engineChip.addEventListener('click', () => {
+        engineOverride = null;
+        updateEngineChip();
+        handleSearch();
+    });
+    inputWrapper.appendChild(engineChip);
+}
+
 let cachedResultItems = [];
 let hidePaletteTimeout = null;
 let hasStaggered = false;
@@ -63,16 +137,17 @@ let cachedSelectionAtOpen = '';
 // Pomodoro Timer State
 let pomoHost = null;
 let pomoInterval = null;
+let pomoEls = null; // { timeEl, labelEl, card } — cached once at UI creation
 
 // Sync state once on load — after that pomo is push-only via 'update-pomo-timer' messages.
 function syncPomoState() {
     if (chrome.runtime?.id) {
         chrome.runtime.sendMessage({ action: 'get-pomo-status' }, (response) => {
+            if (chrome.runtime.lastError) return; // SW asleep — push updates will sync later
             if (response && response.pomoTimer) updatePomoUI(response.pomoTimer);
         });
     }
 }
-syncPomoState();
 
 
 // Initialize settings and listen for changes
@@ -82,6 +157,9 @@ chrome.storage.local.get({ settings: settings }, (data) => {
         settings = { ...settings, ...data.settings };
         isPaletteEnabled = settings.enablePalette;
     }
+    // Sync the timer only when the feature is on — every page load in every
+    // tab used to fire this message unconditionally. Push updates cover the rest.
+    if (settings.enablePomo) syncPomoState();
 });
 
 chrome.storage.onChanged.addListener((changes, namespace) => {
@@ -698,6 +776,11 @@ const READER_STYLES = `
     }
 
     .reader-body p { margin-bottom: 32px; }
+    .reader-body ul, .reader-body ol { margin: 0 0 32px; padding-left: 28px; }
+    .reader-body li { margin-bottom: 12px; }
+    .reader-body hr { border: none; border-top: 1px solid currentColor; opacity: 0.25; width: 120px; margin: 48px auto; }
+    .reader-body strong { font-weight: 700; }
+    .reader-body a:hover { text-decoration: underline; }
     .reader-body h2 { font-family: var(--font-sans); font-size: 30px; margin: 60px 0 24px; font-weight: 700; letter-spacing: -0.01em; }
     .reader-body h3 { font-family: var(--font-sans); font-size: 24px; margin: 40px 0 20px; font-weight: 700; }
     .reader-body img { max-width: 100%; height: auto; border-radius: 16px; margin: 40px 0; }
@@ -776,6 +859,7 @@ function createPalette() {
     actionModeIndicator.innerHTML = LOGO_ICON;
     inputWrapper.appendChild(actionModeIndicator);
     inputWrapper.appendChild(input);
+    createEngineChip(inputWrapper);
 
     resultsContainer = document.createElement('div');
     resultsContainer.className = 'results staggered';
@@ -906,6 +990,19 @@ function createPalette() {
             e.stopPropagation();
         });
     });
+
+    // Focus guard: sites with aggressive autofocus (e.g. chatgpt.com) steal
+    // focus back after the timed retries in showPalette. While the palette is
+    // open, any focus landing outside it is immediately returned.
+    document.addEventListener('focusin', (e) => {
+        if (!isVisible || !palette || palette.contains(e.target)) return;
+        if (input && document.activeElement !== input) {
+            e.stopImmediatePropagation();
+            // Deferred: a synchronous focus() inside a focusin handler can be
+            // dropped by the engine; a tick later it always lands.
+            setTimeout(() => { if (isVisible) input.focus(); }, 0);
+        }
+    }, true);
 }
 
 function handleActionModeInput() {
@@ -943,6 +1040,8 @@ function showPalette() {
     palette.style.background = 'rgba(0,0,0,0.12)';
     isVisible = true;
     isActionMode = false;
+    engineOverride = null;
+    updateEngineChip();
     if (actionModeIndicator) actionModeIndicator.classList.remove('visible');
 
     try {
@@ -972,6 +1071,14 @@ function showPalette() {
     focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 80));
     focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 200));
     focusTimeouts.push(setTimeout(() => { if (isVisible) input.focus(); }, 500));
+    // Watchdog: sites with aggressive autofocus (chatgpt.com) can steal focus
+    // after all retries — keep enforcing until the palette closes.
+    if (focusWatchdogId) clearInterval(focusWatchdogId);
+    focusWatchdogId = setInterval(() => {
+        if (!isVisible) { clearInterval(focusWatchdogId); focusWatchdogId = null; return; }
+        const ae = document.activeElement;
+        if (input && ae !== input && !(palette && palette.contains(ae))) input.focus();
+    }, 300);
 
     handleSearch(); // Fetch initial tabs list
 }
@@ -980,6 +1087,8 @@ function hidePalette() {
     if (!isVisible || !palette) return;
     isVisible = false;
     isActionMode = false;
+    engineOverride = null;
+    updateEngineChip();
     if (actionModeIndicator) actionModeIndicator.classList.remove('visible');
     for (const t of focusTimeouts) clearTimeout(t);
     focusTimeouts = [];
@@ -1194,10 +1303,22 @@ function showVolumeSlider() {
     _volSliderTimer = setTimeout(dismissVolumeSlider, 2500);
 }
 
+let _volMediaCache = null;
+let _volMediaCacheAt = 0;
+function getMediaElements() {
+    // 1s TTL — wheel/drag ticks used to re-query the whole DOM every event
+    const now = Date.now();
+    if (!_volMediaCache || now - _volMediaCacheAt > 1000) {
+        _volMediaCache = Array.from(document.querySelectorAll('video, audio'));
+        _volMediaCacheAt = now;
+    }
+    return _volMediaCache;
+}
+
 function setVolume(pct) {
     _volSliderValue = pct;
     if (_volSliderFill) _volSliderFill.style.width = pct + '%';
-    document.querySelectorAll('video, audio').forEach(el => {
+    getMediaElements().forEach(el => {
         try { el.volume = pct / 100; el.muted = false; } catch (e) {}
     });
 }
@@ -1222,6 +1343,15 @@ function dismissVolumeSlider() {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (!request || typeof request !== 'object' || typeof request.action !== 'string') return;
+    if (request.action === 'show-toast') {
+        showPageToast(request.message, {
+            actionLabel: request.actionLabel || null,
+            undoAction: request.undoAction || null,
+            undoToken: request.undoToken
+        });
+        sendResponse({ success: true });
+        return true;
+    }
     if (request.action === 'toggle-palette') {
         if (request.forceAction && typeof request.forceAction === 'string') {
             // Open palette and immediately activate the action
@@ -1306,10 +1436,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ success: true });
         return true;
     }
-    if (request.action === 'open-eyedropper-ui') {
-        // Fallback or old command support
-        return true;
-    }
     if (request.action === 'start-custom-eyedropper') {
         startCustomEyedropper(request.dataUrl);
         sendResponse({ success: true });
@@ -1341,6 +1467,7 @@ function updatePomoUI(pomo) {
             clearInterval(pomoInterval);
             pomoInterval = null;
         }
+        pomoEls = null;
         return;
     }
 
@@ -1352,24 +1479,17 @@ function updatePomoUI(pomo) {
         const remaining = Math.max(0, pomo.endTime - Date.now());
         if (remaining <= 0) {
             clearInterval(pomoInterval);
+            pomoInterval = null;
             // Don't remove immediately, let the background handle completion
             return;
         }
         const mins = Math.floor(remaining / 60000);
         const secs = Math.floor((remaining % 60000) / 1000);
-        const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`;
-        
-        const shadow = pomoHost.shadowRoot;
-        const timeEl = shadow.querySelector('.time');
-        const labelEl = shadow.querySelector('.label');
-        if (timeEl) timeEl.textContent = timeStr;
-        if (labelEl) labelEl.textContent = pomo.type === 'work' ? 'Focus' : 'Break';
-        
-        const card = shadow.querySelector('.card');
-        if (card) {
-            if (pomo.type === 'work') card.classList.add('work');
-            else card.classList.remove('work');
-        }
+        // Cached refs — no per-tick shadowRoot.querySelector round-trips
+        pomoEls.timeEl.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+        pomoEls.labelEl.textContent = pomo.type === 'work' ? 'Focus' : 'Break';
+        if (pomo.type === 'work') pomoEls.card.classList.add('work');
+        else pomoEls.card.classList.remove('work');
     };
     
     update();
@@ -1416,14 +1536,36 @@ function createPomoUI() {
     `;
     
     card.addEventListener('click', () => {
-        if (confirm('Stop Pomodoro timer?')) {
-            chrome.runtime.sendMessage({ action: 'stop-pomo-timer' }).catch(() => {});
-        }
+        if (card.querySelector('.pomo-actions')) return; // controls already open
+        const row = document.createElement('div');
+        row.className = 'pomo-actions';
+        row.style.cssText = 'display:flex;gap:10px;align-items:center;margin-left:6px;';
+        const mkBtn = (text, fn) => {
+            const b = document.createElement('button');
+            b.textContent = text;
+            b.style.cssText = 'all:unset;cursor:pointer;font-size:11px;font-weight:800;letter-spacing:1px;text-transform:uppercase;opacity:0.75;padding:2px 4px;';
+            b.addEventListener('mouseenter', () => b.style.opacity = '1');
+            b.addEventListener('mouseleave', () => b.style.opacity = '0.75');
+            b.addEventListener('focus', () => b.style.boxShadow = '0 0 0 2px #7C87F8');
+            b.addEventListener('blur', () => b.style.boxShadow = '');
+            b.addEventListener('click', (e) => { e.stopPropagation(); fn(); row.remove(); });
+            return b;
+        };
+        const safeSend = (msg) => { try { chrome.runtime.sendMessage(msg).catch(() => {}); } catch (e) { /* context invalidated */ } };
+        row.appendChild(mkBtn('Stop', () => safeSend({ action: 'stop-pomo-timer' })));
+        row.appendChild(mkBtn('+5 min', () => safeSend({ action: 'extend-pomo-timer' })));
+        card.appendChild(row);
+        setTimeout(() => row.remove(), 4000);
     });
     
     shadow.appendChild(style);
     shadow.appendChild(card);
     document.documentElement.appendChild(pomoHost);
+    pomoEls = {
+        timeEl: card.querySelector('.time'),
+        labelEl: card.querySelector('.label'),
+        card
+    };
 }
 
 function toggleParentBlur(active) {
@@ -1490,12 +1632,13 @@ async function handleSearch() {
 
     const sentQuery = query;
     try {
-        chrome.runtime.sendMessage({ action: 'search-items', query }, response => {
+        chrome.runtime.sendMessage({ action: 'search-items', query, ...(engineOverride ? { engine: engineOverride } : {}) }, response => {
             if (chrome.runtime.lastError) {
                 hidePalette();
                 return;
             }
             if (getSearchQuery() !== sentQuery) return;
+            if (response && response.engine) engineBase = response.engine;
             if (response && response.results) {
                 lastSearchedQuery = query;
                 currentResults = response.results;
@@ -1514,13 +1657,17 @@ const GROUP_COLORS = {
     pink: '#ff6d9f', purple: '#a142f4', cyan: '#24c1e0', orange: '#fa7b17', grey: '#9e9e9e'
 };
 
-const SECTION_ORDER = ['action', 'bang', 'navigate', 'search', 'tab', 'closed', 'bookmark', 'history'];
+const SECTION_ORDER = ['tophit', 'action', 'bang', 'navigate', 'split', 'search', 'tab', 'closed', 'bookmark', 'history', 'vault', 'suggestion'];
 const SECTION_LABELS = {
+    tophit: 'Top Hit',
     action: 'Actions',
+    split: 'Split View',
+    vault: 'Protected Tabs',
     tab: 'Open Tabs',
     closed: 'Recently Closed',
     bookmark: 'Bookmarks',
-    history: 'History'
+    history: 'History',
+    suggestion: 'Suggestions'
 };
 const ICONS = {
     zap: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
@@ -1536,13 +1683,13 @@ const LOGO_ICON = `<svg width="30" height="30" viewBox="0 0 193 193" fill="none"
 
 const TYPE_FALLBACK = {
     action: ICONS.zap, tab: ICONS.globe, history: ICONS.clock, bookmark: ICONS.star, bang: ICONS.zap,
-    search: ICONS.search, navigate: ICONS.link, closed: ICONS.clock, default: ICONS.file
+    search: ICONS.search, navigate: ICONS.link, split: ICONS.link, closed: ICONS.clock, default: ICONS.file
 };
 
 function getFaviconHtml(result) {
     const fallback = TYPE_FALLBACK[result.type] || TYPE_FALLBACK.default;
     if (result.favIconUrl && result.favIconUrl.startsWith('http')) {
-        return `<img src="${result.favIconUrl}" data-type="${result.type}" loading="lazy" />`;
+        return `<img src="${escapeHTML(result.favIconUrl)}" data-type="${result.type}" loading="lazy" />`;
     }
     if (result.url) {
         let domain = hostnameCache.get(result.url);
@@ -1594,7 +1741,8 @@ function renderResults(results) {
     const grouped = {};
     SECTION_ORDER.forEach(t => grouped[t] = []);
     results.forEach(r => {
-        const key = SECTION_ORDER.includes(r.type) ? r.type : 'history';
+        // _section is set by Local-First Search and overrides the type's section.
+        const key = [r._section, r.type].find(k => SECTION_ORDER.includes(k)) || 'history';
         grouped[key].push(r);
     });
 
@@ -2150,6 +2298,7 @@ function handleKeydown(e) {
                 const savedQuery = input.value;
                 const deletedIdx = selectedIndex;
                 chrome.runtime.sendMessage({ action: 'delete-prompt', id: target.id }, (response) => {
+                    if (!isPromptsMode) return; // user escaped + reopened before response arrived
                     if (chrome.runtime.lastError || !response?.success) {
                         showPromptsFeedback('Delete failed', '#ff3b30', savedQuery);
                         return;
@@ -2210,10 +2359,11 @@ function handleKeydown(e) {
         return;
     }
 
-    // Tab trap: Focus MUST stay in the palette input
+    // Tab trap: Focus MUST stay in the palette input — and cycles engines
     if (e.key === 'Tab') {
         e.preventDefault();
         if (input) input.focus();
+        cycleEngine(e.shiftKey ? -1 : 1);
         return;
     }
 
@@ -2295,7 +2445,7 @@ function handleKeydown(e) {
     } else if (e.key === 'Enter') {
         const currentQuery = getSearchQuery();
         if (!isActionMode && currentQuery && currentQuery !== lastSearchedQuery) {
-            chrome.runtime.sendMessage({ action: 'open-query', query: currentQuery }).catch(() => {});
+            chrome.runtime.sendMessage({ action: 'open-query', query: currentQuery, ...(engineOverride ? { engine: engineOverride } : {}) }).catch(() => {});
             hidePalette();
             e.preventDefault();
             return;
@@ -2710,15 +2860,16 @@ function getVideoTimestamp() {
     
     const seconds = Math.floor(v.currentTime);
     const host = window.location.hostname;
-    
-    if (host.includes('youtube.com')) return `${seconds}s`;
-    if (host.includes('twitch.tv')) {
+    const isHost = (d) => host === d || host.endsWith('.' + d);
+
+    if (isHost('youtube.com')) return `${seconds}s`;
+    if (isHost('twitch.tv')) {
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
         const s = seconds % 60;
         return `${h}h${m}m${s}s`;
     }
-    if (host.includes('vimeo.com')) {
+    if (isHost('vimeo.com')) {
         const m = Math.floor(seconds / 60);
         const s = seconds % 60;
         return `${m}m${s}s`;
@@ -2857,8 +3008,16 @@ function startCustomEyedropper(dataUrl) {
     const halfSize = size / 2;
 
     let eyedropperTimerId = null;
+    const handleEscape = (e) => {
+        if (e.key === 'Escape') {
+            window.removeEventListener('keydown', handleEscape);
+            host.remove();
+        }
+    };
+    window.addEventListener('keydown', handleEscape);
     const img = new Image();
     img.src = dataUrl;
+    img.onerror = () => { host.remove(); }; // bad/missing screenshot — never trap the page
     img.onload = () => {
         const canvas = document.createElement('canvas');
         canvas.width = img.width;
@@ -2889,19 +3048,11 @@ function startCustomEyedropper(dataUrl) {
             magnifier.style.backgroundPosition = `${bgX}px ${bgY}px`;
         };
 
-        const handleEscape = (e) => {
-            if (e.key === 'Escape') {
-                window.removeEventListener('keydown', handleEscape);
-                host.remove();
-            }
-        };
-
-        window.addEventListener('keydown', handleEscape);
         overlay.addEventListener('mousemove', updateMagnifier);
 
         overlay.addEventListener('click', (e) => {
-            window.removeEventListener('keydown', handleEscape);
-            
+            // NOTE: Escape listener stays armed — it must still close the
+            // post-pick toast, not just abort before picking.
             const x = Math.round(e.clientX * ratioX);
             const y = Math.round(e.clientY * ratioY);
             
@@ -2931,6 +3082,7 @@ function startCustomEyedropper(dataUrl) {
             magnifier.style.display = 'none';
             overlay.style.pointerEvents = 'none';
             host.style.cursor = 'default';
+            host.style.pointerEvents = 'none'; // page interactive immediately; toast keeps pointer-events:auto
             
             // Save History & Render Toast
             chrome.storage.local.get(['colorHistory'], (data) => {
@@ -2998,6 +3150,73 @@ function startCustomEyedropper(dataUrl) {
             });
         });
     };
+}
+
+// ── Shared page toast (SW-driven action feedback) ──
+let _toastHost = null;
+function showPageToast(message, { actionLabel = null, undoAction = null, undoToken = null, duration = 3500 } = {}) {
+    if (!chrome.runtime?.id) return;
+    if (_toastHost) { _toastHost.remove(); _toastHost = null; }
+    _toastHost = document.createElement('div');
+    const shadow = _toastHost.attachShadow({ mode: 'closed' });
+    const style = document.createElement('style');
+    style.textContent = `
+        .toast {
+            position: fixed; bottom: 30px; left: 0; right: 0; margin: 0 auto;
+            width: max-content; max-width: 90vw;
+            transform: translateY(20px);
+            background: rgba(22, 22, 26, 0.85);
+            backdrop-filter: blur(24px) saturate(200%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff; padding: 12px 20px; border-radius: 99px;
+            font-size: 14px; font-family: system-ui, -apple-system, sans-serif;
+            font-weight: 500; opacity: 0;
+            transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 16px 32px rgba(0, 0, 0, 0.3);
+            display: flex; align-items: center; gap: 12px;
+            z-index: 2147483647;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast-action {
+            all: unset; cursor: pointer;
+            color: #7C87F8; font-weight: 700; font-size: 12px;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            padding: 2px 6px; border-radius: 6px;
+        }
+        .toast-action:hover { text-decoration: underline; }
+        .toast-action:focus-visible { outline: 2px solid #7C87F8; outline-offset: 1px; }
+    `;
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    const label = document.createElement('span');
+    label.textContent = String(message || '');
+    toast.appendChild(label);
+    const host = _toastHost; // a stale dismiss must never remove a NEWER toast
+    function dismiss() {
+        toast.classList.remove('show');
+        setTimeout(() => { if (_toastHost === host) { _toastHost.remove(); _toastHost = null; } }, 300);
+    }
+    toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
+    if (actionLabel && undoAction) {
+        const btn = document.createElement('button');
+        btn.className = 'toast-action';
+        btn.textContent = String(actionLabel);
+        btn.addEventListener('click', () => {
+            // sendMessage throws synchronously after an extension reload —
+            // the .catch() alone never sees it.
+            try {
+                chrome.runtime.sendMessage({ action: undoAction, ...(undoToken !== null && undoToken !== undefined ? { undoToken } : {}) }).catch(() => {});
+            } catch (e) { /* context invalidated */ }
+            dismiss();
+        });
+        toast.appendChild(btn);
+    }
+    shadow.appendChild(style);
+    shadow.appendChild(toast);
+    document.documentElement.appendChild(_toastHost);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(dismiss, actionLabel ? 5000 : duration);
 }
 
 let _ssProgressHost = null;
@@ -3068,11 +3287,14 @@ async function startScreenshotCapture() {
     const viewportHeight = window.innerHeight;
     const viewportWidth = window.innerWidth;
 
-    // 3. Set up canvas
-    const dpr = window.devicePixelRatio || 1;
+    // 3. Set up canvas — cap total pixels so huge pages don't OOM the tab
+    const MAX_CANVAS_PIXELS = 32 * 1024 * 1024; // ~32MP
+    const deviceDpr = window.devicePixelRatio || 1;
+    const dpr = Math.min(deviceDpr, Math.sqrt(MAX_CANVAS_PIXELS / Math.max(1, pageWidth * pageHeight)));
+    const captureScale = dpr / deviceDpr;
     const canvas = document.createElement('canvas');
-    canvas.width = pageWidth * dpr;
-    canvas.height = pageHeight * dpr;
+    canvas.width = Math.round(pageWidth * dpr);
+    canvas.height = Math.round(pageHeight * dpr);
     const ctx = canvas.getContext('2d');
 
     const numSteps = Math.ceil(pageHeight / viewportHeight);
@@ -3097,7 +3319,7 @@ async function startScreenshotCapture() {
             await new Promise(resolve => {
                 const img = new Image();
                 img.onload = () => {
-                    ctx.drawImage(img, 0, targetY * dpr, img.width, img.height);
+                    ctx.drawImage(img, 0, targetY * dpr, img.width * captureScale, img.height * captureScale);
                     resolve();
                 };
                 img.onerror = resolve;
@@ -3336,6 +3558,21 @@ function toggleReaderView() {
         el.removeAttribute('id');
         // Remove data-* attrs that often carry layout/visibility hints
         [...el.attributes].filter(a => a.name.startsWith('data-')).forEach(a => el.removeAttribute(a.name));
+        // Strip inline event handlers (onerror=, onclick=...) — they execute in reader shadow DOM
+        for (const a of [...el.attributes]) {
+            if (/^on/i.test(a.name)) el.removeAttribute(a.name);
+        }
+    });
+
+    // Neutralize dangerous link hrefs; open everything else in a new tab
+    body.querySelectorAll('a[href]').forEach(a => {
+        const href = a.getAttribute('href') || '';
+        if (/^\s*javascript:/i.test(href)) {
+            a.removeAttribute('href');
+        } else {
+            a.setAttribute('target', '_blank');
+            a.setAttribute('rel', 'noopener noreferrer');
+        }
     });
 
     // Remove completely empty block elements (leftover wrappers with no text)
@@ -3384,14 +3621,24 @@ function extractArticleContent() {
         'main',
     ];
 
-    let bestElem = null;
+    // Collect ALL elements of the first productive tier (DOM order, nested
+    // duplicates skipped) — pages with several <article> sections previously
+    // lost everything after the first match.
+    let candidates = [];
     for (const sel of SELECTORS) {
-        const el = document.querySelector(sel);
-        if (el && el.innerText.length > 200) {
-            bestElem = el;
+        const matches = [];
+        for (const el of document.querySelectorAll(sel)) {
+            if (el.innerText.trim().length < 40) continue;
+            if (matches.some(m => m.contains(el))) continue;
+            matches.push(el);
+        }
+        if (matches.reduce((n, el) => n + el.innerText.length, 0) > 200) {
+            candidates = matches;
             break;
         }
     }
+
+    let bestElem = null;
 
     // 3. Scored fallback — look for the div/section with the best content density
     // Penalise very large containers (likely wrappers) and known junk containers
@@ -3431,10 +3678,13 @@ function extractArticleContent() {
         }
     }
 
-    if (!bestElem || bestElem.innerText.length < 200) return null;
+    if (bestElem) candidates = [bestElem];
+    const totalTextLen = candidates.reduce((n, el) => n + el.innerText.length, 0);
+    if (!candidates.length || totalTextLen < 200) return null;
 
-    // 4. Clone and clean
-    const clone = bestElem.cloneNode(true);
+    // 4. Clone and clean — merge every candidate in DOM order
+    const clone = document.createElement('div');
+    for (const el of candidates) clone.appendChild(el.cloneNode(true));
 
     // Remove junk/structural elements
     clone.querySelectorAll('script, style, iframe, nav, footer, aside, form, button, input, select, textarea, [aria-hidden="true"]').forEach(el => el.remove());
@@ -3463,7 +3713,16 @@ function extractArticleContent() {
         const tag = el.tagName;
         if (['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'LI'].includes(tag)) return;
         const text = el.textContent.trim();
-        if (text.length < 40) { el.remove(); return; }
+        if (text.length < 40) {
+            // Unwrap wrappers holding real structural content — removing them
+            // outright deleted short paragraphs inside layout divs.
+            if (el.querySelector('p, h1, h2, h3, h4, h5, h6, blockquote, pre, li')) {
+                el.replaceWith(...[...el.children]);
+            } else {
+                el.remove();
+            }
+            return;
+        }
         const links = el.querySelectorAll('a');
         let linkText = 0;
         links.forEach(a => linkText += a.textContent.trim().length);
@@ -3473,7 +3732,7 @@ function extractArticleContent() {
     // 5. Meta info
     const byline = document.querySelector('[itemprop="author"] [itemprop="name"], [rel="author"], .author-name, .byline')?.innerText?.trim() || "";
     const siteName = document.querySelector('[property="og:site_name"]')?.content || "";
-    const wordCount = bestElem.innerText.split(/\s+/).length;
+    const wordCount = candidates.map(el => el.innerText).join(' ').split(/\s+/).length;
     const readingTime = Math.max(1, Math.ceil(wordCount / 200));
 
     return {

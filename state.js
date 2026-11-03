@@ -29,7 +29,17 @@ export let pomoTimer = { endTime: null, type: null, isActive: false };
 export let discardedTabs = new Set();
 export let recentlyAwakened = new Map();
 export let pendingFocusGuardWindowIds = new Set();
+// Windows where a protected-tab RESTORE is taking focus back (issue #10 bug 1)
+export let pendingRestoreWindowIds = new Set();
 export let savedPrompts = [];
+// Tab snapshots for the Undo toast (close-other / clear-unprotected / batch archive).
+// Memory-only by design: undo lives for seconds, SW death killing it is fine.
+export let lastClosedTabs = [];
+// Window that holds the auto-restored bookmarks (Auto-Restore Bookmarks).
+export let bookmarkWindowId = null;
+// Serial for the single undo slot — toasts carry it so stale Undo clicks
+// (payload already replaced by a newer action) are rejected.
+export let undoSerial = 0;
 
 
 export function setLastActiveTabId(id) { lastActiveTabId = id; }
@@ -38,6 +48,9 @@ export function setSessionVault(val) { sessionVault = val; }
 export function setTabSets(val) { tabSets = val; }
 export function setPomoTimer(val) { pomoTimer = val; }
 export function setSavedPrompts(val) { savedPrompts = val; }
+export function setLastClosedTabs(val) { lastClosedTabs = val; }
+export function setBookmarkWindowId(val) { bookmarkWindowId = val; }
+export function bumpUndoSerial() { return ++undoSerial; }
 
 
 // Helper to update settings

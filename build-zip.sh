@@ -1,7 +1,8 @@
 #!/bin/bash
 # Build zip for Chrome Web Store submission
+set -euo pipefail
 
-VERSION=$(grep '"version"' manifest.json | sed 's/.*"\(.*\)".*/\1/')
+VERSION=$(node -p "require('./manifest.json').version")
 OUTPUT="tabs-plus-plus-${VERSION}.zip"
 
 rm -f "$OUTPUT"
@@ -19,9 +20,14 @@ rm -f "$OUTPUT"
   -xr'!assets/tabsplusplus logo v2.svg' \
   -xr'!build-zip.sh' \
   -xr'!docs' \
+  -xr'!tests' \
   -xr'!.gitignore' \
   -xr'!AGENTS.md' \
   -xr'!README.md' \
+  -xr'!CONTRIBUTING.md' \
+  -xr'!SECURITY.md' \
+  -xr'!release-notes-*.md' \
+  -xr'!REVIEW.md' \
   -xr'!tabs-plus-plus-*'
 
 echo "Created $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"

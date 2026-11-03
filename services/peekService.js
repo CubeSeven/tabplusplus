@@ -1,4 +1,5 @@
 import { peekWindows, blurredSourceTabs } from '../state.js';
+import { persistSessionState } from './sessionState.js';
 
 // Returns true if any open peek window still references the given source tab.
 // Used to decide whether the parent blur can be safely removed.
@@ -12,6 +13,11 @@ function isSourceStillPeeking(sourceTabId) {
 export function handleOpenPeek(request, sender, sendResponse) {
     const refWinId = sender.tab ? sender.tab.windowId : chrome.windows.WINDOW_ID_CURRENT;
     chrome.windows.get(refWinId, (currentWin) => {
+        if (chrome.runtime.lastError || !currentWin) {
+            // Source window gone — bail instead of popping a fallback-sized window
+            sendResponse({ success: false });
+            return;
+        }
         const w = (currentWin && currentWin.width) || 1200;
         const h = (currentWin && currentWin.height) || 800;
         const width = Math.round(w * 0.85);
@@ -40,6 +46,7 @@ export function handleOpenPeek(request, sender, sendResponse) {
                     chrome.tabs.sendMessage(sourceTabId, { action: 'apply-parent-blur' }).catch(() => {});
                     blurredSourceTabs.add(sourceTabId);
                 }
+                persistSessionState();
             }
         });
     });
@@ -60,6 +67,7 @@ export function handlePromotePeek(request, sender, sendResponse) {
         chrome.tabs.sendMessage(sourceData.sourceTabId, { action: 'remove-parent-blur' }).catch(() => {});
         blurredSourceTabs.delete(sourceData.sourceTabId);
     }
+    persistSessionState();
 
     chrome.windows.getAll({ windowTypes: ['normal'] }, (windows) => {
         let targetWinId = null;
@@ -96,4 +104,5 @@ export function cleanupPeekWindow(windowId) {
         chrome.tabs.sendMessage(peekData.sourceTabId, { action: 'remove-parent-blur' }).catch(() => {});
         blurredSourceTabs.delete(peekData.sourceTabId);
     }
+    persistSessionState();
 }

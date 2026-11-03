@@ -76,6 +76,8 @@ No build step, no dependencies. The extension is loaded unpacked:
 3. Enable **Developer mode**
 4. Click **Load unpacked** and select the repo folder
 
+Unit tests live in `tests/` and use Node's built-in test runner, so there is nothing to install. Run them from the repo root with `node --test`.
+
 To package a release: `./build-zip.sh` (produces `tabs-plus-plus-X.Y.Z.zip`).
 
 ## Release Process

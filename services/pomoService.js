@@ -1,14 +1,17 @@
 import { pomoTimer, setPomoTimer } from '../state.js';
+import { persistSessionState } from './sessionState.js';
 
 export function startPomoTimer(minutes, type = 'work') {
     const endTime = Date.now() + (minutes * 60 * 1000);
     setPomoTimer({ endTime, type, isActive: true, minutes });
+    persistSessionState();
     chrome.alarms.create('pomo-timer', { when: endTime });
     broadcastPomoState();
 }
 
 export function stopPomoTimer() {
     setPomoTimer({ endTime: null, type: null, isActive: false, minutes: null });
+    persistSessionState();
     chrome.alarms.clear('pomo-timer');
     broadcastPomoState();
 }
@@ -21,6 +24,9 @@ export function stopPomoTimer() {
 export function broadcastPomoState() {
     chrome.tabs.query({ discarded: false }, (tabs) => {
         for (const t of tabs) {
+            // Only real web pages run the content script — skip devtools,
+            // popups, and chrome:// pages (each miss = wasted round-trip).
+            if (!t.url || !/^https?:/.test(t.url)) continue;
             chrome.tabs.sendMessage(t.id, { action: 'update-pomo-timer', pomoTimer }).catch(() => {});
         }
     });
