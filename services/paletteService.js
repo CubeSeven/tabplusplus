@@ -6,6 +6,7 @@ import { applyLocalFirst } from './searchRanking.js';
 import { syncBaselinesToStorage, ensureLoaded, safeHibernate, hibernateActiveTab, updateCleanupAlarms } from './tabService.js';
 import { performSaveSet, performLaunchSet, performSummonSet, performDeleteSet, performReplaceSet } from './setService.js';
 import { performLaunchBookmarkFolder, performLaunchAllBookmarks, performLaunchAllBookmarksHere } from './bookmarkService.js';
+import { toggleAnchor } from './anchorService.js';
 
 
 
@@ -185,6 +186,7 @@ const EXTENSION_ACTIONS = [
     { type: 'action', id: 'clear_cache_hour', category: 'Safety', title: 'Panic Close (Clear Last Hour)', aliases: ['history', 'delete', 'wipe'], requiredSetting: 'enablePanicClose' },
     { type: 'action', id: 'clear_unprotected', category: 'Organization', title: 'Close Unprotected Tabs', aliases: ['clear today', 'close loose', 'sweep'] },
     { type: 'action', id: 'toggle_pin', category: 'Organization', title: 'Toggle Pin', aliases: ['pin', 'unpin'] },
+    { type: 'action', id: 'toggle_anchor', category: 'Organization', title: 'Toggle Anchor', aliases: ['anchor', 'unanchor', 'lock tab', 'fixed page'] },
     { type: 'action', id: 'duplicate_tab', category: 'Organization', title: 'Duplicate Tab', aliases: ['clone', 'copy tab'] },
     { type: 'action', id: 'update_baseline', category: 'Control', title: 'Update Pinned URL', aliases: ['reset url', 'change baseline', 'smart update'] },
     { type: 'action', id: 'set_baseline_url', category: 'Control', title: 'Set Custom Baseline URL', aliases: ['set url', 'change url', 'paste url'] },
@@ -1077,6 +1079,9 @@ export async function executeAction(commandId, args, senderTab = null) {
             }
             case 'toggle_pin':
                 if (tab) chrome.tabs.update(tab.id, { pinned: !tab.pinned }).catch(() => {});
+                break;
+            case 'toggle_anchor':
+                if (tab) await toggleAnchor(tab);
                 break;
             case 'duplicate_tab':
                 if (tab) chrome.tabs.duplicate(tab.id).catch(() => {});

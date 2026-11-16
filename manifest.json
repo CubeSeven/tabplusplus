@@ -32,6 +32,7 @@
         "<all_urls>"
       ],
       "js": [
+        "anchor.js",
         "content.js"
       ]
     }

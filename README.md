@@ -103,6 +103,7 @@ See the [Feature Guide](docs/FEATURES.md) for how to use each one, and [docs/UPD
 | Focus Guard | Redirect to NTP when closing the last tab |
 | Auto-Collapse Groups | Collapse group when all its tabs are hibernated |
 | Toggle Pin | Pin or unpin the current tab |
+| Toggle Anchor | Pin the tab and lock it to its page; links to other pages open in a new tab |
 
 ## ⌨️ Command Palette
 
